@@ -15,6 +15,7 @@ from typing import Any
 from backend.config import (
     LLM_CONTEXT_SIZE,
     LLM_DEFAULT_TEMPERATURE,
+    LLM_GPU_LAYERS,
     LLM_MAX_CALLS_PER_MINUTE,
     LLM_MAX_PROMPT_TOKENS,
     LLM_MIN_INTERVAL_MS,
@@ -22,6 +23,7 @@ from backend.config import (
     LLM_TIMEOUT_SECONDS,
     logger,
 )
+from backend.llm.guardrails import strip_think_blocks
 
 # Attempt to import llama-cpp-python; if missing, the service still
 # instantiates but will report available=False.
@@ -107,14 +109,24 @@ class LLMService:
 
         try:
             self._update_rate_tracking()
-            result = self._model(
-                prompt,
+
+            # Use chat completion so instruct models (Phi-3.5, etc.)
+            # apply their chat template and don't echo the prompt.
+            messages = self._build_messages(prompt)
+            result = self._model.create_chat_completion(
+                messages=messages,
                 max_tokens=max_tokens,
                 temperature=temperature,
                 stop=stop or [],
-                echo=False,
             )
-            text: str = result["choices"][0]["text"].strip()
+            text: str = result["choices"][0]["message"]["content"].strip()
+
+            # Strip <think>...</think> reasoning blocks at the source.
+            # Qwen3 (and similar models) emit chain-of-thought wrapped in
+            # <think> tags.  We let the model think (better quality) but
+            # strip it before any consumer sees the output.
+            text = strip_think_blocks(text)
+
             logger.info(
                 "LLM generated %d chars (temp=%.2f, max_tok=%d)",
                 len(text),
@@ -169,6 +181,44 @@ class LLMService:
             self._model = None
         self._available = False
         logger.info("LLM model unloaded")
+
+    # ── Message formatting ────────────────────────────────────────────────
+
+    @staticmethod
+    def _build_messages(prompt: str) -> list[dict[str, str]]:
+        """Split a raw prompt into system + user chat messages.
+
+        If the prompt opens with 'You are …' the first paragraph is
+        extracted as the system message and the remainder becomes the
+        user message.  Otherwise the whole prompt is a single user
+        message.
+        """
+        lines = prompt.strip().split("\n")
+
+        # Detect "You are ..." opening and split at the first blank line
+        # or the first markdown heading (##).
+        if lines and lines[0].lower().startswith("you are"):
+            system_lines: list[str] = []
+            user_start = 0
+            for i, line in enumerate(lines):
+                stripped = line.strip()
+                if i > 0 and (stripped == "" or stripped.startswith("#")):
+                    user_start = i
+                    break
+                system_lines.append(line)
+            else:
+                # Only one paragraph — treat everything as user
+                return [{"role": "user", "content": prompt}]
+
+            system_text = "\n".join(system_lines).strip()
+            user_text = "\n".join(lines[user_start:]).strip()
+            if system_text and user_text:
+                return [
+                    {"role": "system", "content": system_text},
+                    {"role": "user", "content": user_text},
+                ]
+
+        return [{"role": "user", "content": prompt}]
 
     # ── Rate limiting ─────────────────────────────────────────────────────
 
@@ -241,11 +291,13 @@ class LLMService:
             self._model = Llama(
                 model_path=str(path),
                 n_ctx=self._context_size,
+                n_gpu_layers=LLM_GPU_LAYERS,
                 verbose=False,
             )
             self._available = True
             logger.info(
-                "LLM model loaded: %s (ctx=%d)", path.name, self._context_size
+                "LLM model loaded: %s (ctx=%d, gpu_layers=%s)",
+                path.name, self._context_size, LLM_GPU_LAYERS,
             )
         except Exception as exc:
             logger.error("Failed to load LLM model: %s", exc)

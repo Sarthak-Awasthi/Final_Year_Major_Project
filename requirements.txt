@@ -16,7 +16,7 @@ spacy==3.7.6
 numpy==1.26.4
 
 # LLM Runtime (optional)
-llama-cpp-python==0.3.9
+llama-cpp-python==0.3.16
 
 # JSON Schema Validation
 jsonschema==4.23.0

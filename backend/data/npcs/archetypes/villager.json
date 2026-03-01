@@ -52,6 +52,11 @@
             "Sorry, I really don't know anything about that. Maybe ask someone more important?",
             "That's beyond me, I'm afraid. I'm just a simple villager.",
             "Wish I could help, but I've got no clue. The elder might know, though."
+        ],
+        "present_item": [
+            "Oh my, what's that you have there? How curious...",
+            "I've seen something like that before... or was it a dream? My mind wanders.",
+            "That's quite something. You should be careful with it."
         ]
     }
 }

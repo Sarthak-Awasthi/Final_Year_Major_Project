@@ -57,17 +57,120 @@ def clamp(value: int | float, min_val: int | float, max_val: int | float) -> int
     return int(clamped) if isinstance(value, int) else float(clamped)
 
 
-def sanitize_text(text: str) -> str:
-    """Strip HTML tags, system prompt artifacts, and truncate to 500 chars.
+def strip_think_blocks(text: str) -> str:
+    """Remove chain-of-thought reasoning from LLM output.
+
+    Handles multiple patterns:
+      1. Explicit ``<think>...</think>`` blocks (Qwen3 tagged mode)
+      2. Unclosed ``<think>...`` blocks
+      3. Untagged reasoning that Qwen3 sometimes emits before the actual
+         response (detected by heuristic patterns)
+
+    Args:
+        text: Raw text from the LLM.
+
+    Returns:
+        Text with all reasoning content removed.
+    """
+    # 1. Closed <think>...</think> blocks
+    cleaned = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
+    # 2. Unclosed <think> to end
+    cleaned = re.sub(r"<think>.*", "", cleaned, flags=re.DOTALL)
+
+    # 3. Untagged reasoning heuristic for Qwen3.
+    #    When the model ignores /no_think, it may emit free-form reasoning
+    #    like "So, just the text. So, the user is playing..." before the
+    #    actual response.  We detect this by looking for the pattern where
+    #    reasoning precedes the real content.
+    #
+    #    Strategy: if the text contains a clear reasoning→response boundary,
+    #    extract only the response.  Common boundaries:
+    #      - "..." followed by a sentence starting with a capital letter
+    #        that looks like actual narration (starts with You/The/A/An/")
+    #      - Multiple "So," / "Okay," / "Let me" / "I need" preambles
+    #    We look for the LAST occurrence of a reasoning prefix pattern
+    #    followed by actual game content.
+    if _looks_like_reasoning(cleaned):
+        extracted = _extract_actual_response(cleaned)
+        if extracted:
+            cleaned = extracted
+
+    return cleaned.strip()
+
+
+def _looks_like_reasoning(text: str) -> bool:
+    """Return True if text appears to start with LLM reasoning preamble."""
+    # Common Qwen3 untagged reasoning starters
+    reasoning_starts = (
+        "so,", "okay,", "ok,", "let me", "i need to", "i will",
+        "i should", "the user", "the player", "first,", "now,",
+        "alright", "hmm", "well,", "let's", "i'll",
+        "so just", "just the", "the action", "the narration",
+        "the time", "the weather", "the outcome",
+    )
+    lower = text.lstrip().lower()
+    return any(lower.startswith(s) for s in reasoning_starts)
+
+
+def _extract_actual_response(text: str) -> str | None:
+    """Try to extract the actual response from text that starts with reasoning.
+
+    Looks for the transition from meta-reasoning to actual game content.
+    Returns the extracted content, or None if no clear boundary is found.
+    """
+    # Pattern: find sentences starting with typical narration openers
+    # after reasoning junk.  Look for the last "..." or "." boundary
+    # followed by a narration-like sentence.
+    narration_pattern = re.compile(
+        r'(?:^|[.!?…]\s+)'
+        r'((?:You |The |A |An |"|\'|Dawn |Dusk |Morning |Night |Sunlight |Moonlight |'
+        r'Shadows |Torchlight |Rain |Wind |Fog |Snow |Storm |'
+        r'Your |In the |At the |Around |Nearby |Here )'
+        r'[A-Z][^.!?]*[.!?])'
+        r'(.*)',
+        re.DOTALL
+    )
+    match = narration_pattern.search(text)
+    if match:
+        result = (match.group(1) + (match.group(2) or "")).strip()
+        # Only accept if it's substantial enough (not just a fragment)
+        if len(result) >= 20:
+            return result
+
+    # Fallback: split on "..." (ellipsis often ends reasoning)
+    if "..." in text:
+        parts = text.split("...")
+        # Take everything after the last ellipsis
+        after = parts[-1].strip()
+        if len(after) >= 20 and not _looks_like_reasoning(after):
+            return after
+
+    # Fallback: split on the last paragraph break
+    paragraphs = [p.strip() for p in text.split("\n\n") if p.strip()]
+    if len(paragraphs) > 1:
+        # Take the last paragraph if it looks like narration
+        last = paragraphs[-1]
+        if len(last) >= 20 and not _looks_like_reasoning(last):
+            return last
+
+    return None
+
+
+def sanitize_text(text: str, max_length: int = 1200) -> str:
+    """Strip HTML tags, system prompt artifacts, and truncate.
 
     Args:
         text: Raw text from LLM output.
+        max_length: Maximum character length (default 1200 for narration).
 
     Returns:
         Cleaned text string.
     """
+    # Strip <think>...</think> reasoning blocks (must come before HTML strip)
+    cleaned = strip_think_blocks(text)
+
     # Strip HTML tags
-    cleaned = re.sub(r"<[^>]+>", "", text)
+    cleaned = re.sub(r"<[^>]+>", "", cleaned)
 
     # Strip system prompt leakage
     for pattern in _LEAKAGE_PATTERNS:
@@ -76,9 +179,15 @@ def sanitize_text(text: str) -> str:
     # Collapse excess whitespace
     cleaned = re.sub(r"\s{2,}", " ", cleaned).strip()
 
-    # Truncate to 500 chars
-    if len(cleaned) > 500:
-        cleaned = cleaned[:497] + "..."
+    # Truncate to max_length, ending at a sentence boundary if possible
+    if len(cleaned) > max_length:
+        # Try to cut at last sentence end within limit
+        truncated = cleaned[:max_length]
+        last_period = max(truncated.rfind('. '), truncated.rfind('! '), truncated.rfind('? '))
+        if last_period > max_length * 0.6:
+            cleaned = truncated[:last_period + 1]
+        else:
+            cleaned = truncated.rstrip() + "..."
 
     return cleaned
 
@@ -101,6 +210,9 @@ def parse_json_response(raw: str) -> dict | None:
         return None
 
     text = raw.strip()
+
+    # Strip <think>...</think> reasoning blocks before JSON parsing
+    text = strip_think_blocks(text)
 
     # Strip markdown code block
     md_match = re.search(r"```(?:json)?\s*\n?(.*?)\n?\s*```", text, re.DOTALL)
@@ -323,4 +435,61 @@ def validate_input_analysis(raw: str) -> dict | None:
         "matched_action": matched_action,
         "confidence": confidence,
         "interpreted_intent": interpreted,
+    }
+
+
+def validate_action_decomposition(raw: str) -> dict | None:
+    """Validate LLM output for action decomposition.
+
+    Schema requirements:
+      * ``steps``: list of 1–4 dicts, each with ``action_id`` in the
+        universal catalog, plus optional ``target_npc``, ``target_item``,
+        ``target_location``, ``description``.
+      * ``interpretation``: str
+
+    Args:
+        raw: Raw LLM response string.
+
+    Returns:
+        Validated dict with ``steps`` and ``interpretation``, or ``None``.
+    """
+    data = parse_json_response(raw)
+    if data is None:
+        logger.warning("Action decomposition validation: JSON parse failed")
+        return None
+
+    steps = data.get("steps")
+    if not isinstance(steps, list) or not steps:
+        logger.warning("Action decomposition: 'steps' missing or empty")
+        return None
+
+    validated_steps: list[dict] = []
+    for step in steps[:4]:  # cap at 4
+        if not isinstance(step, dict):
+            continue
+        action_id = step.get("action_id", "")
+        if not isinstance(action_id, str) or action_id not in _VALID_ACTION_SET:
+            logger.debug("Decomposition step has invalid action_id=%r", action_id)
+            continue
+
+        validated_steps.append({
+            "action_id": action_id,
+            "target_npc": step.get("target_npc") if isinstance(step.get("target_npc"), str) else None,
+            "target_item": step.get("target_item") if isinstance(step.get("target_item"), str) else None,
+            "target_location": step.get("target_location") if isinstance(step.get("target_location"), str) else None,
+            "description": sanitize_text(str(step.get("description", "")), max_length=200),
+        })
+
+    if not validated_steps:
+        logger.warning("Action decomposition: no valid steps after validation")
+        return None
+
+    interpretation = data.get("interpretation", "")
+    if not isinstance(interpretation, str):
+        interpretation = ""
+    interpretation = sanitize_text(interpretation, max_length=300)
+
+    return {
+        "steps": validated_steps,
+        "interpretation": interpretation,
     }

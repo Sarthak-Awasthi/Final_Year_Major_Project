@@ -23,7 +23,7 @@
           "highlighted_actions": [
             {"id": "greet", "label": "Greet the guards", "type": "social"},
             {"id": "sneak", "label": "Sneak past the guards", "type": "stealth"},
-            {"id": "examine", "label": "Show travel papers", "type": "exploration"}
+            {"id": "present_item", "label": "Show travel papers", "type": "social"}
           ],
           "quest_transitions": {
             "greet": {
@@ -35,7 +35,7 @@
               "effects": {"stamina": -5, "reputation": {"guard_a3f1": -5, "guard_b7e2": -5}},
               "success_prob": 0.6
             },
-            "examine": {
+            "present_item": {
               "next": "1_2",
               "effects": {"stamina": -1, "reputation": {"guard_a3f1": 5, "guard_b7e2": 5}},
               "requires": {"item": "travel_papers"}

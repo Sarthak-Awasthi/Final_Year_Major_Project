@@ -137,6 +137,16 @@ if _FRONTEND_DIR.exists():
             status_code=404,
         )
 
+    _favicon_path = _FRONTEND_DIR / "favicon.svg"
+
+    @app.get("/favicon.ico", include_in_schema=False)
+    @app.get("/favicon.svg", include_in_schema=False)
+    async def serve_favicon() -> FileResponse:
+        """Serve the favicon."""
+        if _favicon_path.exists():
+            return FileResponse(str(_favicon_path), media_type="image/svg+xml")
+        return FileResponse(str(_index_path), status_code=404)
+
     # Serve any other static frontend assets (images, fonts, etc.)
     app.mount("/static", StaticFiles(directory=str(_FRONTEND_DIR)), name="static")
 else:

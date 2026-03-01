@@ -143,7 +143,7 @@ def decay_epsilon(npc: NPC) -> None:
 def get_valid_actions(npc: NPC, game_context: dict) -> list[int]:
     """Return indices of actions whose hard preconditions are met.
 
-    All 27 actions are always "available", but some will inevitably
+    All actions are always "available", but some will inevitably
     hard-fail.  This function identifies which ones can actually
     produce an outcome so the Q-learner can mask the rest.
 

@@ -54,7 +54,7 @@
     /* Layout */
     --header-height: 52px;
     --footer-height: 44px;
-    --sidebar-width: 260px;
+    --sidebar-width: 320px;
     --gap: 12px;
     --panel-padding: 14px;
 }
@@ -126,7 +126,7 @@ body {
 .game-container {
     display: grid;
     grid-template-rows: var(--header-height) 1fr var(--footer-height);
-    grid-template-columns: var(--sidebar-width) 1fr var(--sidebar-width);
+    grid-template-columns: var(--sidebar-width) minmax(0, 1fr) var(--sidebar-width);
     grid-template-areas:
         "header header header"
         "left   center right"
@@ -630,11 +630,23 @@ body {
 /* ─── Target Selector ─── */
 .target-selector {
     display: flex;
-    align-items: center;
+    flex-direction: column;
     gap: 8px;
     margin-top: 10px;
     padding-top: 10px;
     border-top: 1px solid var(--border);
+}
+
+.target-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.target-actions {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
 }
 
 .target-label {

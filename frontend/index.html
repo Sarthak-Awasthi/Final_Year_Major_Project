@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>MVP Research Game</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 
     <!-- Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -295,6 +296,10 @@
                                 <span class="action-name">Give Item</span>
                                 <span class="action-cost">1 AP</span>
                             </button>
+                            <button class="action-btn action-social" data-action="present_item" data-ap="1">
+                                <span class="action-name">Present Item</span>
+                                <span class="action-cost">1 AP</span>
+                            </button>
                             <button class="action-btn action-social" data-action="deceive" data-ap="2">
                                 <span class="action-name">Deceive</span>
                                 <span class="action-cost">2 AP</span>
@@ -380,12 +385,22 @@
 
                     <!-- Target Selector (shown when action needs a target) -->
                     <div id="target-selector" class="target-selector hidden">
-                        <span class="target-label">Target:</span>
-                        <select id="target-select" class="target-dropdown">
-                            <option value="">Select target...</option>
-                        </select>
-                        <button id="confirm-action-btn" class="btn btn-primary btn-sm">Confirm</button>
-                        <button id="cancel-action-btn" class="btn btn-secondary btn-sm">Cancel</button>
+                        <div class="target-row">
+                            <span class="target-label">Target:</span>
+                            <select id="target-select" class="target-dropdown">
+                                <option value="">Select NPC...</option>
+                            </select>
+                        </div>
+                        <div id="item-select-row" class="target-row hidden">
+                            <span class="target-label">Item:</span>
+                            <select id="item-select" class="target-dropdown">
+                                <option value="">Select item...</option>
+                            </select>
+                        </div>
+                        <div class="target-actions">
+                            <button id="confirm-action-btn" class="btn btn-primary btn-sm">Confirm</button>
+                            <button id="cancel-action-btn" class="btn btn-secondary btn-sm">Cancel</button>
+                        </div>
                     </div>
                 </section>
 
@@ -414,10 +429,12 @@
                     </h3>
                     <div id="mdp-graph" class="mdp-graph-container"></div>
                     <div class="graph-legend">
-                        <span class="legend-item"><span class="legend-dot legend-static"></span>Static</span>
-                        <span class="legend-item"><span class="legend-dot legend-dynamic"></span>Dynamic</span>
-                        <span class="legend-item"><span class="legend-dot legend-current"></span>Current</span>
+                        <span class="legend-item"><span class="legend-dot legend-stage"></span>Stage</span>
                         <span class="legend-item"><span class="legend-dot legend-completed"></span>Done</span>
+                        <span class="legend-item"><span class="legend-dot legend-current"></span>Current</span>
+                        <span class="legend-item"><span class="legend-dot legend-static"></span>Pending</span>
+                        <span class="legend-item"><span class="legend-dot legend-dynamic"></span>Dynamic</span>
+                        <span class="legend-item"><span class="legend-dot legend-failed"></span>Failed</span>
                     </div>
                 </section>
 
@@ -434,6 +451,14 @@
                     <h3 class="panel-title">Events</h3>
                     <div id="event-list" class="event-list">
                         <div class="empty-state">No events yet</div>
+                    </div>
+                </section>
+
+                <!-- RL Agent Updates -->
+                <section id="rl-agent-panel" class="panel">
+                    <h3 class="panel-title">NPC Activity</h3>
+                    <div id="rl-agent-list" class="event-list">
+                        <div class="empty-state">No NPC actions yet</div>
                     </div>
                 </section>
             </aside>

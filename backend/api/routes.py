@@ -178,6 +178,7 @@ class GameStateResponse(BaseModel):
     game_over: bool = Field(description="Whether the game has ended.")
     game_result: str | None = Field(default=None, description="Game end result.")
     max_turns: int = Field(description="Maximum turns for the session.")
+    opening_narration: str | None = Field(default=None, description="Backstory narration shown on game start.")
 
     model_config = {
         "json_schema_extra": {
@@ -205,6 +206,8 @@ class TurnResultResponse(BaseModel):
 
     turn: int = Field(description="Turn number after processing.")
     narration: str = Field(default="", description="Combined narration text.")
+    dialogue: str | None = Field(default=None, description="NPC dialogue text, separate from narration.")
+    dialogue_speaker: str | None = Field(default=None, description="Name of the NPC speaking.")
     action_result: dict = Field(default_factory=dict, description="Player action outcome.")
     npc_actions: list[dict] = Field(default_factory=list, description="NPC actions this turn.")
     events: list[dict] = Field(default_factory=list, description="Random events triggered.")
@@ -512,18 +515,39 @@ async def submit_action(req: ActionRequest) -> TurnResultResponse:
         if not req.text:
             raise HTTPException(status_code=422, detail="'text' field required when source='text'.")
 
-        # Gather context for NLP parser
-        from backend.npc.personality import get_npcs_at_location
-
-        npcs_present = [
-            npc.npc_uid
-            for npc in get_npcs_at_location(engine.npc_registry, engine.player.location)
-        ]
         parsed_input = parse_text_input(
             text=req.text,
-            location=engine.player.location,
-            npcs_present=npcs_present,
+            npc_registry=engine.npc_registry,
+            player_location=engine.player.location,
+            player_inventory=engine.player.inventory if hasattr(engine.player, 'inventory') else None,
         )
+
+        # Layer 3: LLM refinement for low-confidence parses
+        if parsed_input.get("confidence", 1.0) < 0.5 and engine.llm and engine.llm.available:
+            from backend.player.input_parser import _llm_parse_input
+            from backend.npc.personality import get_npcs_at_location
+
+            npcs_here = get_npcs_at_location(engine.npc_registry, engine.player.location)
+            npc_names = [npc.name for npc in npcs_here]
+            highlighted = []
+            if hasattr(engine, 'quest_manager') and engine.quest_manager:
+                cp = engine.quest_manager.get_current_checkpoint()
+                if cp and hasattr(cp, 'highlighted_actions'):
+                    highlighted = cp.highlighted_actions or []
+
+            llm_parsed = await _llm_parse_input(
+                text=req.text,
+                location=engine.player.location,
+                npcs_present=npc_names,
+                highlighted_actions=highlighted,
+                llm_service=engine.llm,
+            )
+            if llm_parsed is not None and llm_parsed.get("confidence", 0) > parsed_input.get("confidence", 0):
+                # Keep original target extraction, override action/emotion/social
+                llm_parsed["target_npc"] = llm_parsed.get("target_npc") or parsed_input.get("target_npc")
+                llm_parsed["target_item"] = llm_parsed.get("target_item") or parsed_input.get("target_item")
+                llm_parsed["target_location"] = llm_parsed.get("target_location") or parsed_input.get("target_location")
+                parsed_input = llm_parsed
 
     elif req.source == "button":
         if not req.action_id:
@@ -548,12 +572,21 @@ async def submit_action(req: ActionRequest) -> TurnResultResponse:
     result = await engine.process_turn(parsed_input)
 
     # Build response — accommodate varying engine result shapes
+    action_result = result.get("action_result", {})
+    narration = result.get("narration") or action_result.get("narration", "")
+    dialogue = action_result.get("dialogue")
+    dialogue_speaker = action_result.get("dialogue_speaker")
+    npc_actions = result.get("npc_actions") or result.get("npc_narrations", [])
+    events = result.get("events") or result.get("new_events", [])
+
     turn_response = TurnResultResponse(
         turn=result.get("turn", engine.turn),
-        narration=result.get("narration", ""),
-        action_result=result.get("action_result", {}),
-        npc_actions=result.get("npc_actions", []),
-        events=result.get("events", []),
+        narration=narration,
+        dialogue=dialogue,
+        dialogue_speaker=dialogue_speaker,
+        action_result=action_result,
+        npc_actions=npc_actions,
+        events=events,
         state=result.get("state", engine.get_full_state()),
         game_over=result.get("game_over", engine.game_over),
         game_result=result.get("game_result", engine.game_result),
@@ -636,7 +669,8 @@ async def get_quest_graph() -> GraphDataResponse:
     """Return MDP graph data formatted for Cytoscape.js rendering."""
     engine = get_engine()
     current_cp = engine.quest_manager.current_checkpoint
-    graph = engine.mdp.to_graph_data(current_cp)
+    completed = engine.quest_manager.completed_checkpoints
+    graph = engine.mdp.to_graph_data(current_cp, completed)
     return GraphDataResponse(**graph)
 
 
@@ -854,3 +888,54 @@ async def get_recent_events(
         events=events,
         total=len(engine.event_log),
     )
+
+
+# ─── Difficulty endpoint ──────────────────────────────────────────────────────
+
+class DifficultyRequest(BaseModel):
+    """Payload for changing difficulty."""
+    difficulty: str = Field(..., description="Preset name: 'easy', 'normal', or 'hard'.")
+
+
+class DifficultyResponse(BaseModel):
+    """Response after difficulty change."""
+    preset: str
+    message: str
+
+
+@router.post(
+    "/difficulty",
+    response_model=DifficultyResponse,
+    tags=["game"],
+    summary="Change difficulty preset",
+)
+async def set_difficulty(req: DifficultyRequest) -> DifficultyResponse:
+    """Change the game difficulty preset."""
+    engine = get_engine()
+    old_preset = engine.difficulty.preset
+    engine.difficulty.apply_preset(req.difficulty)
+    logger.info("Difficulty changed: %s → %s", old_preset, engine.difficulty.preset)
+    return DifficultyResponse(
+        preset=engine.difficulty.preset,
+        message=f"Difficulty changed from {old_preset} to {engine.difficulty.preset}",
+    )
+
+
+# ─── Export endpoint ──────────────────────────────────────────────────────────
+
+@router.get(
+    "/export",
+    tags=["save"],
+    summary="Export full game log as JSON",
+)
+async def export_game_log() -> dict:
+    """Export the full event log and game state for research analysis."""
+    engine = get_engine()
+    return {
+        "version": GAME_VERSION,
+        "turn": engine.turn,
+        "player": engine.player.to_dict() if hasattr(engine.player, 'to_dict') else {},
+        "events": engine.event_log.entries,
+        "metrics": engine.get_metrics() if hasattr(engine, 'get_metrics') else {},
+        "difficulty": engine.difficulty.to_dict(),
+    }

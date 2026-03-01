@@ -5,7 +5,7 @@
 /* ─── Container ─── */
 .mdp-graph-container {
     width: 100%;
-    height: 240px;
+    height: 340px;
     background: var(--bg);
     border-radius: var(--radius-sm);
     border: 1px solid var(--border);
@@ -47,9 +47,11 @@
 }
 
 .legend-static    { background: var(--blue); }
-.legend-dynamic   { background: var(--orange); }
+.legend-dynamic   { background: #F1C40F; }
 .legend-current   { background: var(--amber); box-shadow: 0 0 6px rgba(243, 156, 18, 0.5); }
 .legend-completed { background: var(--green); }
+.legend-stage     { background: #E67E22; width: 14px; height: 14px; border: 2px solid #1a1a1a; }
+.legend-failed    { background: var(--red); }
 
 /* ─── Fullscreen Legend Overlay ─── */
 .mdp-graph-container.fullscreen + .graph-legend {
@@ -95,24 +97,23 @@
 /* ═══════════════════════════════════════════════════════════════
    CYTOSCAPE NODE & EDGE STYLES
    
-   These are defined as a JS stylesheet object in graph.js,
-   but we document the visual spec here for reference.
+   Applied programmatically via cy.style() in app.js.
    
-   Applied programmatically via cy.style():
+   Stage nodes (kind="stage"):
+     - stage           → orange (#E67E22), 80px circle
+     - stage_completed → muted orange, green border
+     - stage_current   → amber (#F39C12), glow
+
+   Checkpoint nodes (kind="checkpoint"):
+     - static      → blue (#4A90D9), 26px circle
+     - completed   → green (#2ECC71)
+     - current     → amber (#F39C12), 32px, glow
+     - dynamic     → yellow (#F1C40F), diamond
+
+   Terminal nodes: star shapes (green/red)
    
-   Node types:
-     - static      → blue (#4A90D9), round rectangle
-     - dynamic     → orange (#E67E22), diamond shape
-     - current     → amber (#F39C12), round rectangle, pulse glow
-     - completed   → green (#2ECC71), round rectangle, dimmed
-     - terminal_success → green (#2ECC71), star shape
-     - terminal_fail    → red (#E74C3C), star shape
-     - stage_node  → larger, bold label
-   
-   Edges:
-     - Default     → #3a3a44, bezier curve
-     - Active path → amber (#F39C12), thicker
-     - Completed   → green (#2ECC71), dimmed
+   Edges: stage_link (thick), stage_to_cp (dashed),
+          default (blue), completed (green), terminal_link (dotted)
    
    ═══════════════════════════════════════════════════════════════ */
 

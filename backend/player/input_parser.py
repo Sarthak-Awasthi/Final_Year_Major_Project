@@ -24,12 +24,15 @@ import numpy as np  # type: ignore[import-unresolved]
 from backend.config import (
     ACTION_SYNONYMS,
     EMOTION_KEYWORDS,
+    LLM_MAX_RETRIES,
     LOCATION_IDS,
     SOCIAL_KEYWORDS,
     UNIVERSAL_ACTION_IDS,
     UNIVERSAL_ACTIONS,
     logger,
 )
+from backend.llm.guardrails import validate_input_analysis
+from backend.llm.prompts import build_input_analysis_prompt
 
 if TYPE_CHECKING:
     from spacy.language import Language
@@ -287,12 +290,25 @@ def parse_text_input(
     # ── Extract three dimensions ─────────────────────────────────────────
     emotion = _extract_emotion(doc, text_lower)
     social = _extract_social(doc, text_lower)
-    action_id, confidence = _extract_action(doc, text_lower)
 
-    # ── Extract targets ──────────────────────────────────────────────────
+    # ── Extract targets BEFORE action ────────────────────────────────────
+    # We need target names to mask them out of the text so that item names
+    # like "travel papers" don't trigger action synonyms like "travel".
     target_npc = _extract_target_npc(doc, text_lower, npc_registry, player_location)
     target_item = _extract_target_item(doc, text_lower, player_inventory or [])
     target_location = _extract_target_location(doc, text_lower)
+
+    # ── Build entity-masked text for action matching ─────────────────────
+    masked_text = _mask_entities(text_lower, target_item, target_npc,
+                                 target_location, npc_registry,
+                                 player_inventory or [])
+    masked_doc: Doc | None = None
+    if _nlp is not None and masked_text != text_lower:
+        masked_doc = _nlp(masked_text)
+
+    action_id, confidence = _extract_action(
+        masked_doc or doc, masked_text,
+    )
 
     parsed = ParsedInput(
         source="text",
@@ -471,7 +487,7 @@ def _extract_target_npc(
     # Build a dynamic name map from the live registry.
     dynamic_map: dict[str, str] = dict(_NPC_NAME_MAP)
     for uid, npc in npc_registry.items():
-        name: str = npc.get("name", "")
+        name: str = getattr(npc, "name", "") if not isinstance(npc, dict) else npc.get("name", "")
         if name:
             dynamic_map[name.lower()] = uid
             # Also add first-name / short-name fragments.
@@ -502,7 +518,8 @@ def _extract_target_npc(
 
     # ── 3. Prefer NPCs at the player's location ─────────────────────────
     npc_data = npc_registry.get(matched_uid)
-    if npc_data and npc_data.get("location") == player_location:
+    npc_loc = getattr(npc_data, "location", None) if not isinstance(npc_data, dict) else npc_data.get("location")
+    if npc_data and npc_loc == player_location:
         return matched_uid
 
     # NPC exists but is elsewhere — still return the UID so the game engine
@@ -567,6 +584,82 @@ def _extract_target_location(doc: Doc | None, text_lower: str) -> str | None:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+#  Entity masking
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def _mask_entities(
+    text_lower: str,
+    target_item: str | None,
+    target_npc: str | None,
+    target_location: str | None,
+    npc_registry: dict[str, Any],
+    player_inventory: list[dict],
+) -> str:
+    """Remove recognized entity names from *text_lower* so that words
+    inside item / NPC / location names don't collide with action synonyms.
+
+    For example, ``"show travel papers to aldric"`` becomes
+    ``"show  to "`` after masking "travel papers" and "aldric",
+    allowing the keyword matcher to correctly find ``"show"`` → ``present_item``
+    instead of ``"travel"`` → ``move_to``.
+
+    Replacements use longest-match-first to avoid partial masking.
+    """
+    # Collect all entity surface forms that appear in the text.
+    masks: list[str] = []
+
+    # ── Item names and IDs ───────────────────────────────────────────────
+    for item in player_inventory:
+        item_name = item.get("name", "").lower()
+        item_id = item.get("id", "").lower()
+        if item_name and item_name in text_lower:
+            masks.append(item_name)
+        if item_id and item_id in text_lower and item_id != item_name:
+            masks.append(item_id)
+
+    # ── NPC names ────────────────────────────────────────────────────────
+    # Hard-coded map
+    for name_fragment in _NPC_NAME_MAP:
+        if name_fragment in text_lower:
+            masks.append(name_fragment)
+    # Dynamic names from registry
+    for uid, npc in npc_registry.items():
+        name: str = getattr(npc, "name", "") if not isinstance(npc, dict) else npc.get("name", "")
+        if name:
+            name_low = name.lower()
+            if name_low in text_lower:
+                masks.append(name_low)
+            for part in name_low.split():
+                if part not in {"old"} and part in text_lower:
+                    masks.append(part)
+
+    # ── Location names ───────────────────────────────────────────────────
+    for loc_name in _LOCATION_NAME_MAP:
+        if loc_name in text_lower:
+            masks.append(loc_name)
+    for loc_id in LOCATION_IDS:
+        readable = loc_id.replace("_", " ")
+        if readable in text_lower:
+            masks.append(readable)
+        if loc_id in text_lower:
+            masks.append(loc_id)
+
+    if not masks:
+        return text_lower
+
+    # Deduplicate and sort longest-first to avoid partial replacements.
+    masks = sorted(set(masks), key=len, reverse=True)
+
+    masked = text_lower
+    for entity in masks:
+        masked = masked.replace(entity, " ")
+
+    # Collapse multiple spaces.
+    masked = " ".join(masked.split())
+    return masked
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 #  Helpers
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -606,7 +699,7 @@ def resolve_npc_uid(name_or_uid: str, npc_registry: dict[str, Any]) -> str | Non
 
     # Check registry names.
     for uid, npc in npc_registry.items():
-        npc_name: str = npc.get("name", "")
+        npc_name: str = getattr(npc, "name", "") if not isinstance(npc, dict) else npc.get("name", "")
         if npc_name.lower() == lower:
             return uid
         # Partial match (e.g. "jak" → "farmer_j4a1").
@@ -620,17 +713,68 @@ def resolve_npc_uid(name_or_uid: str, npc_registry: dict[str, Any]) -> str | Non
 #  LLM tertiary analysis (stub)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-async def _llm_parse_input(text: str) -> ParsedInput | None:
-    """Placeholder for LLM-powered 3-dimension analysis.
+async def _llm_parse_input(
+    text: str,
+    location: str = "unknown",
+    npcs_present: list[str] | None = None,
+    highlighted_actions: list[str] | None = None,
+    llm_service: object | None = None,
+) -> ParsedInput | None:
+    """LLM-powered tertiary 3-dimension analysis.
 
-    When implemented this will:
-    1. Send the raw text to the local GGUF model with a structured prompt.
-    2. Request JSON output with ``emotion``, ``action_id``, ``social``.
-    3. Validate the response against the universal action catalog.
-    4. Return a ``ParsedInput`` or ``None`` on failure.
+    Sends the raw text to the local GGUF model with a structured prompt,
+    validates the JSON response against the universal action catalog,
+    and returns a :class:`ParsedInput` or ``None`` on failure.
 
-    Currently returns ``None`` (no-op) — the caller falls through to
-    template / keyword resolution.
+    Args:
+        text: Raw player input string.
+        location: Current location name.
+        npcs_present: List of NPC names present at the location.
+        highlighted_actions: Actions currently highlighted by the quest.
+        llm_service: The LLM service instance.
+
+    Returns:
+        A populated ``ParsedInput`` or ``None`` on failure.
     """
-    # TODO: implement with llama-cpp-python via asyncio.to_thread()
+    if llm_service is None or not getattr(llm_service, "available", False):
+        return None
+
+    prompt = build_input_analysis_prompt(
+        player_text=text,
+        location=location,
+        npcs_present=npcs_present or [],
+        highlighted_actions=highlighted_actions or [],
+    )
+
+    for attempt in range(LLM_MAX_RETRIES):
+        raw = await llm_service.async_generate(prompt, temperature=0.4)
+        if raw is None:
+            logger.debug("LLM input parse attempt %d returned None", attempt + 1)
+            continue
+
+        validated = validate_input_analysis(raw)
+        if validated is None:
+            logger.debug("LLM input parse validation failed on attempt %d", attempt + 1)
+            continue
+
+        action_id = validated["matched_action"]
+        if action_id == "UNKNOWN":
+            action_id = None
+
+        logger.info("LLM input parse succeeded on attempt %d: action=%s", attempt + 1, action_id)
+        return ParsedInput(
+            source="text",
+            raw_text=text,
+            action_id=action_id,
+            target_npc=None,
+            target_item=None,
+            target_location=None,
+            confidence=validated["confidence"],
+            emotion=validated["emotion"],
+            intent=validated.get("interpreted_intent", validated.get("intent", "")),
+            social=validated["social"],
+            queued_action=None,
+        )
+
+    logger.info("LLM input parse exhausted %d attempts", LLM_MAX_RETRIES)
     return None

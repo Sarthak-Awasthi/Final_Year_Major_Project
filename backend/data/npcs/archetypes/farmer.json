@@ -52,6 +52,11 @@
             "Sorry, I don't know nothing about that. Try the elder, maybe.",
             "That's above my head, I'm afraid. I'm just a farmer.",
             "Can't help you there. Now if you'll excuse me, these rows need hoeing."
+        ],
+        "present_item": [
+            "What've you got there? Hmm, don't see that sort of thing in the fields often.",
+            "Interesting. I'm no expert, but that looks like it means something.",
+            "Well now, that's something. You might want to show the elder."
         ]
     }
 }

@@ -234,27 +234,90 @@ class QuestMDP:
 
     # ── Visualisation ─────────────────────────────────────────────────────
 
-    def to_graph_data(self, current_cp_id: str | None = None) -> dict:
-        """Return nodes and edges suitable for Cytoscape.js rendering.
+    def to_graph_data(
+        self,
+        current_cp_id: str | None = None,
+        completed_cps: list[str] | None = None,
+    ) -> dict:
+        """Return a hierarchical graph with stage nodes + checkpoint nodes.
+
+        The graph has two tiers:
+        - **Stage nodes** (``kind='stage'``): arranged in a horizontal row,
+          connected sequentially with thick arrows.
+        - **Checkpoint nodes** (``kind='checkpoint'``): positioned below their
+          parent stage, connected with thinner edges.
 
         Args:
-            current_cp_id: Optional current checkpoint to mark as ``'current'``
-                in the node type field.
+            current_cp_id: The checkpoint to highlight as ``'current'``.
+            completed_cps: List of already-completed checkpoint IDs.
 
         Returns:
-            ``{"nodes": [...], "edges": [...]}`` where each node is
-            ``{id, label, type, stage_id}`` and each edge is
-            ``{source, target}``.
+            ``{"nodes": [...], "edges": [...]}`` suitable for Cytoscape.js.
         """
+        completed_set: set[str] = set(completed_cps or [])
+        current_stage_id: int | None = None
+        if current_cp_id:
+            try:
+                current_stage_id = self.get_stage_for_checkpoint(current_cp_id)
+            except (ValueError, IndexError):
+                current_stage_id = None
+
         nodes: list[dict] = []
         edges: list[dict] = []
         seen_edges: set[tuple[str, str]] = set()
 
-        for stage in self.stages.values():
-            for cp in stage.checkpoints.values():
-                # Determine node type
+        sorted_stages = sorted(self.stages.values(), key=lambda s: s.stage_id)
+
+        # ── Layout constants ──────────────────────────────────────────
+        stage_x_gap = 220       # horizontal spacing between stages
+        cp_y_start = 140        # vertical offset for first checkpoint row
+        cp_y_gap = 80           # vertical gap between checkpoint rows
+        cp_x_spread = 80        # horizontal spread within a stage
+
+        for si, stage in enumerate(sorted_stages):
+            stage_x = si * stage_x_gap
+            stage_node_id = f"stage_{stage.stage_id}"
+
+            # Determine stage status
+            all_cps = list(stage.checkpoints.keys())
+            stage_completed = all(c in completed_set for c in all_cps) if all_cps else False
+            stage_is_current = (current_stage_id == stage.stage_id) and not stage_completed
+
+            if stage_completed:
+                stage_type = "stage_completed"
+            elif stage_is_current:
+                stage_type = "stage_current"
+            else:
+                stage_type = "stage"
+
+            nodes.append({
+                "id": stage_node_id,
+                "label": f"S{stage.stage_id}: {stage.name}",
+                "kind": "stage",
+                "type": stage_type,
+                "stage_id": stage.stage_id,
+                "position": {"x": stage_x, "y": 0},
+            })
+
+            # Stage-to-stage edge
+            if si + 1 < len(sorted_stages):
+                next_stage_node = f"stage_{sorted_stages[si + 1].stage_id}"
+                edges.append({
+                    "source": stage_node_id,
+                    "target": next_stage_node,
+                    "type": "stage_link",
+                })
+
+            # ── Checkpoint nodes beneath this stage ───────────────────
+            cp_list = list(stage.checkpoints.values())
+            num_cps = len(cp_list)
+
+            for ci, cp in enumerate(cp_list):
+                # Determine checkpoint type/status
                 if current_cp_id and cp.checkpoint_id == current_cp_id:
                     cp_type = "current"
+                elif cp.checkpoint_id in completed_set:
+                    cp_type = "completed"
                 elif cp.is_terminal:
                     cp_type = "terminal"
                 elif cp.is_dynamic:
@@ -262,31 +325,71 @@ class QuestMDP:
                 else:
                     cp_type = "static"
 
-                label = cp.checkpoint_id
-                short_desc = cp.description[:50]
-                if len(cp.description) > 50:
-                    short_desc += "…"
-                label = f"{cp.checkpoint_id}: {short_desc}"
+                # Position: spread checkpoints under their stage node
+                x_offset = (ci - (num_cps - 1) / 2) * cp_x_spread
+                cp_x = stage_x + x_offset
+                cp_y = cp_y_start + (ci // 3) * cp_y_gap  # wrap rows of 3
 
                 nodes.append({
                     "id": cp.checkpoint_id,
-                    "label": label,
+                    "label": cp.checkpoint_id,
+                    "kind": "checkpoint",
                     "type": cp_type,
                     "stage_id": cp.stage_id,
+                    "parent_stage": stage_node_id,
+                    "position": {"x": cp_x, "y": cp_y},
                 })
 
-                # Edges from completion_conditions (quest_transitions)
+                # Edge from stage node to first checkpoint
+                if ci == 0:
+                    edges.append({
+                        "source": stage_node_id,
+                        "target": cp.checkpoint_id,
+                        "type": "stage_to_cp",
+                    })
+
+                # Checkpoint-to-checkpoint edges from transitions
                 if cp.completion_conditions:
                     for _key, trans in cp.completion_conditions.items():
                         target = trans.get("next")
-                        if target:
-                            edge = (cp.checkpoint_id, target)
-                            if edge not in seen_edges:
-                                edges.append({"source": cp.checkpoint_id, "target": target})
-                                seen_edges.add(edge)
+                        if target and target not in ("S_success", "S_fail"):
+                            edge_key = (cp.checkpoint_id, target)
+                            if edge_key not in seen_edges:
+                                # Determine edge type
+                                edge_type = "completed" if cp.checkpoint_id in completed_set else "default"
+                                edges.append({
+                                    "source": cp.checkpoint_id,
+                                    "target": target,
+                                    "type": edge_type,
+                                })
+                                seen_edges.add(edge_key)
+                        elif target in ("S_success", "S_fail"):
+                            edge_key = (cp.checkpoint_id, target)
+                            if edge_key not in seen_edges:
+                                edges.append({
+                                    "source": cp.checkpoint_id,
+                                    "target": target,
+                                    "type": "terminal_link",
+                                })
+                                seen_edges.add(edge_key)
 
-        # Terminal state pseudo-nodes
-        nodes.append({"id": "S_success", "label": "Quest Complete", "type": "terminal", "stage_id": -1})
-        nodes.append({"id": "S_fail", "label": "Quest Failed", "type": "terminal", "stage_id": -1})
+        # ── Terminal pseudo-nodes ─────────────────────────────────────
+        last_x = (len(sorted_stages) - 1) * stage_x_gap
+        nodes.append({
+            "id": "S_success",
+            "label": "Victory",
+            "kind": "terminal",
+            "type": "terminal_success",
+            "stage_id": -1,
+            "position": {"x": last_x + stage_x_gap, "y": cp_y_start},
+        })
+        nodes.append({
+            "id": "S_fail",
+            "label": "Defeat",
+            "kind": "terminal",
+            "type": "terminal_fail",
+            "stage_id": -1,
+            "position": {"x": last_x + stage_x_gap, "y": cp_y_start + cp_y_gap},
+        })
 
         return {"nodes": nodes, "edges": edges}

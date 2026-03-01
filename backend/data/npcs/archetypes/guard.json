@@ -27,8 +27,7 @@
     ],
     "scripted_dialogue": {
         "greeting": "Halt. State your business in the village. I keep watch here, and I like to know who comes and goes.",
-        "quest_hint": "There's been movement on the roads at night — not traders, not travelers. I've reported it to the elder, but she says to wait. I don't like waiting.",
-        "hostile": "You've broken the peace of this village. I don't give second warnings. Stand down, or I'll make you."
+        "quest_hint": "There's been movement on the roads at night — not traders, not travelers. I've reported it to the elder, but she says to wait. I don't like waiting.",        "present_item": "Let me see those. Hmm... these papers look to be in order. You may pass. Welcome to Thornhaven \u2014 mind your manners while you're here.",        "hostile": "You've broken the peace of this village. I don't give second warnings. Stand down, or I'll make you."
     },
     "movement_weights": {
         "gate": 0.40,
@@ -51,7 +50,10 @@
         "unknown": [
             "That's not my area. I watch the walls, not the politics.",
             "Can't help with that. Ask the elder — she knows more about village matters.",
-            "Not something I'd know about. I concern myself with threats, not talk."
-        ]
+            "Not something I'd know about. I concern myself with threats, not talk."        ],
+        "present_item": [
+            "Let me take a look at that... noted. Carry on.",
+            "I see. Hold onto that \u2014 could be useful later.",
+            "Interesting. I'll remember you showed me this."        ]
     }
 }

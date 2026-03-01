@@ -2,8 +2,8 @@
 checkpoint.py — Dynamic checkpoint generation with LLM and template fallback.
 
 When a player deviates from the expected quest path an ad-hoc checkpoint
-is generated.  The pipeline tries the LLM first (Phase 6), then falls
-back to one of four category-based templates.
+is generated.  The pipeline tries the LLM first (when available), then
+falls back to one of four category-based templates.
 """
 
 from __future__ import annotations
@@ -11,7 +11,9 @@ from __future__ import annotations
 import random
 import re
 
-from backend.config import UNIVERSAL_ACTIONS, logger
+from backend.config import LLM_MAX_RETRIES, UNIVERSAL_ACTIONS, logger
+from backend.llm.guardrails import validate_checkpoint_output
+from backend.llm.prompts import build_checkpoint_prompt
 from backend.quest.mdp import Checkpoint
 
 
@@ -120,10 +122,72 @@ def _llm_checkpoint(
 ) -> Checkpoint | None:
     """Attempt LLM-based checkpoint generation.
 
-    This is a placeholder that will be wired up during Phase 6 (LLM
-    integration).  Currently always returns ``None`` so the template
-    fallback is used.
+    Builds a prompt, sends it to the LLM, validates the response, and
+    constructs a Checkpoint from the validated output.  Retries up to
+    LLM_MAX_RETRIES times before returning ``None``.
+
+    Returns:
+        A new Checkpoint, or ``None`` on failure.
     """
+    if not hasattr(llm_service, "available") or not llm_service.available:
+        return None
+
+    # Gather prompt context
+    location = context.get("location", "unknown")
+    npc_name = context.get("npc_name", "")
+    nudge_target = context.get("nudge_target", "")
+    quest_stage_desc = context.get("stage_description", f"Quest stage {stage_id}")
+    expected_next = context.get("expected_next", nudge_target or "continue the quest")
+    health = context.get("health", 100)
+    stamina = context.get("stamina", 50)
+    reputation = context.get("reputation", 0)
+    emotion = context.get("emotion", "neutral")
+    social = context.get("social", "neutral")
+    inventory_summary = context.get("inventory_summary", "various items")
+
+    prompt = build_checkpoint_prompt(
+        stage_desc=quest_stage_desc,
+        player_action=action_id,
+        emotion=emotion,
+        social=social,
+        location=location,
+        health=health,
+        stamina=stamina,
+        reputation=reputation,
+        expected_next=expected_next,
+        inventory_summary=inventory_summary,
+    )
+
+    for attempt in range(LLM_MAX_RETRIES):
+        raw = llm_service.generate(prompt, temperature=0.85)
+        if raw is None:
+            logger.debug("LLM checkpoint attempt %d returned None", attempt + 1)
+            continue
+
+        validated = validate_checkpoint_output(raw)
+        if validated is None:
+            logger.debug("LLM checkpoint validation failed on attempt %d", attempt + 1)
+            continue
+
+        logger.info("LLM checkpoint %s validated on attempt %d", cp_id, attempt + 1)
+
+        return Checkpoint(
+            checkpoint_id=cp_id,
+            stage_id=stage_id,
+            description=validated["description"],
+            location=location,
+            trigger={"action": action_id},
+            completion_conditions=None,
+            rewards={},
+            highlighted_actions=validated["highlighted_actions"],
+            next_checkpoint=nudge_target or None,
+            hint=validated.get("hint", ""),
+            is_dynamic=True,
+            is_terminal=False,
+            nudge_target=nudge_target or None,
+        )
+
+    logger.info("LLM checkpoint exhausted %d attempts for %s", LLM_MAX_RETRIES, cp_id)
     return None
 
 

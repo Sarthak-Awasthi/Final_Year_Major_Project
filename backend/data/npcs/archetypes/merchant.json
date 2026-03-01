@@ -52,6 +52,11 @@
             "That's outside my area of expertise, I'm afraid. I deal in goods, not mysteries.",
             "Can't help you there. But if you need supplies, I'm your person.",
             "Hmm, no idea. Try asking around the tavern — people talk freely over ale."
+        ],
+        "present_item": [
+            "Now that's interesting merchandise. Where did you acquire this?",
+            "Let me appraise that... hmm, it has value, but maybe not the kind you can trade.",
+            "Fascinating. I've seen similar items on the trade routes. Hold onto it."
         ]
     }
 }

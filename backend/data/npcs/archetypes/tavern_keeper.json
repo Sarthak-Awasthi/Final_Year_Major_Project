@@ -52,6 +52,11 @@
             "Can't say I know anything about that, love. Want a drink while you figure it out?",
             "That's a new one on me. But stick around — someone who knows might wander in.",
             "Sorry, I've got nothing on that. But the ale's good, if that helps."
+        ],
+        "present_item": [
+            "Well, well. You don't see that every day. Where'd you come by this?",
+            "Let me have a look... careful now. That seems like it could be worth something.",
+            "Interesting piece. I've seen travelers carry all sorts, but this stands out."
         ]
     }
 }

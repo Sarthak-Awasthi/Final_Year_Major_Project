@@ -431,3 +431,72 @@ Write in second person ("You...").
 Respond with ONLY the enhanced narration text, no JSON or formatting."""
 
     return truncate_to_budget(prompt)
+
+
+def build_action_decomposition_prompt(
+    player_text: str,
+    location: str,
+    npcs_present: list[str],
+    inventory_items: list[str],
+    highlighted_actions: list[str],
+) -> str:
+    """Build a prompt to decompose complex free-text into atomic action steps.
+
+    The LLM breaks down compound player intent (e.g. "show travel papers
+    to the guard") into a sequence of game-engine-level atomic actions.
+
+    Args:
+        player_text: Raw player input text.
+        location: Current location name.
+        npcs_present: List of NPC display names present at the location.
+        inventory_items: List of item names the player carries.
+        highlighted_actions: Actions highlighted by the current quest checkpoint.
+
+    Returns:
+        Full prompt string for action decomposition.
+    """
+    npcs_str = ", ".join(npcs_present) if npcs_present else "nobody"
+    items_str = ", ".join(inventory_items) if inventory_items else "nothing"
+    highlighted_str = ", ".join(highlighted_actions) if highlighted_actions else "none"
+    action_list = ", ".join(UNIVERSAL_ACTION_IDS)
+
+    prompt = f"""You are an action planner for a medieval village RPG.
+
+## Task
+Break down the player's complex command into a sequence of 1-4 atomic game actions. Each step must use exactly one action from the available actions list.
+
+## Context
+- Location: {location}
+- NPCs present: {npcs_str}
+- Player inventory: {items_str}
+- Quest-highlighted actions: {highlighted_str}
+
+## Available Actions
+{action_list}
+
+## Player Command
+"{player_text}"
+
+## Rules
+1. Each step is ONE atomic action from the list above
+2. Include the target (NPC name, item name, or location) for each step
+3. Order matters — steps execute sequentially
+4. Maximum 4 steps
+5. If the command is already a single action, return just 1 step
+6. "show X to NPC" or "present X to NPC" = give_item (the NPC inspects and returns it)
+7. "use X on NPC" = use_item targeting that NPC
+
+## Output Format (strict JSON)
+{{
+  "steps": [
+    {{"action_id": "give_item", "target_npc": "Aldric", "target_item": "travel_papers", "target_location": null, "description": "Present travel papers to Aldric"}},
+    {{"action_id": "talk", "target_npc": "Aldric", "target_item": null, "target_location": null, "description": "Hear Aldric's response about the papers"}}
+  ],
+  "interpretation": "one-sentence summary of what the player wants to do"
+}}
+
+Each step must have: action_id (from available list), target_npc (name or null), target_item (name or null), target_location (name or null), description (short text).
+
+Respond with ONLY the JSON object, no other text."""
+
+    return truncate_to_budget(prompt)

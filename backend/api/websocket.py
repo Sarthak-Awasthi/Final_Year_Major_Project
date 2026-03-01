@@ -122,7 +122,7 @@ ws_manager = WebSocketManager()
 # ─── WebSocket endpoint ──────────────────────────────────────────────────────
 
 
-@ws_router.websocket("/ws")
+@ws_router.websocket("/ws/game")
 async def websocket_endpoint(websocket: WebSocket) -> None:
     """WebSocket endpoint for real-time game updates.
 

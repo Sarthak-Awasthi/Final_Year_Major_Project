@@ -5,9 +5,14 @@ narration.py — Action outcome narration templates + LLM enhancement.
 from __future__ import annotations
 
 import random
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from backend.config import PASSIVE_PERCEPTION_BASE, PASSIVE_PERCEPTION_SOCIAL_BONUS, logger
+from backend.config import LLM_MAX_RETRIES, PASSIVE_PERCEPTION_BASE, PASSIVE_PERCEPTION_SOCIAL_BONUS, logger
+from backend.llm.prompts import build_narration_prompt
+from backend.llm.guardrails import sanitize_text
+
+if TYPE_CHECKING:
+    from backend.llm.llm_service import LLMService
 
 
 # ─── Layer 1: Template Narration ──────────────────────────────────────────────
@@ -128,6 +133,21 @@ ACTION_NARRATION_TEMPLATES: dict[str, dict[str, list[str]]] = {
         "blocked": [
             "There's nobody here to give items to.",
             "You have nothing suitable to give.",
+        ],
+    },
+    "present_item": {
+        "success": [
+            "You hold up {item} for {target} to inspect. They lean in for a closer look.",
+            "You present {item} to {target}. They examine it carefully and nod.",
+            "{target} studies {item} as you hold it out. Their expression shifts with recognition.",
+        ],
+        "fail": [
+            "{target} glances at {item} but seems uninterested.",
+            "{target} barely acknowledges what you're showing them.",
+        ],
+        "blocked": [
+            "There's nobody here to show items to.",
+            "You have nothing to present.",
         ],
     },
     "deceive": {
@@ -337,6 +357,71 @@ def get_template_narration(
         narration = template
 
     return narration
+
+
+def enhance_narration_with_llm(
+    template_narration: str,
+    action_id: str,
+    actor_name: str,
+    target_name: str | None,
+    outcome_type: str,
+    location: str,
+    time_of_day: str,
+    weather: str | None,
+    emotion: str,
+    social: str,
+    witnesses: list[str],
+    llm_service: LLMService | None = None,
+) -> str:
+    """Layer 2: Enhance template narration with LLM for atmospheric detail.
+
+    If the LLM is unavailable or fails, returns the original template
+    narration unchanged.
+
+    Args:
+        template_narration: Base template narration from Layer 1.
+        action_id: The universal action ID.
+        actor_name: Who performed the action.
+        target_name: Target of the action (may be ``None``).
+        outcome_type: Outcome category (success/fail/blocked/partial).
+        location: Current location name.
+        time_of_day: Current time period.
+        weather: Current weather condition or ``None``.
+        emotion: Actor's emotional tone.
+        social: Actor's social register.
+        witnesses: List of witness NPC names.
+        llm_service: Optional LLM service handle.
+
+    Returns:
+        Enhanced narration string, or the original if LLM is unavailable.
+    """
+    if llm_service is None or not llm_service.available:
+        return template_narration
+
+    prompt = build_narration_prompt(
+        action_id=action_id,
+        actor_name=actor_name,
+        target_name=target_name,
+        outcome_type=outcome_type,
+        template_text=template_narration,
+        location=location,
+        time_of_day=time_of_day,
+        weather=weather,
+        emotion=emotion,
+        social=social,
+        witnesses=witnesses,
+    )
+
+    for attempt in range(LLM_MAX_RETRIES):
+        raw = llm_service.generate(prompt, temperature=0.7, max_tokens=300)
+        if raw and raw.strip():
+            enhanced = sanitize_text(raw.strip())
+            if len(enhanced) >= 10:
+                logger.info("LLM narration enhancement succeeded on attempt %d", attempt + 1)
+                return enhanced
+        logger.debug("LLM narration attempt %d failed or empty", attempt + 1)
+
+    return template_narration
 
 
 def add_context_modifiers(

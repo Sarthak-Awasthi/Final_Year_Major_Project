@@ -127,30 +127,60 @@ class QuestManager:
     ) -> dict | None:
         """Find the matching transition dict inside *cp.completion_conditions*.
 
+        Also validates ``requires`` constraints (e.g. the player must have
+        a specific item).  The *context* dict should include
+        ``player_inventory`` (list of item dicts) when callers want
+        ``requires.item`` checks to be enforced.
+
         Returns the raw transition dict, or ``None``.
         """
         conditions = cp.completion_conditions
         if conditions is None:
             return None
 
+        matched: dict | None = None
+
         # 1. Exact match
         if action_id in conditions:
-            return conditions[action_id]
+            matched = conditions[action_id]
+        else:
+            # 2. Compound-key match (e.g. "move_to_fields")
+            target_location = context.get("target_location", "")
+            for key, transition in conditions.items():
+                if not key.startswith(action_id):
+                    continue
+                suffix = key[len(action_id) + 1:] if len(key) > len(action_id) else ""
+                if suffix and target_location and suffix == target_location:
+                    matched = transition
+                    break
+                if suffix and target and suffix == target:
+                    matched = transition
+                    break
+                if not suffix:
+                    matched = transition
+                    break
 
-        # 2. Compound-key match (e.g. "move_to_fields")
-        target_location = context.get("target_location", "")
-        for key, transition in conditions.items():
-            if not key.startswith(action_id):
-                continue
-            suffix = key[len(action_id) + 1:] if len(key) > len(action_id) else ""
-            if suffix and target_location and suffix == target_location:
-                return transition
-            if suffix and target and suffix == target:
-                return transition
-            if not suffix:
-                return transition
+        if matched is None:
+            return None
 
-        return None
+        # 3. Validate `requires` constraints
+        requires = matched.get("requires")
+        if requires:
+            inventory: list[dict] = context.get("player_inventory", [])
+            # requires.item — player must possess item with matching id
+            required_item = requires.get("item")
+            if required_item:
+                has_item = any(
+                    itm.get("id") == required_item for itm in inventory
+                )
+                if not has_item:
+                    return None
+            # requires.location — player must be at specified location
+            required_loc = requires.get("location")
+            if required_loc and context.get("location") != required_loc:
+                return None
+
+        return matched
 
     # ── State advancement ────────────────────────────────────────────────
 

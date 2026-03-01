@@ -153,6 +153,8 @@ const dom = {
     targetSelector:   $('#target-selector'),
     targetSelect:     $('#target-select'),
     confirmActionBtn: $('#confirm-action-btn'),
+    itemSelectRow:    $('#item-select-row'),
+    itemSelect:       $('#item-select'),
     cancelActionBtn:  $('#cancel-action-btn'),
 
     // Text input
@@ -168,6 +170,9 @@ const dom = {
 
     // Events
     eventList:        $('#event-list'),
+
+    // RL Agent Activity
+    rlAgentList:      $('#rl-agent-list'),
 
     // Footer
     footerDifficulty: $('#footer-difficulty'),
@@ -189,6 +194,8 @@ document.addEventListener('DOMContentLoaded', () => {
     initModals();
     initFooter();
     initMDPGraph();
+    applyURLParams();
+    updateLLMStatus();
 });
 
 // ═══════════════════════════════════════════════════════════════
@@ -227,12 +234,20 @@ function handleActionClick(btn) {
         return;
     }
 
-    // Actions needing a target NPC
+    // Actions needing both NPC target AND item selection
+    const needsNpcAndItem = ['give_item', 'present_item'];
+
+    // Actions needing only NPC target
     const needsNpcTarget = ['talk', 'greet', 'ask_info', 'persuade', 'trade',
-        'give_item', 'deceive', 'intimidate', 'attack', 'steal'];
+        'deceive', 'intimidate', 'attack', 'steal'];
+
+    if (needsNpcAndItem.includes(actionId) && gameState?.npcs_here?.length) {
+        showTargetSelector(actionId, true);
+        return;
+    }
 
     if (needsNpcTarget.includes(actionId) && gameState?.npcs_here?.length) {
-        showTargetSelector(actionId);
+        showTargetSelector(actionId, false);
         return;
     }
 
@@ -240,12 +255,12 @@ function handleActionClick(btn) {
     sendAction({ action_id: actionId, source: 'button' });
 }
 
-function showTargetSelector(actionId) {
+function showTargetSelector(actionId, showItemSelect = false) {
     pendingAction = actionId;
     dom.targetSelector.classList.remove('hidden');
 
-    // Populate target dropdown with NPCs at location
-    dom.targetSelect.innerHTML = '<option value="">Select target...</option>';
+    // Populate NPC dropdown
+    dom.targetSelect.innerHTML = '<option value="">Select NPC...</option>';
     if (gameState?.npcs_here) {
         gameState.npcs_here.forEach(npc => {
             const opt = document.createElement('option');
@@ -254,23 +269,47 @@ function showTargetSelector(actionId) {
             dom.targetSelect.appendChild(opt);
         });
     }
+
+    // Show/hide item selector
+    if (showItemSelect) {
+        dom.itemSelectRow.classList.remove('hidden');
+        dom.itemSelect.innerHTML = '<option value="">Select item...</option>';
+        const items = gameState.player?.inventory || gameState.inventory || [];
+        items.forEach(item => {
+            const opt = document.createElement('option');
+            opt.value = item.id;
+            opt.textContent = item.name + (item.quest_relevant ? ' ★' : '');
+            dom.itemSelect.appendChild(opt);
+        });
+    } else {
+        dom.itemSelectRow.classList.add('hidden');
+    }
 }
 
 function confirmTargetedAction() {
     const targetUid = dom.targetSelect.value;
     if (!targetUid || !pendingAction) return;
 
-    sendAction({
+    // For item-requiring actions, also require item selection
+    const needsItem = ['give_item', 'present_item'];
+    const targetItem = needsItem.includes(pendingAction) ? dom.itemSelect?.value : null;
+    if (needsItem.includes(pendingAction) && !targetItem) return;
+
+    const payload = {
         action_id: pendingAction,
         target_npc: targetUid,
         source: 'button',
-    });
+    };
+    if (targetItem) payload.target_item = targetItem;
+
+    sendAction(payload);
     cancelTargetedAction();
 }
 
 function cancelTargetedAction() {
     pendingAction = null;
     dom.targetSelector.classList.add('hidden');
+    dom.itemSelectRow.classList.add('hidden');
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -291,7 +330,7 @@ function submitFreeText() {
     const text = dom.freeTextInput.value.trim();
     if (!text) return;
 
-    sendAction({ raw_text: text, source: 'text' });
+    sendAction({ text: text, source: 'text' });
     dom.freeTextInput.value = '';
 }
 
@@ -333,7 +372,7 @@ async function apiGet(endpoint) {
 
 async function sendAction(payload) {
     try {
-        const result = await apiPost('/action', payload);
+        const result = await apiPost('/game/action', payload);
         if (result) {
             handleActionResult(result);
         }
@@ -354,6 +393,14 @@ async function startGame(playerName, seed, difficulty) {
             dom.newGameModal.classList.remove('active');
             dom.gameContainer.classList.remove('hidden');
             updateAllUI();
+            // Display opening backstory narration
+            if (result.opening_narration) {
+                appendNarration({ text: result.opening_narration, type: 'backstory' });
+            }
+            // Render MDP graph from initial state
+            if (result.graph) {
+                updateMDPGraph(result.graph);
+            }
             connectWebSocket();
             showToast('Game started! Good luck.', 'success');
         }
@@ -412,24 +459,49 @@ function scheduleReconnect() {
 
 function handleWSMessage(data) {
     switch (data.type) {
+        case 'state_sync':
         case 'state_update':
-            gameState = data.payload;
+            gameState = data.data || data.payload;
             updateAllUI();
+            if (gameState.graph) {
+                updateMDPGraph(gameState.graph);
+            }
             break;
+        case 'graph_update':
         case 'mdp_update':
-            updateMDPGraph(data.payload);
+            updateMDPGraph(data.data || data.payload);
             break;
+        case 'turn_result': {
+            // The REST response already renders narration/events via
+            // handleActionResult(), so we only sync state & graph here
+            // to avoid duplicate narration entries.
+            const tr = data.data || data.payload || {};
+            if (tr.state) {
+                gameState = tr.state;
+                updateAllUI();
+            }
+            if (tr.state && tr.state.graph) {
+                updateMDPGraph(tr.state.graph);
+            }
+            if (tr.game_over) {
+                showGameOver(tr.game_over);
+            }
+            break;
+        }
         case 'narration':
-            appendNarration(data.payload);
+            appendNarration(data.data || data.payload);
             break;
         case 'event':
-            appendEvent(data.payload);
+            appendEvent(data.data || data.payload);
+            break;
+        case 'npc_action':
+            appendEvent(data.data || data.payload);
             break;
         case 'toast':
-            showToast(data.payload.message, data.payload.level || 'info');
+            showToast((data.data || data.payload).message, (data.data || data.payload).level || 'info');
             break;
         case 'game_over':
-            showGameOver(data.payload);
+            showGameOver(data.data || data.payload);
             break;
     }
 }
@@ -448,12 +520,38 @@ function handleActionResult(result) {
         appendNarration(result.narration);
     }
 
-    if (result.events) {
-        result.events.forEach(evt => appendEvent(evt));
+    // Display NPC dialogue separately from narration
+    if (result.dialogue) {
+        appendNarration({
+            text: result.dialogue,
+            type: 'dialogue',
+            speaker: result.dialogue_speaker || 'NPC',
+            speaker_type: 'npc',
+        });
     }
 
+    // Handle events from both key names the engine may use
+    const events = result.events || result.new_events || [];
+    events.forEach(evt => appendEvent(evt));
+
+    // NPC actions → RL Agent Activity panel (right sidebar)
+    const npcActions = result.npc_actions || result.npc_narrations || [];
+    npcActions.forEach(n => {
+        const text = n.display_narration || n.narration || n.text || '';
+        if (text) {
+            appendRLUpdate({
+                text: text,
+                turn: result.turn,
+                npc_name: n.name || n.npc_name || '',
+            });
+        }
+    });
+
+    // Update MDP graph from state or dedicated field
     if (result.mdp_update) {
         updateMDPGraph(result.mdp_update);
+    } else if (result.state && result.state.graph) {
+        updateMDPGraph(result.state.graph);
     }
 
     if (result.game_over) {
@@ -479,8 +577,9 @@ function updateAllUI() {
 function updateHeader() {
     const s = gameState;
     dom.turnCounter.textContent = s.turn ?? 0;
-    dom.timePeriod.textContent = s.time_of_day ?? 'Morning';
-    dom.currentLocation.textContent = LOCATION_NAMES[s.location] || s.location || '—';
+    dom.timePeriod.textContent = s.time_period ?? s.time_of_day ?? 'Morning';
+    const locId = (typeof s.location === 'object' && s.location !== null) ? s.location.id : s.location;
+    dom.currentLocation.textContent = LOCATION_NAMES[locId] || (s.location?.name) || locId || '—';
 }
 
 function updatePlayerPanel() {
@@ -650,6 +749,31 @@ function appendEvent(evt) {
     }
 }
 
+function appendRLUpdate(entry) {
+    if (!dom.rlAgentList) return;
+
+    // Remove empty state
+    const empty = dom.rlAgentList.querySelector('.empty-state');
+    if (empty) empty.remove();
+
+    const div = document.createElement('div');
+    div.className = 'event-entry event-npc_action';
+
+    let html = '';
+    if (entry.turn !== undefined) {
+        html += `<span class="event-turn">T${entry.turn}</span>`;
+    }
+    html += escapeHtml(entry.text || '');
+    div.innerHTML = html;
+
+    dom.rlAgentList.prepend(div);
+
+    // Keep max 30 RL updates visible
+    while (dom.rlAgentList.children.length > 30) {
+        dom.rlAgentList.lastChild.remove();
+    }
+}
+
 // ═══════════════════════════════════════════════════════════════
 // MDP Graph (Cytoscape.js)
 // ═══════════════════════════════════════════════════════════════
@@ -670,8 +794,17 @@ function initMDPGraph() {
 
     // Fullscreen toggle
     dom.graphFullscreenBtn.addEventListener('click', () => {
-        dom.mdpGraph.classList.toggle('fullscreen');
-        setTimeout(() => cy.resize(), 100);
+        const isFullscreen = dom.mdpGraph.classList.toggle('fullscreen');
+        setTimeout(() => {
+            cy.resize();
+            if (isFullscreen) {
+                // In fullscreen: fit entire graph within viewport height
+                cy.fit(undefined, 40);
+            } else {
+                // Normal: zoom to current node
+                zoomToCurrentNode();
+            }
+        }, 150);
     });
 
     // Escape exits fullscreen
@@ -688,126 +821,214 @@ function initMDPGraph() {
 
 function getCytoscapeStyle() {
     return [
-        // Default node
+        /* ── Stage nodes (large orange circles) ───────────────── */
         {
-            selector: 'node',
+            selector: 'node[kind="stage"]',
             style: {
                 'label': 'data(label)',
                 'text-valign': 'center',
                 'text-halign': 'center',
-                'font-size': '10px',
+                'font-size': '11px',
                 'font-family': 'Inter, system-ui, sans-serif',
-                'color': '#e8e8ed',
-                'text-outline-width': 1.5,
-                'text-outline-color': '#0a0a0f',
-                'background-color': '#4A90D9',
-                'width': 36,
-                'height': 36,
-                'shape': 'roundrectangle',
-                'border-width': 1.5,
-                'border-color': 'rgba(255,255,255,0.1)',
+                'font-weight': 'bold',
+                'color': '#1a1a1a',
+                'text-outline-width': 0,
+                'text-wrap': 'wrap',
+                'text-max-width': '70px',
+                'background-color': '#E67E22',
+                'width': 80,
+                'height': 80,
+                'shape': 'ellipse',
+                'border-width': 3,
+                'border-color': '#1a1a1a',
             },
         },
-        // Static checkpoint
+        /* Stage completed → muted orange */
         {
-            selector: 'node[type="static"]',
-            style: {
-                'background-color': '#4A90D9',
-            },
-        },
-        // Dynamic checkpoint
-        {
-            selector: 'node[type="dynamic"]',
+            selector: 'node[type="stage_completed"]',
             style: {
                 'background-color': '#E67E22',
-                'shape': 'diamond',
-                'width': 32,
-                'height': 32,
+                'opacity': 0.55,
+                'border-color': '#2ECC71',
+                'border-width': 3,
             },
         },
-        // Current node
+        /* Stage current → bright orange with glow */
         {
-            selector: 'node[type="current"]',
+            selector: 'node[type="stage_current"]',
             style: {
                 'background-color': '#F39C12',
-                'border-width': 2.5,
                 'border-color': '#F39C12',
-                'width': 42,
-                'height': 42,
-                'shadow-blur': 12,
-                'shadow-color': 'rgba(243, 156, 18, 0.5)',
+                'border-width': 4,
+                'shadow-blur': 15,
+                'shadow-color': 'rgba(243, 156, 18, 0.6)',
                 'shadow-offset-x': 0,
                 'shadow-offset-y': 0,
                 'shadow-opacity': 1,
             },
         },
-        // Completed
+
+        /* ── Checkpoint nodes (small circles) ─────────────────── */
         {
-            selector: 'node[type="completed"]',
+            selector: 'node[kind="checkpoint"]',
             style: {
-                'background-color': '#2ECC71',
-                'opacity': 0.65,
+                'label': 'data(label)',
+                'text-valign': 'bottom',
+                'text-halign': 'center',
+                'text-margin-y': 6,
+                'font-size': '9px',
+                'font-family': "'JetBrains Mono', monospace",
+                'color': '#8b8b96',
+                'text-outline-width': 1,
+                'text-outline-color': '#0a0a0f',
+                'background-color': '#4A90D9',
+                'width': 26,
+                'height': 26,
+                'shape': 'ellipse',
+                'border-width': 2,
+                'border-color': 'rgba(255,255,255,0.15)',
             },
         },
-        // Terminal success
+        /* Static (not yet reached) → blue */
+        {
+            selector: 'node[kind="checkpoint"][type="static"]',
+            style: {
+                'background-color': '#4A90D9',
+            },
+        },
+        /* Completed → green */
+        {
+            selector: 'node[kind="checkpoint"][type="completed"]',
+            style: {
+                'background-color': '#2ECC71',
+                'border-color': '#27ae60',
+            },
+        },
+        /* Current → amber with pulse */
+        {
+            selector: 'node[kind="checkpoint"][type="current"]',
+            style: {
+                'background-color': '#F39C12',
+                'border-color': '#F39C12',
+                'border-width': 3,
+                'width': 32,
+                'height': 32,
+                'shadow-blur': 12,
+                'shadow-color': 'rgba(243, 156, 18, 0.6)',
+                'shadow-offset-x': 0,
+                'shadow-offset-y': 0,
+                'shadow-opacity': 1,
+            },
+        },
+        /* Dynamic → yellow */
+        {
+            selector: 'node[kind="checkpoint"][type="dynamic"]',
+            style: {
+                'background-color': '#F1C40F',
+                'border-color': '#d4ac0d',
+                'shape': 'diamond',
+                'width': 28,
+                'height': 28,
+            },
+        },
+
+        /* ── Terminal nodes ────────────────────────────────────── */
+        {
+            selector: 'node[kind="terminal"]',
+            style: {
+                'label': 'data(label)',
+                'text-valign': 'bottom',
+                'text-halign': 'center',
+                'text-margin-y': 6,
+                'font-size': '9px',
+                'font-family': 'Inter, system-ui, sans-serif',
+                'color': '#8b8b96',
+                'text-outline-width': 1,
+                'text-outline-color': '#0a0a0f',
+                'width': 32,
+                'height': 32,
+                'shape': 'star',
+                'border-width': 2,
+            },
+        },
         {
             selector: 'node[type="terminal_success"]',
             style: {
                 'background-color': '#2ECC71',
-                'shape': 'star',
-                'width': 44,
-                'height': 44,
+                'border-color': '#27ae60',
             },
         },
-        // Terminal fail
         {
             selector: 'node[type="terminal_fail"]',
             style: {
                 'background-color': '#E74C3C',
-                'shape': 'star',
-                'width': 44,
-                'height': 44,
+                'border-color': '#c0392b',
             },
         },
-        // Stage node (larger)
+
+        /* ── Edges ─────────────────────────────────────────────── */
+        /* Stage-to-stage thick arrows */
         {
-            selector: 'node[type="stage"]',
+            selector: 'edge[type="stage_link"]',
             style: {
-                'background-color': '#4A90D9',
-                'width': 50,
-                'height': 50,
-                'font-size': '12px',
-                'font-weight': 'bold',
+                'width': 4,
+                'line-color': '#888',
+                'target-arrow-color': '#888',
+                'target-arrow-shape': 'triangle-backcurve',
+                'curve-style': 'straight',
+                'arrow-scale': 1.4,
             },
         },
-        // Default edge
+        /* Stage-to-first-checkpoint */
         {
-            selector: 'edge',
+            selector: 'edge[type="stage_to_cp"]',
             style: {
-                'width': 1.5,
-                'line-color': '#3a3a44',
-                'target-arrow-color': '#3a3a44',
+                'width': 2,
+                'line-color': '#4A72A8',
+                'target-arrow-color': '#4A72A8',
                 'target-arrow-shape': 'triangle',
                 'curve-style': 'bezier',
-                'arrow-scale': 0.7,
+                'arrow-scale': 0.8,
+                'line-style': 'dashed',
+                'line-dash-pattern': [6, 3],
             },
         },
-        // Active path edge
+        /* Default checkpoint edge */
         {
-            selector: 'edge[type="active"]',
+            selector: 'edge[type="default"]',
             style: {
-                'line-color': '#F39C12',
-                'target-arrow-color': '#F39C12',
-                'width': 2.5,
+                'width': 2,
+                'line-color': '#4A72A8',
+                'target-arrow-color': '#4A72A8',
+                'target-arrow-shape': 'triangle',
+                'curve-style': 'bezier',
+                'arrow-scale': 0.8,
             },
         },
-        // Completed edge
+        /* Completed path */
         {
             selector: 'edge[type="completed"]',
             style: {
+                'width': 2,
                 'line-color': '#2ECC71',
                 'target-arrow-color': '#2ECC71',
-                'opacity': 0.5,
+                'target-arrow-shape': 'triangle',
+                'curve-style': 'bezier',
+                'arrow-scale': 0.8,
+                'opacity': 0.6,
+            },
+        },
+        /* Terminal link */
+        {
+            selector: 'edge[type="terminal_link"]',
+            style: {
+                'width': 1.5,
+                'line-color': '#5a5a66',
+                'target-arrow-color': '#5a5a66',
+                'target-arrow-shape': 'triangle',
+                'curve-style': 'bezier',
+                'arrow-scale': 0.7,
+                'line-style': 'dotted',
             },
         },
     ];
@@ -818,18 +1039,24 @@ function updateMDPGraph(mdpData) {
 
     const elements = [];
 
-    // Build nodes
+    // Build nodes with preset positions
     if (mdpData.nodes) {
         mdpData.nodes.forEach(node => {
-            elements.push({
+            const ele = {
                 group: 'nodes',
                 data: {
                     id: node.id,
                     label: node.label || node.id,
-                    type: node.status || node.type || 'static',
+                    type: node.type || 'static',
+                    kind: node.kind || 'checkpoint',
+                    stage_id: node.stage_id,
+                    parent_stage: node.parent_stage || null,
                 },
-                position: node.position || undefined,
-            });
+            };
+            if (node.position) {
+                ele.position = { x: node.position.x, y: node.position.y };
+            }
+            elements.push(ele);
         });
     }
 
@@ -839,29 +1066,47 @@ function updateMDPGraph(mdpData) {
             elements.push({
                 group: 'edges',
                 data: {
-                    id: `${edge.source}-${edge.target}`,
+                    id: `${edge.source}->${edge.target}`,
                     source: edge.source,
                     target: edge.target,
-                    type: edge.status || edge.type || 'default',
+                    type: edge.type || 'default',
                 },
             });
         });
     }
 
     cy.json({ elements });
+    cy.style(getCytoscapeStyle());
 
-    // Relayout if no positions were provided
-    if (mdpData.nodes && !mdpData.nodes[0]?.position) {
-        cy.layout({
-            name: 'breadthfirst',
-            directed: true,
-            spacingFactor: 1.2,
-            animate: true,
-            animationDuration: 300,
-        }).run();
+    // Fit the graph nicely
+    setTimeout(() => {
+        cy.fit(undefined, 30);
+        // Then center on current stage area
+        const current = cy.$('node[type="current"], node[type="stage_current"]');
+        if (current.length) {
+            cy.animate({
+                center: { eles: current },
+                zoom: Math.min(cy.zoom(), 1.5),
+            }, { duration: 300 });
+        }
+    }, 100);
+}
+
+/**
+ * Zoom/center the Cytoscape view on the current quest node.
+ * Falls back to fitting the entire graph if no current node exists.
+ */
+function zoomToCurrentNode() {
+    if (!cy) return;
+    const current = cy.$('node[type="current"], node[type="stage_current"]');
+    if (current.length) {
+        cy.animate({
+            center: { eles: current },
+            zoom: Math.min(cy.zoom(), 1.5),
+        }, { duration: 250 });
+    } else {
+        cy.fit(undefined, 20);
     }
-
-    cy.fit(undefined, 20);
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -908,7 +1153,8 @@ function initModals() {
 }
 
 function openMoveModal() {
-    const currentLoc = gameState?.location || gameState?.player?.location;
+    const rawLoc = gameState?.location;
+    const currentLoc = (typeof rawLoc === 'object' && rawLoc !== null) ? rawLoc.id : (rawLoc || gameState?.player?.location);
     const adjacent = LOCATION_ADJACENCY[currentLoc] || [];
 
     $$('.location-btn').forEach(btn => {
@@ -1095,10 +1341,420 @@ document.addEventListener('keydown', (e) => {
             e.preventDefault();
             dom.freeTextInput.focus();
             break;
+        case 'm':
+        case 'M':
+            e.preventDefault();
+            if (gameState && !dom.moveModal.classList.contains('active')) {
+                openMoveModal();
+            } else {
+                closeMoveModal();
+            }
+            break;
+        case 's':
+            // Quick save (lowercase s)
+            e.preventDefault();
+            if (gameState && dom.quickSaveBtn) dom.quickSaveBtn.click();
+            break;
+        case 'S':
+            // Open save modal (uppercase S)
+            e.preventDefault();
+            if (gameState) openSaveLoadModal('save');
+            break;
+        case 'h':
+        case 'H':
+            e.preventDefault();
+            toggleHistoryPanel();
+            break;
+        case 'd':
+        case 'D':
+            e.preventDefault();
+            toggleDebugOverlay();
+            break;
+        case 'n':
+        case 'N':
+            e.preventDefault();
+            toggleNPCDetailPanel();
+            break;
+        case 'Tab':
+            e.preventDefault();
+            dom.freeTextInput.focus();
+            break;
+        case 'Escape':
+            closeMoveModal();
+            closeSaveLoadModal();
+            dom.mdpGraph.classList.remove('fullscreen');
+            if (cy) cy.resize();
+            closeHistoryPanel();
+            closeDebugOverlay();
+            closeNPCDetailPanel();
+            break;
     }
 });
 
 function selectActionTab(category) {
     const tab = $(`.action-tab[data-category="${category}"]`);
     if (tab) tab.click();
+}
+
+// ═══════════════════════════════════════════════════════════════
+// History Panel (Turn-by-turn navigation)
+// ═══════════════════════════════════════════════════════════════
+
+let historyPanelOpen = false;
+
+function toggleHistoryPanel() {
+    historyPanelOpen ? closeHistoryPanel() : openHistoryPanel();
+}
+
+function openHistoryPanel() {
+    let panel = $('#history-panel');
+    if (!panel) {
+        panel = document.createElement('div');
+        panel.id = 'history-panel';
+        panel.className = 'overlay-panel';
+        panel.innerHTML = `
+            <div class="overlay-panel-header">
+                <h3>Turn History</h3>
+                <button class="panel-close-btn" onclick="closeHistoryPanel()">×</button>
+            </div>
+            <div id="history-panel-content" class="overlay-panel-content"></div>
+            <div class="history-nav">
+                <button id="history-prev" class="btn-sm" onclick="navigateHistory(-1)">← Prev</button>
+                <span id="history-indicator">—</span>
+                <button id="history-next" class="btn-sm" onclick="navigateHistory(1)">Next →</button>
+            </div>
+        `;
+        document.body.appendChild(panel);
+    }
+    panel.classList.add('active');
+    historyPanelOpen = true;
+    refreshHistoryPanel();
+}
+
+function closeHistoryPanel() {
+    const panel = $('#history-panel');
+    if (panel) panel.classList.remove('active');
+    historyPanelOpen = false;
+}
+
+let historyViewTurn = null;
+
+function refreshHistoryPanel() {
+    const content = $('#history-panel-content');
+    const indicator = $('#history-indicator');
+    if (!content) return;
+
+    const entries = dom.narrativeContent.querySelectorAll('.narrative-entry');
+    if (entries.length === 0) {
+        content.innerHTML = '<div class="empty-state">No history yet</div>';
+        if (indicator) indicator.textContent = '—';
+        return;
+    }
+
+    // Collect turns from narrative entries
+    const turnMap = {};
+    entries.forEach(entry => {
+        const timeEl = entry.querySelector('.narrative-time');
+        const turnText = timeEl ? timeEl.textContent : 'T?';
+        const turn = turnText.replace('T', '') || '?';
+        if (!turnMap[turn]) turnMap[turn] = [];
+        turnMap[turn].push(entry.querySelector('.narrative-text')?.textContent || entry.textContent);
+    });
+
+    const turns = Object.keys(turnMap).sort((a, b) => parseInt(b) - parseInt(a));
+    if (historyViewTurn === null) historyViewTurn = turns.length - 1;
+    historyViewTurn = Math.max(0, Math.min(historyViewTurn, turns.length - 1));
+
+    const currentKey = turns[historyViewTurn];
+    const turnEntries = turnMap[currentKey] || [];
+
+    content.innerHTML = turnEntries.map(t =>
+        `<div class="history-entry">${escapeHtml(t)}</div>`
+    ).join('');
+
+    if (indicator) indicator.textContent = `Turn ${currentKey} (${historyViewTurn + 1}/${turns.length})`;
+}
+
+function navigateHistory(delta) {
+    historyViewTurn = (historyViewTurn || 0) + delta;
+    refreshHistoryPanel();
+}
+
+// ═══════════════════════════════════════════════════════════════
+// NPC Detail Panel
+// ═══════════════════════════════════════════════════════════════
+
+let npcDetailPanelOpen = false;
+
+function toggleNPCDetailPanel() {
+    npcDetailPanelOpen ? closeNPCDetailPanel() : openNPCDetailPanel();
+}
+
+function openNPCDetailPanel() {
+    let panel = $('#npc-detail-panel');
+    if (!panel) {
+        panel = document.createElement('div');
+        panel.id = 'npc-detail-panel';
+        panel.className = 'overlay-panel overlay-panel-wide';
+        panel.innerHTML = `
+            <div class="overlay-panel-header">
+                <h3>NPC Details</h3>
+                <button class="panel-close-btn" onclick="closeNPCDetailPanel()">×</button>
+            </div>
+            <div id="npc-detail-content" class="overlay-panel-content"></div>
+        `;
+        document.body.appendChild(panel);
+    }
+    panel.classList.add('active');
+    npcDetailPanelOpen = true;
+    refreshNPCDetailPanel();
+}
+
+function closeNPCDetailPanel() {
+    const panel = $('#npc-detail-panel');
+    if (panel) panel.classList.remove('active');
+    npcDetailPanelOpen = false;
+}
+
+function refreshNPCDetailPanel() {
+    const content = $('#npc-detail-content');
+    if (!content || !gameState) return;
+
+    const npcs = gameState.npcs_here || [];
+    const allNpcs = gameState.all_npcs || npcs;
+
+    if (allNpcs.length === 0) {
+        content.innerHTML = '<div class="empty-state">No NPC data available</div>';
+        return;
+    }
+
+    content.innerHTML = allNpcs.map(npc => {
+        const rep = npc.reputation ?? 0;
+        const tier = getRepTier(rep);
+        const location = npc.location || '?';
+        const mood = npc.mood || 'unknown';
+        const hp = npc.health ?? npc.current_hp ?? '?';
+        const status = npc.status || 'active';
+        const conversations = npc.conversation_count ?? 0;
+
+        return `
+            <div class="npc-detail-card">
+                <div class="npc-detail-header">
+                    <span class="npc-detail-name">${npc.name || npc.npc_uid}</span>
+                    <span class="npc-rep ${tier.cls}">${rep >= 0 ? '+' : ''}${rep} ${tier.label}</span>
+                </div>
+                <div class="npc-detail-body">
+                    <div class="npc-detail-stat">Archetype: ${npc.archetype || '—'}</div>
+                    <div class="npc-detail-stat">Location: ${LOCATION_NAMES[location] || location}</div>
+                    <div class="npc-detail-stat">Status: ${status}</div>
+                    <div class="npc-detail-stat">Mood: ${mood} | HP: ${hp}</div>
+                    <div class="npc-detail-stat">Conversations: ${conversations}</div>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Debug Overlay (NPC thought bubbles, Q-values)
+// ═══════════════════════════════════════════════════════════════
+
+let debugOverlayOpen = false;
+
+function toggleDebugOverlay() {
+    debugOverlayOpen ? closeDebugOverlay() : openDebugOverlay();
+}
+
+function openDebugOverlay() {
+    let panel = $('#debug-overlay');
+    if (!panel) {
+        panel = document.createElement('div');
+        panel.id = 'debug-overlay';
+        panel.className = 'overlay-panel overlay-panel-wide';
+        panel.innerHTML = `
+            <div class="overlay-panel-header">
+                <h3>Debug / Research</h3>
+                <button class="panel-close-btn" onclick="closeDebugOverlay()">×</button>
+            </div>
+            <div id="debug-content" class="overlay-panel-content"></div>
+        `;
+        document.body.appendChild(panel);
+    }
+    panel.classList.add('active');
+    debugOverlayOpen = true;
+    refreshDebugOverlay();
+}
+
+function closeDebugOverlay() {
+    const panel = $('#debug-overlay');
+    if (panel) panel.classList.remove('active');
+    debugOverlayOpen = false;
+}
+
+async function refreshDebugOverlay() {
+    const content = $('#debug-content');
+    if (!content) return;
+    content.innerHTML = '<div class="empty-state">Loading...</div>';
+
+    try {
+        const metrics = await apiGet('/metrics/summary');
+        const llmStatus = await apiGet('/llm/status');
+
+        let html = '<div class="debug-section"><h4>Game Metrics</h4>';
+        html += `<div class="debug-stat">Turn: ${metrics.turn ?? '—'}</div>`;
+        html += `<div class="debug-stat">Total Actions: ${metrics.total_actions ?? '—'}</div>`;
+        html += `<div class="debug-stat">Difficulty: ${metrics.difficulty ?? '—'}</div>`;
+        if (metrics.actions_by_type) {
+            html += '<div class="debug-stat">Actions: ' +
+                Object.entries(metrics.actions_by_type).map(([k, v]) => `${k}:${v}`).join(', ') +
+                '</div>';
+        }
+        html += '</div>';
+
+        html += '<div class="debug-section"><h4>LLM Status</h4>';
+        html += `<div class="debug-stat">Available: ${llmStatus.available ? 'Yes' : 'No'}</div>`;
+        html += `<div class="debug-stat">Model: ${llmStatus.model_path ?? '—'}</div>`;
+        html += `<div class="debug-stat">Calls/min: ${llmStatus.calls_this_minute ?? 0}/${llmStatus.max_calls ?? 20}</div>`;
+        html += '</div>';
+
+        // NPC thought bubbles (Q-value insights)
+        if (gameState?.npcs_here?.length) {
+            html += '<div class="debug-section"><h4>NPC Thoughts (at location)</h4>';
+            for (const npc of gameState.npcs_here) {
+                const top_action = npc.debug_top_action || '?';
+                const q_value = npc.debug_q_value != null ? npc.debug_q_value.toFixed(2) : '?';
+                html += `<div class="debug-npc-thought">
+                    <strong>${npc.name}</strong>: considering "${top_action}" (Q=${q_value})
+                </div>`;
+            }
+            html += '</div>';
+        }
+
+        content.innerHTML = html;
+    } catch (e) {
+        content.innerHTML = `<div class="empty-state">Error loading debug data: ${escapeHtml(e.message)}</div>`;
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Metrics Dashboard
+// ═══════════════════════════════════════════════════════════════
+
+async function showMetricsDashboard() {
+    let panel = $('#metrics-panel');
+    if (!panel) {
+        panel = document.createElement('div');
+        panel.id = 'metrics-panel';
+        panel.className = 'overlay-panel overlay-panel-wide';
+        panel.innerHTML = `
+            <div class="overlay-panel-header">
+                <h3>Session Metrics</h3>
+                <button class="panel-close-btn" onclick="document.querySelector('#metrics-panel').classList.remove('active')">×</button>
+            </div>
+            <div id="metrics-content" class="overlay-panel-content"></div>
+        `;
+        document.body.appendChild(panel);
+    }
+    panel.classList.add('active');
+
+    const content = $('#metrics-content');
+    content.innerHTML = '<div class="empty-state">Loading metrics...</div>';
+
+    try {
+        const m = await apiGet('/metrics/summary');
+        let html = '<div class="metrics-grid">';
+
+        html += metricCard('Total Turns', m.turn ?? 0);
+        html += metricCard('Actions Taken', m.total_actions ?? 0);
+        html += metricCard('Difficulty', m.difficulty ?? 'normal');
+        html += metricCard('Checkpoints', m.checkpoints_completed ?? 0);
+        html += metricCard('Combat Encounters', m.combat_encounters ?? 0);
+        html += metricCard('Rep Changes', m.reputation_changes ?? 0);
+        html += metricCard('Dynamic CPs', m.dynamic_checkpoints ?? 0);
+        html += metricCard('LLM Calls', m.llm_calls ?? 0);
+
+        // Action breakdown
+        if (m.actions_by_type && Object.keys(m.actions_by_type).length) {
+            html += '</div><div class="debug-section"><h4>Action Breakdown</h4><div class="metrics-bar-chart">';
+            const sorted = Object.entries(m.actions_by_type).sort((a, b) => b[1] - a[1]);
+            const maxVal = sorted[0]?.[1] || 1;
+            for (const [action, count] of sorted) {
+                const pct = Math.round((count / maxVal) * 100);
+                html += `<div class="metric-bar-row">
+                    <span class="metric-bar-label">${action}</span>
+                    <div class="metric-bar-track"><div class="metric-bar-fill" style="width:${pct}%"></div></div>
+                    <span class="metric-bar-value">${count}</span>
+                </div>`;
+            }
+            html += '</div></div>';
+        } else {
+            html += '</div>';
+        }
+
+        content.innerHTML = html;
+    } catch (e) {
+        content.innerHTML = `<div class="empty-state">Error: ${escapeHtml(e.message)}</div>`;
+    }
+}
+
+function metricCard(label, value) {
+    return `<div class="metric-card"><div class="metric-value">${value}</div><div class="metric-label">${label}</div></div>`;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// LLM Status Indicator
+// ═══════════════════════════════════════════════════════════════
+
+async function updateLLMStatus() {
+    try {
+        const status = await apiGet('/llm/status');
+        if (dom.llmDot) {
+            dom.llmDot.classList.toggle('llm-active', status.available === true);
+            dom.llmDot.title = status.available ? 'LLM Active' : 'LLM Inactive';
+        }
+        const statusText = dom.statusText;
+        if (statusText && status.available) {
+            statusText.textContent = 'LLM Active';
+        } else if (statusText) {
+            statusText.textContent = 'LLM Offline';
+        }
+    } catch {
+        if (dom.llmDot) {
+            dom.llmDot.classList.remove('llm-active');
+            dom.llmDot.title = 'LLM Status Unknown';
+        }
+    }
+}
+
+// Poll LLM status every 30 seconds when game is running
+setInterval(() => {
+    if (gameState) updateLLMStatus();
+}, 30000);
+
+// ═══════════════════════════════════════════════════════════════
+// URL Parameter Overrides
+// ═══════════════════════════════════════════════════════════════
+
+function applyURLParams() {
+    const params = new URLSearchParams(window.location.search);
+
+    const autoStart = params.get('auto_start');
+    const playerName = params.get('player_name');
+    const seed = params.get('seed');
+    const difficulty = params.get('difficulty');
+    const profile = params.get('profile');
+
+    if (playerName && dom.playerNameInput) dom.playerNameInput.value = playerName;
+    if (seed && dom.seedInput) dom.seedInput.value = seed;
+    if (difficulty && dom.difficultySelect) dom.difficultySelect.value = difficulty;
+
+    if (autoStart === 'true' || autoStart === '1') {
+        // Auto-start the game after a brief delay for DOM readiness
+        setTimeout(() => {
+            const name = dom.playerNameInput?.value?.trim() || playerName || 'Player';
+            const s = dom.seedInput?.value ? parseInt(dom.seedInput.value, 10) : (seed ? parseInt(seed, 10) : null);
+            const d = dom.difficultySelect?.value || difficulty || 'normal';
+            startGame(name, s, d);
+        }, 200);
+    }
 }

@@ -62,6 +62,7 @@ UNIVERSAL_ACTIONS: dict[str, dict] = {
     "persuade":   {"label": "Persuade / convince",     "category": "social",      "base_ap": 2},
     "trade":      {"label": "Trade items",             "category": "social",      "base_ap": 2},
     "give_item":  {"label": "Give item to NPC",        "category": "social",      "base_ap": 1},
+    "present_item": {"label": "Present / show item to NPC", "category": "social",  "base_ap": 1},
     "deceive":    {"label": "Lie / bluff",             "category": "social",      "base_ap": 2},
     "intimidate": {"label": "Threaten / intimidate",   "category": "social",      "base_ap": 2},
     # Combat
@@ -147,8 +148,9 @@ NPC_ACTION_SPACE_SIZE: int = len(UNIVERSAL_ACTIONS)
 
 # ─── LLM ─────────────────────────────────────────────────────────────────────
 LLM_ENABLED: bool = True
-LLM_MODEL_PATH: str = str(MODELS_DIR / "qwen3-4B-q4_k_m.gguf")
+LLM_MODEL_PATH: str = str(MODELS_DIR / "Phi-3.5-mini-instruct-Q4_K_M.gguf")
 LLM_CONTEXT_SIZE: int = 4096
+LLM_GPU_LAYERS: int = -1  # -1 = offload all layers to GPU; 0 = CPU only
 LLM_MAX_PROMPT_TOKENS: int = 2500
 LLM_DEFAULT_TEMPERATURE: float = 0.7
 LLM_TIMEOUT_SECONDS: int = 10
@@ -255,13 +257,14 @@ ACTION_SYNONYMS: dict[str, list[str]] = {
     "move_to":    ["go to", "move to", "walk to", "travel to", "head to", "go", "walk", "travel"],
     "look":       ["look around", "look", "observe", "see", "glance"],
     "search":     ["search", "investigate", "explore area", "rummage", "look for"],
-    "examine":    ["examine", "inspect", "study", "check out", "show"],
+    "examine":    ["examine", "inspect", "study", "check out"],
     "talk":       ["talk", "speak", "chat", "converse", "discuss", "say"],
     "greet":      ["greet", "hello", "say hello", "say hi", "hi", "wave", "approach"],
     "ask_info":   ["ask", "ask about", "inquire", "question", "tell me about"],
     "persuade":   ["persuade", "convince", "plead", "reason with", "appeal"],
     "trade":      ["trade", "buy", "sell", "barter", "shop", "purchase", "deal"],
-    "give_item":  ["give", "hand over", "offer", "donate", "present"],
+    "give_item":  ["give", "hand over", "offer", "donate"],
+    "present_item": ["show to", "present to", "present item", "show item", "display to", "produce", "show", "present", "show papers", "present papers"],
     "deceive":    ["deceive", "lie", "bluff", "trick", "mislead", "fool"],
     "intimidate": ["intimidate", "threaten", "scare", "menace", "bully", "demand"],
     "attack":     ["attack", "fight", "hit", "strike", "punch", "slash", "combat"],
@@ -327,10 +330,10 @@ def setup_logging(session_id: str = "default") -> logging.Logger:
     fh.setFormatter(JSONFormatter())
     logger.addHandler(fh)
 
-    # Console handler (INFO only)
+    # Console handler (INFO only, JSON formatted)
     ch = logging.StreamHandler()
     ch.setLevel(logging.INFO)
-    ch.setFormatter(logging.Formatter("%(levelname)s | %(message)s"))
+    ch.setFormatter(JSONFormatter())
     logger.addHandler(ch)
 
     return logger

@@ -48,11 +48,12 @@ from backend.engine.combat import (
     resolve_attack,
     resolve_flee,
 )
-from backend.engine.difficulty import DifficultyConfig
+from backend.engine.difficulty import DifficultyConfig, assess_player_struggle
 from backend.engine.event_log import EventLog, compute_importance, detect_witnesses
 from backend.engine.events import RandomEventSystem
 from backend.engine.narration import (
     add_context_modifiers,
+    enhance_narration_with_llm,
     filter_npc_narration,
     get_template_narration,
     passive_perception_check,
@@ -180,6 +181,31 @@ class GameEngine:
         self._pretrain_npcs()
         initial_state = self.get_full_state()
 
+        # Build opening backstory narration from quest + stage data
+        quest_title = self.mdp.title
+        stage_desc = ""
+        cp_desc = ""
+        try:
+            stage = self.mdp.stages.get(self.quest_manager.current_stage)
+            if stage:
+                stage_desc = stage.description
+            cp = self.mdp.get_checkpoint(self.quest_manager.current_checkpoint)
+            if cp:
+                cp_desc = cp.description
+        except Exception:
+            pass
+
+        opening = (
+            f"You are {self.player.name}, a traveler who has journeyed far to reach "
+            f"the village of Thornhaven. Word has spread of {quest_title}. "
+        )
+        if stage_desc:
+            opening += f"{stage_desc} "
+        if cp_desc:
+            opening += f"\n\n{cp_desc}"
+
+        initial_state["opening_narration"] = opening.strip()
+
         # Log initial entry
         self.event_log.add_entry(
             turn=0,
@@ -196,7 +222,7 @@ class GameEngine:
                 "player",
                 _npc_locations_map(self.npc_registry),
             ),
-            narration="You arrive at the village gate, travel papers in hand.",
+            narration=opening,
             importance=3,
         )
         return initial_state
@@ -272,6 +298,28 @@ class GameEngine:
         # Add context modifiers to narration
         narration = action_result["narration"]
         weather = self._get_active_weather()
+
+        # Layer 2: LLM narration enhancement (optional)
+        # Resolve target UID to display name for LLM prompts
+        raw_target = action_result.get("target")
+        target_display = _npc_names_map(self.npc_registry).get(raw_target, raw_target) if raw_target else None
+
+        narration = enhance_narration_with_llm(
+            template_narration=narration,
+            action_id=action_id,
+            actor_name=self.player.name,
+            target_name=target_display,
+            outcome_type="success" if action_result["success"] else "fail",
+            location=self.player.location,
+            time_of_day=self.world.time_of_day,
+            weather=weather,
+            emotion=parsed_input.get("emotion", "neutral"),
+            social=parsed_input.get("social", "neutral"),
+            witnesses=[_npc_names_map(self.npc_registry).get(w, w) for w in witnesses],
+            llm_service=self.llm,
+        )
+
+        # Layer 3: Context modifiers
         narration = add_context_modifiers(
             narration,
             self.world.time_of_day,
@@ -350,6 +398,21 @@ class GameEngine:
 
         # ── 11. Auto-save ─────────────────────────────────────────────
         if not self.game_over:
+            # Adaptive difficulty assessment (every 20 turns)
+            if self.turn % 20 == 0 and self.turn > 0:
+                entries = self.event_log.get_recent(20)
+                adjustment = assess_player_struggle(entries, window=20)
+                if adjustment != "maintain":
+                    old_preset = self.difficulty.preset
+                    presets_order = ["easy", "normal", "hard"]
+                    current_idx = presets_order.index(old_preset) if old_preset in presets_order else 1
+                    if adjustment == "decrease_difficulty" and current_idx > 0:
+                        self.difficulty.apply_preset(presets_order[current_idx - 1])
+                        logger.info("Adaptive difficulty: %s → %s", old_preset, self.difficulty.preset)
+                    elif adjustment == "increase_difficulty" and current_idx < len(presets_order) - 1:
+                        self.difficulty.apply_preset(presets_order[current_idx + 1])
+                        logger.info("Adaptive difficulty: %s → %s", old_preset, self.difficulty.preset)
+
             self._auto_save()
             # Save before combat
             if action_id == "attack" or self.player.in_combat:
@@ -488,6 +551,11 @@ class GameEngine:
 
             case "give_item":
                 return self._resolve_give_item(
+                    target_npc_obj, target_item, ap_cost, narr_ctx
+                )
+
+            case "present_item":
+                return self._resolve_present_item(
                     target_npc_obj, target_item, ap_cost, narr_ctx
                 )
 
@@ -808,9 +876,12 @@ class GameEngine:
             emotion,
             social,
             dialogue_ctx,
+            llm_service=self.llm,
         )
 
         dialogue_text = format_dialogue(target_npc.name, dialogue_result["dialogue"])
+        # Raw dialogue text (without speaker prefix) for separate frontend display
+        raw_dialogue = dialogue_result["dialogue"]
 
         # Greet tracking
         if action_id == "greet":
@@ -847,7 +918,6 @@ class GameEngine:
             )
 
         narration = get_template_narration(action_id, "success", ctx)
-        narration += f" {dialogue_text}"
 
         effects: dict[str, Any] = {
             "reputation_change": rep_change,
@@ -860,6 +930,8 @@ class GameEngine:
             "action_id": action_id,
             "ap_cost": ap_cost,
             "narration": narration,
+            "dialogue": raw_dialogue,
+            "dialogue_speaker": target_npc.name,
             "effects": effects,
             "target": target_npc.npc_uid,
             "perception": None,
@@ -1112,6 +1184,127 @@ class GameEngine:
             "effects": {
                 "item_given": target_item,
                 "reputation": {target_npc.npc_uid: int(rep_gain * mult)},
+            },
+            "target": target_npc.npc_uid,
+            "perception": None,
+        }
+
+    def _resolve_present_item(
+        self,
+        target_npc: NPC | None,
+        target_item: str | None,
+        ap_cost: int,
+        ctx: dict,
+    ) -> dict:
+        """Resolve presenting/showing an item to an NPC without giving it away.
+
+        The NPC inspects the item and reacts with dialogue.  The item stays
+        in the player's inventory.  Reputation gain is smaller than
+        ``give_item`` because nothing is actually surrendered.
+        """
+        if not target_npc:
+            target_npc = self._auto_select_npc()
+        if not target_npc:
+            return self._no_target("present_item", ap_cost, ctx)
+
+        if not target_item:
+            narration = get_template_narration("present_item", "blocked", ctx)
+            return {
+                "success": False,
+                "action_id": "present_item",
+                "ap_cost": ap_cost,
+                "narration": narration,
+                "effects": {},
+                "target": target_npc.npc_uid if target_npc else None,
+                "perception": None,
+            }
+
+        item = self.player.get_item(target_item)
+        if not item:
+            narration = "You don't have that item to show."
+            return {
+                "success": False,
+                "action_id": "present_item",
+                "ap_cost": ap_cost,
+                "narration": narration,
+                "effects": {},
+                "target": target_npc.npc_uid,
+                "perception": None,
+            }
+
+        # Check incapacitated
+        if target_npc.is_incapacitated():
+            narration = f"{target_npc.name} is unconscious and cannot see what you're showing."
+            return {
+                "success": False,
+                "action_id": "present_item",
+                "ap_cost": ap_cost,
+                "narration": narration,
+                "effects": {},
+                "target": target_npc.npc_uid,
+                "perception": None,
+            }
+
+        ctx["target"] = target_npc.name
+        ctx["item"] = item["name"]
+
+        # ── Dialogue — NPC reacts to seeing the item ────────────────
+        player_rep = self.player.get_reputation(target_npc.npc_uid)
+        dialogue_ctx = {
+            "player_reputation": player_rep,
+            "quest_state": self.player.quest_state,
+            "location": self.player.location,
+            "turn": self.turn,
+            "time_of_day": self.world.time_of_day,
+            "item_presented": item["name"],
+            "item_id": target_item,
+        }
+        dialogue_result = resolve_dialogue(
+            target_npc,
+            "present_item",
+            f"shows {item['name']}",
+            "neutral",
+            "neutral",
+            dialogue_ctx,
+            llm_service=self.llm,
+        )
+        raw_dialogue = dialogue_result["dialogue"]
+
+        # Add conversation to NPC history
+        target_npc.add_conversation({
+            "turn": self.turn,
+            "action": "present_item",
+            "player_text": f"shows {item['name']}",
+            "npc_response": raw_dialogue,
+            "emotion": "neutral",
+            "social": "neutral",
+        })
+
+        # Reputation boost
+        rep_gain = 2
+        rep_change = dialogue_result.get("reputation_change", 0) + rep_gain
+        mult = self.difficulty.get("reputation_gain_multiplier", 1.0)
+        actual_rep = self.player.modify_reputation(target_npc.npc_uid, int(rep_change * mult))
+
+        # Mood change
+        mood_change = dialogue_result.get("mood_change", 0)
+        if mood_change:
+            target_npc.stats["happiness"] = max(
+                0, min(10, target_npc.stats["happiness"] + mood_change)
+            )
+
+        narration = get_template_narration("present_item", "success", ctx)
+        return {
+            "success": True,
+            "action_id": "present_item",
+            "ap_cost": ap_cost,
+            "narration": narration,
+            "dialogue": raw_dialogue,
+            "dialogue_speaker": target_npc.name,
+            "effects": {
+                "item_presented": target_item,
+                "reputation": {target_npc.npc_uid: int(rep_change * mult)},
+                "mood_change": mood_change,
             },
             "target": target_npc.npc_uid,
             "perception": None,
@@ -1962,6 +2155,7 @@ class GameEngine:
             "target_location": target_location or self.player.location,
             "target_npc": target_npc,
             "location": self.player.location,
+            "player_inventory": self.player.inventory,
         }
 
         # Check if this action completes the current checkpoint
@@ -2494,6 +2688,7 @@ class GameEngine:
             )
             res["display_type"] = display_info["display_type"]
             res["display_narration"] = display_info["narration"]
+            res["name"] = npc.name
             filtered.append(res)
         return filtered
 
@@ -2721,7 +2916,10 @@ class GameEngine:
                 for n in npcs_here
             ],
             "quest": self.quest_manager.get_quest_progress(),
-            "graph": self.mdp.to_graph_data(self.quest_manager.current_checkpoint),
+            "graph": self.mdp.to_graph_data(
+                self.quest_manager.current_checkpoint,
+                self.quest_manager.completed_checkpoints,
+            ),
             "active_events": self.world.active_events,
             "game_over": self.game_over,
             "game_result": self.game_result,
