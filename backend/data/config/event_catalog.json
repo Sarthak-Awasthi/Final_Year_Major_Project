@@ -1,0 +1,113 @@
+[
+  {
+    "id": "weather_storm",
+    "name": "Thunderstorm",
+    "description": "Dark clouds gather and thunder rumbles across the sky.",
+    "trigger": {"min_turn": 10, "time_of_day": ["evening", "night"]},
+    "probability": 0.05,
+    "duration_min": 4,
+    "duration_max": 8,
+    "effects": {
+      "outdoor_search_ap_increase": 3,
+      "npc_indoor_preference": true,
+      "narration": "Rain lashes down and thunder cracks overhead."
+    }
+  },
+  {
+    "id": "weather_fog",
+    "name": "Dense Fog",
+    "description": "A thick fog rolls in, reducing visibility.",
+    "trigger": {"min_turn": 5, "time_of_day": ["morning"]},
+    "probability": 0.08,
+    "duration_min": 4,
+    "duration_max": 4,
+    "effects": {
+      "sneak_bonus": 0.2,
+      "look_effectiveness_reduced": true,
+      "narration": "Dense fog blankets the village, muffling all sounds."
+    }
+  },
+  {
+    "id": "wandering_merchant",
+    "name": "Traveling Merchant",
+    "description": "A traveling merchant arrives at the gate with exotic wares.",
+    "trigger": {"min_turn": 8, "no_merchant_at_gate": true},
+    "probability": 0.03,
+    "duration_min": 8,
+    "duration_max": 8,
+    "effects": {
+      "spawn_temporary_npc": true,
+      "npc_location": "gate",
+      "narration": "A merchant's cart rattles through the gate, laden with unusual goods."
+    }
+  },
+  {
+    "id": "theft_event",
+    "name": "Theft Report",
+    "description": "An NPC reports a theft, putting guards on alert.",
+    "trigger": {"min_turn": 1, "player_reputation_below": -10},
+    "probability": 0.05,
+    "duration_min": 6,
+    "duration_max": 6,
+    "effects": {
+      "guard_patrol_increase": true,
+      "steal_detection_bonus": 0.15,
+      "narration": "Word spreads of a theft. The guards tighten their patrols."
+    }
+  },
+  {
+    "id": "npc_accident",
+    "name": "NPC Accident",
+    "description": "An NPC gets injured while working.",
+    "trigger": {"min_turn": 1, "npc_at_outdoor": true},
+    "probability": 0.02,
+    "duration_min": 1,
+    "duration_max": 1,
+    "effects": {
+      "npc_health_drop": 20,
+      "narration": "You hear a cry of pain from nearby."
+    }
+  },
+  {
+    "id": "festival_prep",
+    "name": "Village Festival Preparations",
+    "description": "The village prepares for a small festival.",
+    "trigger": {"min_turn": 20, "global_rep_above": 10},
+    "probability": 0.04,
+    "duration_min": 12,
+    "duration_max": 12,
+    "effects": {
+      "npc_gather_location": "village_center",
+      "social_reputation_bonus": 1.5,
+      "narration": "Colorful bunting appears around the village center. Festival preparations are underway!"
+    }
+  },
+  {
+    "id": "supply_shortage",
+    "name": "Supply Shortage",
+    "description": "The tavern runs low on supplies.",
+    "trigger": {"min_turn": 15},
+    "probability": 0.03,
+    "duration_min": 6,
+    "duration_max": 6,
+    "effects": {
+      "tavern_food_unavailable": true,
+      "trade_price_increase": 0.25,
+      "narration": "Tessa frowns behind the bar. 'Running low on everything,' she mutters."
+    }
+  },
+  {
+    "id": "lost_item",
+    "name": "Lost Item",
+    "description": "An NPC loses a personal item and asks for help finding it.",
+    "trigger": {"min_turn": 5},
+    "probability": 0.03,
+    "duration_min": 10,
+    "duration_max": 10,
+    "effects": {
+      "mini_objective": true,
+      "reputation_reward": 15,
+      "narration": "An NPC hurries past, looking distressed. 'Has anyone seen my...'"
+    }
+  }
+]

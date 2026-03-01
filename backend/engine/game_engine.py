@@ -1,0 +1,2788 @@
+"""
+game_engine.py — Central orchestrator for the MVP game.
+
+Manages game initialization (world, player, NPCs, quest, events, LLM),
+turn processing (player action → NPC actions → events → time advance),
+save/load, and NPC pre-training.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import copy
+import json
+import random
+import shutil
+import time
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+
+from backend.config import (
+    AUTO_SAVE_INTERVAL,
+    GAME_VERSION,
+    INCAPACITATION_TURNS,
+    INDOOR_LOCATIONS,
+    LOCATION_ADJACENCY,
+    MASTER_SEED,
+    MAX_AUTO_SAVES,
+    MAX_MANUAL_SAVES,
+    MAX_TURNS,
+    METRICS_DIR,
+    NPC_COLD_START_TURNS,
+    NPC_INDOOR_REGEN,
+    QUEST_DIR,
+    SAVE_VERSION,
+    SAVES_DIR,
+    SOCIAL_MODIFIERS,
+    STAMINA_REGEN_PER_TURN,
+    UNIVERSAL_ACTION_IDS,
+    UNIVERSAL_ACTIONS,
+    logger,
+)
+from backend.engine.combat import (
+    CombatResult,
+    compute_skill_probability,
+    resolve_attack,
+    resolve_flee,
+)
+from backend.engine.difficulty import DifficultyConfig
+from backend.engine.event_log import EventLog, compute_importance, detect_witnesses
+from backend.engine.events import RandomEventSystem
+from backend.engine.narration import (
+    add_context_modifiers,
+    filter_npc_narration,
+    get_template_narration,
+    passive_perception_check,
+)
+from backend.engine.world import World
+from backend.llm.llm_service import LLMService
+from backend.npc.dialogue import format_dialogue, resolve_dialogue
+from backend.npc.interactions import (
+    propagate_gossip,
+    resolve_npc_npc_interaction,
+    resolve_npc_target,
+)
+from backend.npc.knowledge import add_witnessed_event
+from backend.npc.npc import NPC
+from backend.npc.personality import (
+    create_npc_registry,
+    get_npcs_at_location,
+    load_archetypes,
+)
+from backend.npc.rl_agent import (
+    compute_reward,
+    decay_epsilon,
+    get_valid_actions,
+    pretrain_npc,
+    select_action,
+    update_q_table,
+)
+from backend.npc.schedule import get_movement_destination, get_scheduled_action
+from backend.player.player import Player
+from backend.quest.checkpoint import generate_dynamic_checkpoint
+from backend.quest.mdp import QuestMDP
+from backend.quest.nudge import compute_nudge_reward, get_nudge_hint
+from backend.quest.quest_manager import QuestManager
+
+
+# ─── Helpers ──────────────────────────────────────────────────────────────────
+
+def _npc_names_map(registry: dict[str, NPC]) -> dict[str, str]:
+    """Build a {npc_uid: name} lookup from the registry."""
+    return {uid: npc.name for uid, npc in registry.items()}
+
+
+def _npc_locations_map(registry: dict[str, NPC]) -> dict[str, str]:
+    """Build a {npc_uid: location} lookup from the registry."""
+    return {uid: npc.location for uid, npc in registry.items()}
+
+
+# ─── GameEngine ───────────────────────────────────────────────────────────────
+
+
+class GameEngine:
+    """Central game orchestrator tying all subsystems together."""
+
+    def __init__(
+        self,
+        seed: int = MASTER_SEED,
+        difficulty: str = "normal",
+        max_turns: int = MAX_TURNS,
+    ) -> None:
+        # Seed all randomness
+        random.seed(seed)
+        np.random.seed(seed)
+
+        self.seed = seed
+        self.max_turns = max_turns
+        self.turn: int = 0
+        self.game_over: bool = False
+        self.game_result: str | None = None  # "success" / "fail" / "turn_limit"
+
+        # Subsystems
+        self.world = World()
+        self.player = Player()
+        self.difficulty = DifficultyConfig(difficulty)
+        self.event_log = EventLog()
+        self.random_events = RandomEventSystem()
+        self.llm = LLMService()  # gracefully unavailable if no model
+
+        # Quest
+        quest_path = QUEST_DIR / "main_quest.json"
+        with open(quest_path, "r", encoding="utf-8") as f:
+            quest_data = json.load(f)
+        self.mdp = QuestMDP(quest_data)
+        self.quest_manager = QuestManager(self.mdp)
+
+        # NPCs
+        self.npc_registry: dict[str, NPC] = create_npc_registry(seed)
+
+        # Initialise player reputation for every NPC at 0
+        for uid in self.npc_registry:
+            self.player.reputation.setdefault(uid, 0)
+
+        # Pre-training flag
+        self._pretrained: bool = False
+
+        # Auto-save tracking
+        self._auto_save_counter: int = 0
+        self._auto_save_files: list[str] = []
+
+        # Gossip cascade tracking (reset each turn)
+        self._gossip_pairs_this_turn: set[tuple[str, str]] = set()
+
+        # Metrics tracking
+        self._metrics: dict[str, Any] = {
+            "total_actions": 0,
+            "actions_by_type": {},
+            "combat_encounters": 0,
+            "dynamic_checkpoints_created": 0,
+            "npcs_incapacitated": 0,
+            "reputation_changes": 0,
+            "llm_calls": 0,
+            "start_time": datetime.now(timezone.utc).isoformat(),
+        }
+
+        logger.info(
+            "GameEngine initialised: seed=%d, difficulty=%s, max_turns=%d",
+            seed,
+            difficulty,
+            max_turns,
+        )
+
+    # ── Initialization ────────────────────────────────────────────────────
+
+    async def initialize(self) -> dict:
+        """Full initialization including NPC pre-training. Returns initial state."""
+        self._pretrain_npcs()
+        initial_state = self.get_full_state()
+
+        # Log initial entry
+        self.event_log.add_entry(
+            turn=0,
+            time_of_day=self.world.time_of_day,
+            event_type="player_action",
+            actor="player",
+            action="arrive",
+            target=None,
+            location=self.player.location,
+            outcome="success",
+            effects={},
+            witnesses=detect_witnesses(
+                self.player.location,
+                "player",
+                _npc_locations_map(self.npc_registry),
+            ),
+            narration="You arrive at the village gate, travel papers in hand.",
+            importance=3,
+        )
+        return initial_state
+
+    def _pretrain_npcs(self) -> None:
+        """Pre-train all NPCs with 100 episodes. Lightweight mode."""
+        if self._pretrained:
+            return
+        world_data = {
+            "locations": LOCATION_ADJACENCY,
+            "indoor": list(INDOOR_LOCATIONS),
+        }
+        for npc in self.npc_registry.values():
+            pretrain_npc(npc, world_data)
+        self._pretrained = True
+        logger.info("NPC pre-training complete for %d NPCs", len(self.npc_registry))
+
+    # ── Main Turn Processing ──────────────────────────────────────────────
+
+    async def process_turn(self, parsed_input: dict) -> dict:
+        """Main turn processing pipeline.
+
+        1. Validate & resolve player action
+        2. Apply action effects
+        3. Check quest completion / deviation
+        4. Process NPC turns
+        5. Check & apply random events
+        6. Advance time
+        7. Passive regen (stamina)
+        8. Reputation decay
+        9. Check game-over conditions
+        10. Auto-save if needed
+
+        Args:
+            parsed_input: A ParsedInput dict with action_id, targets, etc.
+
+        Returns:
+            Turn result dict with all narration and state changes.
+        """
+        if self.game_over:
+            return {
+                "error": "Game is over.",
+                "game_result": self.game_result,
+                "state": self.get_full_state(),
+            }
+
+        self.turn += 1
+        self._gossip_pairs_this_turn.clear()
+
+        # ── 1. Resolve player action ──────────────────────────────────
+        action_result = self._resolve_player_action(parsed_input)
+        action_id = action_result["action_id"]
+
+        # Track metrics
+        self._metrics["total_actions"] += 1
+        self._metrics["actions_by_type"][action_id] = (
+            self._metrics["actions_by_type"].get(action_id, 0) + 1
+        )
+
+        # ── 2. Log player action event ────────────────────────────────
+        witnesses = detect_witnesses(
+            self.player.location,
+            "player",
+            _npc_locations_map(self.npc_registry),
+        )
+        importance = compute_importance(
+            "player_action",
+            action_id,
+            "success" if action_result["success"] else "fail",
+            action_result.get("effects", {}),
+        )
+
+        # Add context modifiers to narration
+        narration = action_result["narration"]
+        weather = self._get_active_weather()
+        narration = add_context_modifiers(
+            narration,
+            self.world.time_of_day,
+            weather=weather,
+            witnesses=witnesses,
+            npc_names=_npc_names_map(self.npc_registry),
+        )
+        action_result["narration"] = narration
+
+        event_entry = self.event_log.add_entry(
+            turn=self.turn,
+            time_of_day=self.world.time_of_day,
+            event_type="player_action",
+            actor="player",
+            action=action_id,
+            target=action_result.get("target"),
+            location=self.player.location,
+            outcome="success" if action_result["success"] else "fail",
+            effects=action_result.get("effects", {}),
+            witnesses=witnesses,
+            narration=narration,
+            importance=importance,
+        )
+
+        # Notify NPC witnesses
+        for w_uid in witnesses:
+            npc_w = self.npc_registry.get(w_uid)
+            if npc_w:
+                add_witnessed_event(npc_w, event_entry, self.turn)
+
+        # ── 3. Quest completion / deviation check ─────────────────────
+        quest_update = self._check_quest_progress(action_id, parsed_input, action_result)
+
+        # ── 4. Process NPC turns ──────────────────────────────────────
+        npc_results = self._process_npc_turns()
+        npc_narrations = self._filter_npc_narrations(npc_results)
+
+        # ── 5. Random events ──────────────────────────────────────────
+        new_events = self._check_random_events()
+
+        # ── 6. Advance time ───────────────────────────────────────────
+        new_time = self.world.advance_turn()
+
+        # Expire old events
+        expired_events = self.world.expire_events()
+
+        # ── 7. Passive stamina regen ──────────────────────────────────
+        regen_amount = self.difficulty.get(
+            "stamina_regen_per_turn", STAMINA_REGEN_PER_TURN
+        )
+        actual_regen = self.player.regen_stamina(regen_amount)
+
+        # ── 8. Reputation decay ───────────────────────────────────────
+        rep_decay = self.player.apply_reputation_decay(self.turn)
+
+        # ── 9. Passive perception ─────────────────────────────────────
+        perception = None
+        loc = self.world.get_location(self.player.location)
+        if loc:
+            npcs_here = get_npcs_at_location(
+                self.npc_registry, self.player.location
+            )
+            perception = passive_perception_check(
+                self.player.location,
+                self.world.is_social(self.player.location),
+                loc.items_on_ground,
+                [{"npc_uid": n.npc_uid, "name": n.name} for n in npcs_here],
+            )
+
+        # ── 10. Check game-over conditions ────────────────────────────
+        result = self._check_game_over()
+        if result is not None:
+            self.game_over = True
+            self.game_result = result
+            self.save_game("auto")
+
+        # ── 11. Auto-save ─────────────────────────────────────────────
+        if not self.game_over:
+            self._auto_save()
+            # Save before combat
+            if action_id == "attack" or self.player.in_combat:
+                self.save_game("auto")
+
+        # Build turn result
+        turn_result: dict[str, Any] = {
+            "turn": self.turn,
+            "time_period": new_time,
+            "action_result": action_result,
+            "quest_update": quest_update,
+            "npc_narrations": npc_narrations,
+            "new_events": new_events,
+            "expired_events": expired_events,
+            "stamina_regen": actual_regen,
+            "reputation_decay": rep_decay,
+            "perception": perception,
+            "game_over": self.game_over,
+            "game_result": self.game_result,
+            "state": self.get_full_state(),
+        }
+        return turn_result
+
+    # ── Player Action Resolution ──────────────────────────────────────────
+
+    def _resolve_player_action(self, parsed_input: dict) -> dict:
+        """Resolve a player action through the universal pipeline.
+
+        Precondition Check → Context Evaluation → Outcome Resolution.
+
+        Returns:
+            ActionResult-like dict with success, action_id, ap_cost,
+            narration, effects, target, perception.
+        """
+        action_id: str = parsed_input.get("action_id", "wait")
+        target_npc: str | None = parsed_input.get("target_npc")
+        target_item: str | None = parsed_input.get("target_item")
+        target_location: str | None = parsed_input.get("target_location")
+        emotion: str = parsed_input.get("emotion", "neutral")
+        social: str = parsed_input.get("social", "neutral")
+
+        action_meta = UNIVERSAL_ACTIONS.get(action_id, {"base_ap": 0, "category": "utility"})
+        base_ap: int = action_meta["base_ap"]
+
+        # Apply difficulty AP multiplier
+        ap_mult = self.difficulty.get("ap_cost_multiplier", 1.0)
+        ap_cost = max(0, int(base_ap * ap_mult))
+
+        # Clear defending flag at start of new action (unless this IS defend)
+        if action_id != "defend":
+            self.player.is_defending = False
+
+        # ── Stamina check ─────────────────────────────────────────────
+        # At 0 AP: only 0-AP actions + talk/greet free; in combat defend/flee free
+        if not self.player.can_afford_ap(ap_cost):
+            free_allowed = ap_cost == 0
+            if action_id in ("talk", "greet") and self.player.stamina <= 0:
+                free_allowed = True
+                ap_cost = 0
+            if self.player.in_combat and action_id in ("defend", "flee"):
+                free_allowed = True
+                ap_cost = 0
+            if not free_allowed:
+                return {
+                    "success": False,
+                    "action_id": action_id,
+                    "ap_cost": 0,
+                    "narration": f"You're too exhausted to {action_meta.get('label', action_id).lower()}. (Not enough AP)",
+                    "effects": {},
+                    "target": None,
+                    "perception": None,
+                }
+
+        # Deduct AP
+        self.player.modify_stamina(-ap_cost)
+
+        # Build context for narration
+        narr_ctx: dict[str, Any] = {
+            "target": target_npc or target_item or target_location or "them",
+        }
+
+        # Resolve NPC target object
+        target_npc_obj: NPC | None = None
+        if target_npc:
+            target_npc_obj = self.npc_registry.get(target_npc)
+            if target_npc_obj:
+                narr_ctx["target"] = target_npc_obj.name
+
+        effects: dict[str, Any] = {}
+
+        match action_id:
+            # ── Navigation ────────────────────────────────────────────
+            case "move_to":
+                return self._resolve_move_to(
+                    target_location, ap_cost, narr_ctx, parsed_input
+                )
+
+            # ── Exploration ───────────────────────────────────────────
+            case "look":
+                return self._resolve_look(ap_cost, narr_ctx)
+
+            case "search":
+                return self._resolve_search(ap_cost, narr_ctx)
+
+            case "examine":
+                return self._resolve_examine(
+                    target_npc_obj, target_item, ap_cost, narr_ctx
+                )
+
+            # ── Social ────────────────────────────────────────────────
+            case "talk" | "greet" | "ask_info":
+                return self._resolve_social_talk(
+                    action_id, target_npc_obj, emotion, social,
+                    parsed_input, ap_cost, narr_ctx
+                )
+
+            case "persuade":
+                return self._resolve_persuade(
+                    target_npc_obj, social, ap_cost, narr_ctx
+                )
+
+            case "deceive":
+                return self._resolve_deceive(
+                    target_npc_obj, social, ap_cost, narr_ctx
+                )
+
+            case "intimidate":
+                return self._resolve_intimidate(
+                    target_npc_obj, social, ap_cost, narr_ctx
+                )
+
+            case "trade":
+                return self._resolve_trade(
+                    target_npc_obj, ap_cost, narr_ctx
+                )
+
+            case "give_item":
+                return self._resolve_give_item(
+                    target_npc_obj, target_item, ap_cost, narr_ctx
+                )
+
+            # ── Combat ────────────────────────────────────────────────
+            case "attack":
+                return self._resolve_attack(
+                    target_npc_obj, ap_cost, narr_ctx
+                )
+
+            case "defend":
+                return self._resolve_defend(ap_cost, narr_ctx)
+
+            case "flee":
+                return self._resolve_flee(ap_cost, narr_ctx)
+
+            # ── Stealth ───────────────────────────────────────────────
+            case "sneak":
+                return self._resolve_sneak(ap_cost, narr_ctx)
+
+            case "hide":
+                return self._resolve_hide(ap_cost, narr_ctx)
+
+            case "steal":
+                return self._resolve_steal(
+                    target_npc_obj, target_item, ap_cost, narr_ctx
+                )
+
+            # ── Utility ───────────────────────────────────────────────
+            case "pick_up":
+                return self._resolve_pick_up(target_item, ap_cost, narr_ctx)
+
+            case "use_item":
+                return self._resolve_use_item(target_item, ap_cost, narr_ctx)
+
+            case "eat":
+                return self._resolve_eat(target_item, ap_cost, narr_ctx)
+
+            case "rest":
+                return self._resolve_rest(ap_cost, narr_ctx)
+
+            case "wait":
+                return self._resolve_wait(ap_cost, narr_ctx)
+
+            case "drop_item":
+                return self._resolve_drop_item(target_item, ap_cost, narr_ctx)
+
+            case "status":
+                return self._resolve_status(ap_cost, narr_ctx)
+
+            case "equip":
+                return self._resolve_equip(target_item, ap_cost, narr_ctx)
+
+            case "work":
+                return self._resolve_work(ap_cost, narr_ctx)
+
+            case _:
+                return {
+                    "success": False,
+                    "action_id": action_id,
+                    "ap_cost": ap_cost,
+                    "narration": "You're unsure what to do.",
+                    "effects": {},
+                    "target": None,
+                    "perception": None,
+                }
+
+    # ── Individual Action Resolvers ───────────────────────────────────────
+
+    def _resolve_move_to(
+        self,
+        target_location: str | None,
+        ap_cost: int,
+        ctx: dict,
+        parsed_input: dict,
+    ) -> dict:
+        """Resolve movement action. Validates adjacency."""
+        if not target_location:
+            # Default to first adjacent location
+            adj = self.world.get_adjacent(self.player.location)
+            target_location = adj[0] if adj else None
+
+        if not target_location:
+            self.player.modify_stamina(ap_cost)  # refund AP on hard fail
+            return self._hard_fail("move_to", ap_cost, "There's nowhere to go from here.")
+
+        if not self.world.is_adjacent(self.player.location, target_location):
+            self.player.modify_stamina(ap_cost)  # refund AP on hard fail
+            loc_obj = self.world.get_location(target_location)
+            loc_name = loc_obj.name if loc_obj else target_location
+            ctx["target"] = loc_name
+            narration = get_template_narration("move_to", "blocked", ctx)
+            return {
+                "success": False,
+                "action_id": "move_to",
+                "ap_cost": 0,
+                "narration": narration,
+                "effects": {},
+                "target": target_location,
+                "perception": None,
+            }
+
+        # Exit combat on move
+        if self.player.in_combat:
+            # Must flee to exit combat; move_to during combat = blocked
+            narration = "You can't simply walk away from combat! Try to flee instead."
+            self.player.modify_stamina(ap_cost)  # refund
+            return {
+                "success": False,
+                "action_id": "move_to",
+                "ap_cost": 0,
+                "narration": narration,
+                "effects": {},
+                "target": target_location,
+                "perception": None,
+            }
+
+        old_location = self.player.location
+        self.player.location = target_location
+        loc_obj = self.world.get_location(target_location)
+        loc_name = loc_obj.name if loc_obj else target_location
+        ctx["target"] = loc_name
+        narration = get_template_narration("move_to", "success", ctx)
+
+        # Describe new location
+        if loc_obj:
+            narration += f" {loc_obj.description}"
+
+        # List NPCs at new location
+        npcs_here = get_npcs_at_location(self.npc_registry, target_location)
+        if npcs_here:
+            npc_names = [n.name for n in npcs_here]
+            if len(npc_names) == 1:
+                narration += f" You see {npc_names[0]} here."
+            else:
+                narration += f" You see {', '.join(npc_names[:-1])} and {npc_names[-1]} here."
+
+        return {
+            "success": True,
+            "action_id": "move_to",
+            "ap_cost": ap_cost,
+            "narration": narration,
+            "effects": {"old_location": old_location, "new_location": target_location},
+            "target": target_location,
+            "perception": None,
+        }
+
+    def _resolve_look(self, ap_cost: int, ctx: dict) -> dict:
+        """Look around the current location."""
+        loc = self.world.get_location(self.player.location)
+        discovery_parts: list[str] = []
+
+        if loc:
+            discovery_parts.append(loc.description)
+            if loc.objects:
+                discovery_parts.append(f"Notable features: {', '.join(loc.objects)}.")
+            if loc.items_on_ground:
+                item_names = [i.get("name", "something") for i in loc.items_on_ground]
+                discovery_parts.append(f"On the ground: {', '.join(item_names)}.")
+
+        npcs_here = get_npcs_at_location(self.npc_registry, self.player.location)
+        if npcs_here:
+            npc_descs = [f"{n.name} ({n.archetype})" for n in npcs_here]
+            discovery_parts.append(f"People here: {', '.join(npc_descs)}.")
+
+        ctx["discovery"] = " ".join(discovery_parts) if discovery_parts else "Nothing stands out."
+        narration = get_template_narration("look", "success" if discovery_parts else "fail", ctx)
+
+        return {
+            "success": True,
+            "action_id": "look",
+            "ap_cost": ap_cost,
+            "narration": narration,
+            "effects": {},
+            "target": None,
+            "perception": None,
+        }
+
+    def _resolve_search(self, ap_cost: int, ctx: dict) -> dict:
+        """Search the current location thoroughly."""
+        loc = self.world.get_location(self.player.location)
+        if loc:
+            loc.search_count += 1
+
+        npcs_here = get_npcs_at_location(self.npc_registry, self.player.location)
+        prob = compute_skill_probability(
+            "search",
+            search_count=loc.search_count if loc else 0,
+        )
+
+        if random.random() < prob:
+            # Check for items on ground
+            discovery = "You find something interesting amid the clutter."
+            if loc and loc.items_on_ground:
+                found_item = loc.items_on_ground[0]
+                discovery = f"You discover {found_item.get('name', 'an item')}!"
+            ctx["discovery"] = discovery
+            narration = get_template_narration("search", "success", ctx)
+            return {
+                "success": True,
+                "action_id": "search",
+                "ap_cost": ap_cost,
+                "narration": narration,
+                "effects": {"search_count": loc.search_count if loc else 0},
+                "target": None,
+                "perception": None,
+            }
+        else:
+            narration = get_template_narration("search", "fail", ctx)
+            return {
+                "success": False,
+                "action_id": "search",
+                "ap_cost": ap_cost,
+                "narration": narration,
+                "effects": {"search_count": loc.search_count if loc else 0},
+                "target": None,
+                "perception": None,
+            }
+
+    def _resolve_examine(
+        self,
+        target_npc: NPC | None,
+        target_item: str | None,
+        ap_cost: int,
+        ctx: dict,
+    ) -> dict:
+        """Examine a specific NPC, item, or the environment."""
+        if target_npc:
+            ctx["target"] = target_npc.name
+            rep_label = self.player.get_reputation_label(target_npc.npc_uid)
+            discovery = (
+                f"{target_npc.name} is a {target_npc.archetype}. "
+                f"Their demeanor toward you seems {rep_label}. "
+                f"HP: {target_npc.current_hp}/{target_npc.max_hp}."
+            )
+            ctx["discovery"] = discovery
+            narration = get_template_narration("examine", "success", ctx)
+        elif target_item:
+            item = self.player.get_item(target_item)
+            if item:
+                ctx["target"] = item["name"]
+                ctx["discovery"] = item.get("description", "Nothing remarkable.")
+                narration = get_template_narration("examine", "success", ctx)
+            else:
+                narration = get_template_narration("examine", "blocked", ctx)
+        else:
+            # Examine environment
+            loc = self.world.get_location(self.player.location)
+            ctx["target"] = loc.name if loc else "the area"
+            ctx["discovery"] = loc.description if loc else "Nothing stands out."
+            narration = get_template_narration("examine", "success", ctx)
+
+        return {
+            "success": True,
+            "action_id": "examine",
+            "ap_cost": ap_cost,
+            "narration": narration,
+            "effects": {},
+            "target": target_npc.npc_uid if target_npc else target_item,
+            "perception": None,
+        }
+
+    def _resolve_social_talk(
+        self,
+        action_id: str,
+        target_npc: NPC | None,
+        emotion: str,
+        social: str,
+        parsed_input: dict,
+        ap_cost: int,
+        ctx: dict,
+    ) -> dict:
+        """Resolve talk, greet, or ask_info actions."""
+        if not target_npc:
+            # Auto-select an NPC at the location
+            npcs_here = get_npcs_at_location(self.npc_registry, self.player.location)
+            if npcs_here:
+                target_npc = npcs_here[0]
+            else:
+                narration = get_template_narration(action_id, "blocked", ctx)
+                return {
+                    "success": False,
+                    "action_id": action_id,
+                    "ap_cost": ap_cost,
+                    "narration": narration,
+                    "effects": {},
+                    "target": None,
+                    "perception": None,
+                }
+
+        ctx["target"] = target_npc.name
+        player_rep = self.player.get_reputation(target_npc.npc_uid)
+
+        # Check if NPC is incapacitated
+        if target_npc.is_incapacitated():
+            narration = f"{target_npc.name} is unconscious and cannot respond."
+            return {
+                "success": False,
+                "action_id": action_id,
+                "ap_cost": ap_cost,
+                "narration": narration,
+                "effects": {},
+                "target": target_npc.npc_uid,
+                "perception": None,
+            }
+
+        # Resolve dialogue
+        dialogue_ctx = {
+            "player_reputation": player_rep,
+            "quest_state": self.player.quest_state,
+            "location": self.player.location,
+            "turn": self.turn,
+            "time_of_day": self.world.time_of_day,
+        }
+        dialogue_result = resolve_dialogue(
+            target_npc,
+            action_id,
+            parsed_input.get("raw_text"),
+            emotion,
+            social,
+            dialogue_ctx,
+        )
+
+        dialogue_text = format_dialogue(target_npc.name, dialogue_result["dialogue"])
+
+        # Greet tracking
+        if action_id == "greet":
+            if not self.player.has_greeted(target_npc.npc_uid):
+                self.player.mark_greeted(target_npc.npc_uid)
+                self.player.modify_reputation(target_npc.npc_uid, 2)
+                dialogue_result["reputation_change"] = dialogue_result.get("reputation_change", 0) + 2
+
+        # Apply reputation change
+        rep_change = dialogue_result.get("reputation_change", 0)
+        if rep_change:
+            mult = self.difficulty.get("reputation_gain_multiplier", 1.0) if rep_change > 0 else self.difficulty.get("reputation_loss_multiplier", 1.0)
+            actual_rep = self.player.modify_reputation(
+                target_npc.npc_uid, int(rep_change * mult)
+            )
+            if actual_rep:
+                self._metrics["reputation_changes"] += 1
+
+        # Add conversation to NPC history
+        target_npc.add_conversation({
+            "turn": self.turn,
+            "action": action_id,
+            "player_text": parsed_input.get("raw_text"),
+            "npc_response": dialogue_result["dialogue"],
+            "emotion": emotion,
+            "social": social,
+        })
+
+        # Apply mood change
+        mood_change = dialogue_result.get("mood_change", 0)
+        if mood_change:
+            target_npc.stats["happiness"] = max(
+                0, min(10, target_npc.stats["happiness"] + mood_change)
+            )
+
+        narration = get_template_narration(action_id, "success", ctx)
+        narration += f" {dialogue_text}"
+
+        effects: dict[str, Any] = {
+            "reputation_change": rep_change,
+            "mood_change": mood_change,
+            "reveals_info": dialogue_result.get("reveals_info", False),
+        }
+
+        return {
+            "success": True,
+            "action_id": action_id,
+            "ap_cost": ap_cost,
+            "narration": narration,
+            "effects": effects,
+            "target": target_npc.npc_uid,
+            "perception": None,
+        }
+
+    def _resolve_persuade(
+        self,
+        target_npc: NPC | None,
+        social: str,
+        ap_cost: int,
+        ctx: dict,
+    ) -> dict:
+        """Resolve a persuade attempt."""
+        if not target_npc:
+            target_npc = self._auto_select_npc()
+        if not target_npc:
+            return self._no_target("persuade", ap_cost, ctx)
+
+        ctx["target"] = target_npc.name
+        rep = self.player.get_reputation(target_npc.npc_uid)
+        social_mod = SOCIAL_MODIFIERS.get(social, 0)
+        prob = compute_skill_probability("persuade", reputation=rep, social_modifier=social_mod)
+
+        if random.random() < prob:
+            rep_gain = 5
+            mult = self.difficulty.get("reputation_gain_multiplier", 1.0)
+            self.player.modify_reputation(target_npc.npc_uid, int(rep_gain * mult))
+            narration = get_template_narration("persuade", "success", ctx)
+            return {
+                "success": True,
+                "action_id": "persuade",
+                "ap_cost": ap_cost,
+                "narration": narration,
+                "effects": {"reputation": {target_npc.npc_uid: int(rep_gain * mult)}},
+                "target": target_npc.npc_uid,
+                "perception": None,
+            }
+        else:
+            rep_loss = -2
+            mult = self.difficulty.get("reputation_loss_multiplier", 1.0)
+            self.player.modify_reputation(target_npc.npc_uid, int(rep_loss * mult))
+            narration = get_template_narration("persuade", "fail", ctx)
+            return {
+                "success": False,
+                "action_id": "persuade",
+                "ap_cost": ap_cost,
+                "narration": narration,
+                "effects": {"reputation": {target_npc.npc_uid: int(rep_loss * mult)}},
+                "target": target_npc.npc_uid,
+                "perception": None,
+            }
+
+    def _resolve_deceive(
+        self,
+        target_npc: NPC | None,
+        social: str,
+        ap_cost: int,
+        ctx: dict,
+    ) -> dict:
+        """Resolve a deception attempt."""
+        if not target_npc:
+            target_npc = self._auto_select_npc()
+        if not target_npc:
+            return self._no_target("deceive", ap_cost, ctx)
+
+        ctx["target"] = target_npc.name
+        rep = self.player.get_reputation(target_npc.npc_uid)
+        social_mod = SOCIAL_MODIFIERS.get(social, 0)
+        prob = compute_skill_probability("deceive", reputation=rep, social_modifier=social_mod)
+
+        if random.random() < prob:
+            narration = get_template_narration("deceive", "success", ctx)
+            return {
+                "success": True,
+                "action_id": "deceive",
+                "ap_cost": ap_cost,
+                "narration": narration,
+                "effects": {"deception_success": True},
+                "target": target_npc.npc_uid,
+                "perception": None,
+            }
+        else:
+            rep_loss = -5
+            mult = self.difficulty.get("reputation_loss_multiplier", 1.0)
+            self.player.modify_reputation(target_npc.npc_uid, int(rep_loss * mult))
+            # Witnesses also penalize
+            witnesses = detect_witnesses(
+                self.player.location, "player",
+                _npc_locations_map(self.npc_registry),
+            )
+            for w_uid in witnesses:
+                if w_uid != target_npc.npc_uid:
+                    self.player.modify_reputation(w_uid, -2)
+
+            narration = get_template_narration("deceive", "fail", ctx)
+            return {
+                "success": False,
+                "action_id": "deceive",
+                "ap_cost": ap_cost,
+                "narration": narration,
+                "effects": {
+                    "deception_success": False,
+                    "reputation": {target_npc.npc_uid: int(rep_loss * mult)},
+                },
+                "target": target_npc.npc_uid,
+                "perception": None,
+            }
+
+    def _resolve_intimidate(
+        self,
+        target_npc: NPC | None,
+        social: str,
+        ap_cost: int,
+        ctx: dict,
+    ) -> dict:
+        """Resolve an intimidation attempt."""
+        if not target_npc:
+            target_npc = self._auto_select_npc()
+        if not target_npc:
+            return self._no_target("intimidate", ap_cost, ctx)
+
+        ctx["target"] = target_npc.name
+        # Intimidation uses attack vs defense as a proxy
+        player_atk = self.player.combat_stats["base_attack"] + self.player.combat_stats["weapon_modifier"]
+        npc_def = target_npc.combat_stats["base_defense"]
+        prob = min(0.9, max(0.1, 0.5 + (player_atk - npc_def) / 20))
+
+        if random.random() < prob:
+            rep_loss = -3
+            mult = self.difficulty.get("reputation_loss_multiplier", 1.0)
+            self.player.modify_reputation(target_npc.npc_uid, int(rep_loss * mult))
+            narration = get_template_narration("intimidate", "success", ctx)
+            return {
+                "success": True,
+                "action_id": "intimidate",
+                "ap_cost": ap_cost,
+                "narration": narration,
+                "effects": {"reputation": {target_npc.npc_uid: int(rep_loss * mult)}},
+                "target": target_npc.npc_uid,
+                "perception": None,
+            }
+        else:
+            narration = get_template_narration("intimidate", "fail", ctx)
+            return {
+                "success": False,
+                "action_id": "intimidate",
+                "ap_cost": ap_cost,
+                "narration": narration,
+                "effects": {},
+                "target": target_npc.npc_uid,
+                "perception": None,
+            }
+
+    def _resolve_trade(
+        self,
+        target_npc: NPC | None,
+        ap_cost: int,
+        ctx: dict,
+    ) -> dict:
+        """Resolve trading with an NPC."""
+        if not target_npc:
+            target_npc = self._auto_select_npc()
+        if not target_npc:
+            return self._no_target("trade", ap_cost, ctx)
+
+        ctx["target"] = target_npc.name
+        rep = self.player.get_reputation(target_npc.npc_uid)
+
+        # Hostile NPCs refuse trade
+        if rep <= -50:
+            narration = f"{target_npc.name} refuses to do business with you. Their expression is hostile."
+            return {
+                "success": False,
+                "action_id": "trade",
+                "ap_cost": ap_cost,
+                "narration": narration,
+                "effects": {},
+                "target": target_npc.npc_uid,
+                "perception": None,
+            }
+
+        narration = get_template_narration("trade", "success", ctx)
+        # Reputation bonus for successful trade
+        self.player.modify_reputation(target_npc.npc_uid, 1)
+
+        return {
+            "success": True,
+            "action_id": "trade",
+            "ap_cost": ap_cost,
+            "narration": narration,
+            "effects": {"reputation": {target_npc.npc_uid: 1}},
+            "target": target_npc.npc_uid,
+            "perception": None,
+        }
+
+    def _resolve_give_item(
+        self,
+        target_npc: NPC | None,
+        target_item: str | None,
+        ap_cost: int,
+        ctx: dict,
+    ) -> dict:
+        """Resolve giving an item to an NPC."""
+        if not target_npc:
+            target_npc = self._auto_select_npc()
+        if not target_npc:
+            return self._no_target("give_item", ap_cost, ctx)
+        if not target_item:
+            narration = get_template_narration("give_item", "blocked", ctx)
+            return {
+                "success": False,
+                "action_id": "give_item",
+                "ap_cost": ap_cost,
+                "narration": narration,
+                "effects": {},
+                "target": target_npc.npc_uid,
+                "perception": None,
+            }
+
+        item = self.player.get_item(target_item)
+        if not item:
+            narration = "You don't have that item."
+            return {
+                "success": False,
+                "action_id": "give_item",
+                "ap_cost": ap_cost,
+                "narration": narration,
+                "effects": {},
+                "target": target_npc.npc_uid,
+                "perception": None,
+            }
+
+        # Quest items cannot be given to non-quest NPCs unless relevant
+        ctx["target"] = target_npc.name
+        ctx["item"] = item["name"]
+
+        # Remove from player inventory
+        self.player.remove_item(target_item)
+        # Reputation boost
+        rep_gain = 3
+        mult = self.difficulty.get("reputation_gain_multiplier", 1.0)
+        self.player.modify_reputation(target_npc.npc_uid, int(rep_gain * mult))
+
+        narration = get_template_narration("give_item", "success", ctx)
+        return {
+            "success": True,
+            "action_id": "give_item",
+            "ap_cost": ap_cost,
+            "narration": narration,
+            "effects": {
+                "item_given": target_item,
+                "reputation": {target_npc.npc_uid: int(rep_gain * mult)},
+            },
+            "target": target_npc.npc_uid,
+            "perception": None,
+        }
+
+    def _resolve_attack(
+        self,
+        target_npc: NPC | None,
+        ap_cost: int,
+        ctx: dict,
+    ) -> dict:
+        """Resolve a combat attack against an NPC."""
+        if not target_npc:
+            target_npc = self._auto_select_npc()
+        if not target_npc:
+            narration = get_template_narration("attack", "blocked", ctx)
+            return {
+                "success": False,
+                "action_id": "attack",
+                "ap_cost": ap_cost,
+                "narration": narration,
+                "effects": {},
+                "target": None,
+                "perception": None,
+            }
+
+        ctx["target"] = target_npc.name
+        self.player.in_combat = True
+        self.player.combat_target = target_npc.npc_uid
+        self._metrics["combat_encounters"] += 1
+
+        # Resolve attack using combat system
+        attacker = self.player.get_combat_dict()
+        defender = target_npc.get_combat_dict()
+        diff_cfg = self.difficulty.to_dict()
+
+        combat_result: CombatResult = resolve_attack(attacker, defender, diff_cfg)
+
+        # Apply damage to NPC
+        effects: dict[str, Any] = {"combat": True}
+        if combat_result.hit:
+            target_npc.modify_hp(-combat_result.damage)
+            ctx["damage"] = combat_result.damage
+            effects["damage"] = combat_result.damage
+            effects["target_hp"] = target_npc.current_hp
+
+            # Check incapacitation
+            if target_npc.current_hp <= 0:
+                if target_npc.quest_critical:
+                    # Quest-critical: floor at 1 HP, permanently hostile
+                    target_npc.current_hp = 1
+                    self.player.modify_reputation(target_npc.npc_uid, -80)
+                    narration = (
+                        f"{combat_result.narrative} "
+                        f"{target_npc.name} collapses but clings to life. "
+                        f"They will never forget this."
+                    )
+                    effects["quest_critical_downed"] = True
+                else:
+                    # Non-critical: incapacitate for 20 turns
+                    target_npc.incapacitate(self.turn)
+                    self._metrics["npcs_incapacitated"] += 1
+                    self.player.modify_reputation(target_npc.npc_uid, -80)
+                    # Witness penalty
+                    witnesses = detect_witnesses(
+                        self.player.location, "player",
+                        _npc_locations_map(self.npc_registry),
+                    )
+                    for w_uid in witnesses:
+                        from backend.config import INCAPACITATION_WITNESS_PENALTY
+                        self.player.modify_reputation(w_uid, INCAPACITATION_WITNESS_PENALTY)
+                    narration = (
+                        f"{combat_result.narrative} "
+                        f"{target_npc.name} falls unconscious."
+                    )
+                    effects["incapacitated"] = target_npc.npc_uid
+
+                # Exit combat
+                self.player.in_combat = False
+                self.player.combat_target = None
+            else:
+                narration = combat_result.narrative
+        else:
+            narration = combat_result.narrative
+
+        # Reputation loss for attacking
+        rep_loss = -10
+        mult = self.difficulty.get("reputation_loss_multiplier", 1.0)
+        self.player.modify_reputation(target_npc.npc_uid, int(rep_loss * mult))
+        effects["reputation"] = {target_npc.npc_uid: int(rep_loss * mult)}
+
+        return {
+            "success": combat_result.hit,
+            "action_id": "attack",
+            "ap_cost": ap_cost,
+            "narration": narration,
+            "effects": effects,
+            "target": target_npc.npc_uid,
+            "perception": None,
+        }
+
+    def _resolve_defend(self, ap_cost: int, ctx: dict) -> dict:
+        """Set defending flag for damage reduction."""
+        self.player.is_defending = True
+        narration = get_template_narration("defend", "success", ctx)
+
+        if not self.player.in_combat:
+            narration = get_template_narration("defend", "blocked", ctx)
+
+        return {
+            "success": True,
+            "action_id": "defend",
+            "ap_cost": ap_cost,
+            "narration": narration,
+            "effects": {"is_defending": True},
+            "target": None,
+            "perception": None,
+        }
+
+    def _resolve_flee(self, ap_cost: int, ctx: dict) -> dict:
+        """Attempt to flee from combat."""
+        if not self.player.in_combat or not self.player.combat_target:
+            narration = "You aren't in combat. There's nothing to flee from."
+            return {
+                "success": False,
+                "action_id": "flee",
+                "ap_cost": 0,
+                "narration": narration,
+                "effects": {},
+                "target": None,
+                "perception": None,
+            }
+
+        opponent_npc = self.npc_registry.get(self.player.combat_target)
+        if not opponent_npc:
+            self.player.in_combat = False
+            self.player.combat_target = None
+            return {
+                "success": True,
+                "action_id": "flee",
+                "ap_cost": ap_cost,
+                "narration": "Your opponent has vanished. You are no longer in combat.",
+                "effects": {},
+                "target": None,
+                "perception": None,
+            }
+
+        fleeing = self.player.get_combat_dict()
+        opponent = opponent_npc.get_combat_dict()
+        diff_cfg = self.difficulty.to_dict()
+
+        flee_result = resolve_flee(fleeing, opponent, diff_cfg)
+
+        if flee_result["success"]:
+            # Move player to random adjacent location
+            adj = self.world.get_adjacent(self.player.location)
+            if adj:
+                new_loc = random.choice(adj)
+                self.player.location = new_loc
+            self.player.in_combat = False
+            self.player.combat_target = None
+            ctx["target"] = self.world.get_location(self.player.location)
+            loc_name = ctx["target"].name if ctx["target"] else self.player.location
+            ctx["target"] = loc_name
+            narration = get_template_narration("flee", "success", ctx)
+            return {
+                "success": True,
+                "action_id": "flee",
+                "ap_cost": ap_cost,
+                "narration": narration,
+                "effects": {"fled_to": self.player.location},
+                "target": None,
+                "perception": None,
+            }
+        else:
+            # Failed flee — take free attack
+            narration = flee_result["narrative"]
+            effects: dict[str, Any] = {"flee_failed": True}
+            free_attack: CombatResult | None = flee_result.get("free_attack")
+            if free_attack and free_attack.hit:
+                self.player.modify_health(-free_attack.damage)
+                narration += f" {free_attack.narrative}"
+                effects["damage_taken"] = free_attack.damage
+                effects["health_after"] = self.player.health
+
+            return {
+                "success": False,
+                "action_id": "flee",
+                "ap_cost": ap_cost,
+                "narration": narration,
+                "effects": effects,
+                "target": self.player.combat_target,
+                "perception": None,
+            }
+
+    def _resolve_sneak(self, ap_cost: int, ctx: dict) -> dict:
+        """Attempt to sneak / move stealthily."""
+        npcs_at_loc = len(get_npcs_at_location(self.npc_registry, self.player.location))
+        time_bonus = self.world.get_time_bonus()
+        prob = compute_skill_probability(
+            "sneak", time_bonus=time_bonus, npcs_at_location=npcs_at_loc
+        )
+
+        if random.random() < prob:
+            narration = get_template_narration("sneak", "success", ctx)
+            return {
+                "success": True,
+                "action_id": "sneak",
+                "ap_cost": ap_cost,
+                "narration": narration,
+                "effects": {"hidden": True},
+                "target": None,
+                "perception": None,
+            }
+        else:
+            narration = get_template_narration("sneak", "fail", ctx)
+            return {
+                "success": False,
+                "action_id": "sneak",
+                "ap_cost": ap_cost,
+                "narration": narration,
+                "effects": {"hidden": False},
+                "target": None,
+                "perception": None,
+            }
+
+    def _resolve_hide(self, ap_cost: int, ctx: dict) -> dict:
+        """Attempt to hide from view."""
+        npcs_at_loc = len(get_npcs_at_location(self.npc_registry, self.player.location))
+        time_bonus = self.world.get_time_bonus()
+        prob = compute_skill_probability(
+            "hide", time_bonus=time_bonus, npcs_at_location=npcs_at_loc
+        )
+
+        if random.random() < prob:
+            narration = get_template_narration("hide", "success", ctx)
+            return {
+                "success": True,
+                "action_id": "hide",
+                "ap_cost": ap_cost,
+                "narration": narration,
+                "effects": {"hidden": True},
+                "target": None,
+                "perception": None,
+            }
+        else:
+            narration = get_template_narration("hide", "fail", ctx)
+            return {
+                "success": False,
+                "action_id": "hide",
+                "ap_cost": ap_cost,
+                "narration": narration,
+                "effects": {"hidden": False},
+                "target": None,
+                "perception": None,
+            }
+
+    def _resolve_steal(
+        self,
+        target_npc: NPC | None,
+        target_item: str | None,
+        ap_cost: int,
+        ctx: dict,
+    ) -> dict:
+        """Attempt to steal from an NPC or the environment."""
+        if not target_npc:
+            target_npc = self._auto_select_npc()
+
+        npcs_at_loc = len(get_npcs_at_location(self.npc_registry, self.player.location))
+        time_bonus = self.world.get_time_bonus()
+        prob = compute_skill_probability(
+            "steal", time_bonus=time_bonus, npcs_at_location=npcs_at_loc
+        )
+
+        if not target_npc and not target_item:
+            narration = get_template_narration("steal", "blocked", ctx)
+            return {
+                "success": False,
+                "action_id": "steal",
+                "ap_cost": ap_cost,
+                "narration": narration,
+                "effects": {},
+                "target": None,
+                "perception": None,
+            }
+
+        if target_npc:
+            ctx["target"] = target_npc.name
+
+        if random.random() < prob:
+            ctx["item"] = target_item or "some coins"
+            narration = get_template_narration("steal", "success", ctx)
+            return {
+                "success": True,
+                "action_id": "steal",
+                "ap_cost": ap_cost,
+                "narration": narration,
+                "effects": {"stolen_item": target_item},
+                "target": target_npc.npc_uid if target_npc else None,
+                "perception": None,
+            }
+        else:
+            # Caught! reputation penalty
+            if target_npc:
+                rep_loss = -10
+                mult = self.difficulty.get("reputation_loss_multiplier", 1.0)
+                self.player.modify_reputation(target_npc.npc_uid, int(rep_loss * mult))
+                # Witnesses also penalize
+                witnesses = detect_witnesses(
+                    self.player.location, "player",
+                    _npc_locations_map(self.npc_registry),
+                )
+                for w_uid in witnesses:
+                    if w_uid != target_npc.npc_uid:
+                        self.player.modify_reputation(w_uid, -5)
+
+            narration = get_template_narration("steal", "fail", ctx)
+            return {
+                "success": False,
+                "action_id": "steal",
+                "ap_cost": ap_cost,
+                "narration": narration,
+                "effects": {"caught": True},
+                "target": target_npc.npc_uid if target_npc else None,
+                "perception": None,
+            }
+
+    def _resolve_pick_up(
+        self, target_item: str | None, ap_cost: int, ctx: dict
+    ) -> dict:
+        """Pick up an item from the ground."""
+        loc = self.world.get_location(self.player.location)
+        if not loc or not loc.items_on_ground:
+            narration = get_template_narration("pick_up", "blocked", ctx)
+            return {
+                "success": False,
+                "action_id": "pick_up",
+                "ap_cost": ap_cost,
+                "narration": narration,
+                "effects": {},
+                "target": None,
+                "perception": None,
+            }
+
+        # Find the item
+        found_item = None
+        for i, item in enumerate(loc.items_on_ground):
+            if target_item and item["id"] == target_item:
+                found_item = loc.items_on_ground.pop(i)
+                break
+        if not found_item and loc.items_on_ground:
+            found_item = loc.items_on_ground.pop(0)
+
+        if not found_item:
+            narration = get_template_narration("pick_up", "blocked", ctx)
+            return {
+                "success": False,
+                "action_id": "pick_up",
+                "ap_cost": ap_cost,
+                "narration": narration,
+                "effects": {},
+                "target": None,
+                "perception": None,
+            }
+
+        # Check inventory capacity
+        if self.player.inventory_full():
+            if found_item.get("quest_relevant"):
+                # Auto-prompt: find droppable item
+                droppable = self.player.get_droppable_items()
+                if droppable:
+                    dropped = self.player.remove_item(droppable[0]["id"])
+                    if dropped and loc:
+                        loc.items_on_ground.append(dropped)
+                    self.player.add_item(found_item)
+                    ctx["item"] = found_item["name"]
+                    narration = (
+                        f"Your inventory is full, but this item is important. "
+                        f"You drop {dropped['name'] if dropped else 'something'} "
+                        f"and pick up {found_item['name']}."
+                    )
+                    return {
+                        "success": True,
+                        "action_id": "pick_up",
+                        "ap_cost": ap_cost,
+                        "narration": narration,
+                        "effects": {
+                            "picked_up": found_item["id"],
+                            "auto_dropped": dropped["id"] if dropped else None,
+                        },
+                        "target": None,
+                        "perception": None,
+                    }
+                else:
+                    # All items are quest items — still pick it up (emergency)
+                    self.player.add_item(found_item)
+                    ctx["item"] = found_item["name"]
+                    narration = f"You squeeze {found_item['name']} into your already full pack."
+                    return {
+                        "success": True,
+                        "action_id": "pick_up",
+                        "ap_cost": ap_cost,
+                        "narration": narration,
+                        "effects": {"picked_up": found_item["id"]},
+                        "target": None,
+                        "perception": None,
+                    }
+            else:
+                # Not quest-relevant — put it back
+                loc.items_on_ground.insert(0, found_item)
+                narration = "Your inventory is full! You need to drop something first."
+                return {
+                    "success": False,
+                    "action_id": "pick_up",
+                    "ap_cost": ap_cost,
+                    "narration": narration,
+                    "effects": {"inventory_full": True},
+                    "target": None,
+                    "perception": None,
+                }
+
+        self.player.add_item(found_item)
+        ctx["item"] = found_item["name"]
+        narration = get_template_narration("pick_up", "success", ctx)
+        return {
+            "success": True,
+            "action_id": "pick_up",
+            "ap_cost": ap_cost,
+            "narration": narration,
+            "effects": {"picked_up": found_item["id"]},
+            "target": None,
+            "perception": None,
+        }
+
+    def _resolve_use_item(
+        self, target_item: str | None, ap_cost: int, ctx: dict
+    ) -> dict:
+        """Use an item from inventory."""
+        if not target_item:
+            narration = get_template_narration("use_item", "blocked", ctx)
+            return {
+                "success": False,
+                "action_id": "use_item",
+                "ap_cost": ap_cost,
+                "narration": narration,
+                "effects": {},
+                "target": None,
+                "perception": None,
+            }
+
+        item = self.player.get_item(target_item)
+        if not item:
+            narration = "You don't have that item."
+            return {
+                "success": False,
+                "action_id": "use_item",
+                "ap_cost": ap_cost,
+                "narration": narration,
+                "effects": {},
+                "target": None,
+                "perception": None,
+            }
+
+        ctx["item"] = item["name"]
+        effects_dict: dict[str, Any] = {}
+
+        # Apply item effects
+        item_effects = item.get("effects", {})
+        effect_desc_parts: list[str] = []
+
+        if "heal" in item_effects:
+            heal_amount = item_effects["heal"]
+            actual = self.player.modify_health(heal_amount)
+            effects_dict["healed"] = actual
+            effect_desc_parts.append(f"+{actual} HP")
+
+        if "stamina" in item_effects:
+            stam_amount = item_effects["stamina"]
+            actual = self.player.modify_stamina(stam_amount)
+            effects_dict["stamina_restored"] = actual
+            effect_desc_parts.append(f"+{actual} AP")
+
+        ctx["effect"] = ", ".join(effect_desc_parts) if effect_desc_parts else "Nothing happens."
+
+        # Consume if consumable
+        if item.get("type") == "consumable":
+            self.player.remove_item(target_item)
+            effects_dict["consumed"] = True
+
+        narration = get_template_narration("use_item", "success", ctx)
+        return {
+            "success": True,
+            "action_id": "use_item",
+            "ap_cost": ap_cost,
+            "narration": narration,
+            "effects": effects_dict,
+            "target": None,
+            "perception": None,
+        }
+
+    def _resolve_eat(
+        self, target_item: str | None, ap_cost: int, ctx: dict
+    ) -> dict:
+        """Eat a food item to restore HP."""
+        # Find food in inventory
+        food_items = self.player.get_food_items()
+
+        if target_item:
+            food = self.player.get_item(target_item)
+            if food and food.get("type") == "consumable" and "heal" in food.get("effects", {}):
+                food_items = [food]
+            else:
+                food_items = []
+
+        if not food_items:
+            narration = get_template_narration("eat", "blocked", ctx)
+            return {
+                "success": False,
+                "action_id": "eat",
+                "ap_cost": ap_cost,
+                "narration": narration,
+                "effects": {},
+                "target": None,
+                "perception": None,
+            }
+
+        food = food_items[0]
+        heal_amount = food.get("effects", {}).get("heal", 5)
+        actual_heal = self.player.modify_health(heal_amount)
+        self.player.remove_item(food["id"])
+
+        ctx["item"] = food["name"]
+        ctx["heal"] = actual_heal
+        narration = get_template_narration("eat", "success", ctx)
+
+        return {
+            "success": True,
+            "action_id": "eat",
+            "ap_cost": ap_cost,
+            "narration": narration,
+            "effects": {"healed": actual_heal, "consumed": food["id"]},
+            "target": None,
+            "perception": None,
+        }
+
+    def _resolve_rest(self, ap_cost: int, ctx: dict) -> dict:
+        """Rest to recover AP. Requires indoor/safe or no combat."""
+        if self.player.in_combat:
+            # In combat, rest becomes wait
+            return self._resolve_wait(0, ctx)
+
+        is_indoor = self.world.is_indoor(self.player.location)
+        if not is_indoor:
+            # Outdoor: rest resolves as wait with a message
+            ctx_copy = dict(ctx)
+            narration = get_template_narration("rest", "fail", ctx_copy)
+            # Still give partial stamina bonus from wait
+            return {
+                "success": False,
+                "action_id": "rest",
+                "ap_cost": 0,
+                "narration": narration,
+                "effects": {"rested_as_wait": True},
+                "target": None,
+                "perception": None,
+            }
+
+        # Successful rest: +10 AP
+        actual = self.player.modify_stamina(10)
+        narration = get_template_narration("rest", "success", ctx)
+        return {
+            "success": True,
+            "action_id": "rest",
+            "ap_cost": 0,
+            "narration": narration,
+            "effects": {"stamina_restored": actual},
+            "target": None,
+            "perception": None,
+        }
+
+    def _resolve_wait(self, ap_cost: int, ctx: dict) -> dict:
+        """Wait and observe."""
+        narration = get_template_narration("wait", "success", ctx)
+
+        # Passive perception from wait
+        perception = None
+        loc = self.world.get_location(self.player.location)
+        if loc:
+            npcs_here = get_npcs_at_location(self.npc_registry, self.player.location)
+            perception = passive_perception_check(
+                self.player.location,
+                self.world.is_social(self.player.location),
+                loc.items_on_ground,
+                [{"npc_uid": n.npc_uid, "name": n.name} for n in npcs_here],
+            )
+
+        return {
+            "success": True,
+            "action_id": "wait",
+            "ap_cost": 0,
+            "narration": narration,
+            "effects": {},
+            "target": None,
+            "perception": perception,
+        }
+
+    def _resolve_drop_item(
+        self, target_item: str | None, ap_cost: int, ctx: dict
+    ) -> dict:
+        """Drop an item from inventory."""
+        if not target_item:
+            droppable = self.player.get_droppable_items()
+            if not droppable:
+                narration = get_template_narration("drop_item", "blocked", ctx)
+                return {
+                    "success": False,
+                    "action_id": "drop_item",
+                    "ap_cost": 0,
+                    "narration": narration,
+                    "effects": {},
+                    "target": None,
+                    "perception": None,
+                }
+            target_item = droppable[0]["id"]
+
+        item = self.player.get_item(target_item)
+        if not item:
+            narration = "You don't have that item."
+            return {
+                "success": False,
+                "action_id": "drop_item",
+                "ap_cost": 0,
+                "narration": narration,
+                "effects": {},
+                "target": None,
+                "perception": None,
+            }
+
+        # Quest items can't be dropped
+        if item.get("quest_relevant"):
+            narration = get_template_narration("drop_item", "blocked", ctx)
+            return {
+                "success": False,
+                "action_id": "drop_item",
+                "ap_cost": 0,
+                "narration": narration,
+                "effects": {},
+                "target": None,
+                "perception": None,
+            }
+
+        removed = self.player.remove_item(target_item)
+        if removed:
+            loc = self.world.get_location(self.player.location)
+            if loc:
+                loc.items_on_ground.append(removed)
+            ctx["item"] = removed["name"]
+            narration = get_template_narration("drop_item", "success", ctx)
+            return {
+                "success": True,
+                "action_id": "drop_item",
+                "ap_cost": 0,
+                "narration": narration,
+                "effects": {"dropped": removed["id"]},
+                "target": None,
+                "perception": None,
+            }
+
+        narration = "Something went wrong trying to drop that item."
+        return {
+            "success": False,
+            "action_id": "drop_item",
+            "ap_cost": 0,
+            "narration": narration,
+            "effects": {},
+            "target": None,
+            "perception": None,
+        }
+
+    def _resolve_status(self, ap_cost: int, ctx: dict) -> dict:
+        """Check quest journal / status."""
+        progress = self.quest_manager.get_quest_progress()
+        cp = self.mdp.get_checkpoint(self.quest_manager.current_checkpoint)
+        quest_info = (
+            f"Quest: {progress['title']} | "
+            f"Stage {progress['current_stage']} | "
+            f"Checkpoint: {progress['current_checkpoint']} | "
+            f"Progress: {progress['completion_percent']}%"
+        )
+        if cp:
+            quest_info += f" — {cp.description}"
+
+        ctx["quest_info"] = quest_info
+        narration = get_template_narration("status", "success", ctx)
+        return {
+            "success": True,
+            "action_id": "status",
+            "ap_cost": 0,
+            "narration": narration,
+            "effects": {"quest_progress": progress},
+            "target": None,
+            "perception": None,
+        }
+
+    def _resolve_equip(
+        self, target_item: str | None, ap_cost: int, ctx: dict
+    ) -> dict:
+        """Equip a weapon or armor."""
+        if not target_item:
+            equipment = self.player.get_equipment_items()
+            if not equipment:
+                narration = get_template_narration("equip", "blocked", ctx)
+                return {
+                    "success": False,
+                    "action_id": "equip",
+                    "ap_cost": ap_cost,
+                    "narration": narration,
+                    "effects": {},
+                    "target": None,
+                    "perception": None,
+                }
+            target_item = equipment[0]["id"]
+
+        prev = self.player.equip_item(target_item)
+        item = self.player.get_item(target_item)
+
+        if item:
+            ctx["item"] = item["name"]
+            narration = get_template_narration("equip", "success", ctx)
+            return {
+                "success": True,
+                "action_id": "equip",
+                "ap_cost": ap_cost,
+                "narration": narration,
+                "effects": {
+                    "equipped": target_item,
+                    "previous": prev["id"] if prev else None,
+                },
+                "target": None,
+                "perception": None,
+            }
+        else:
+            narration = get_template_narration("equip", "blocked", ctx)
+            return {
+                "success": False,
+                "action_id": "equip",
+                "ap_cost": ap_cost,
+                "narration": narration,
+                "effects": {},
+                "target": None,
+                "perception": None,
+            }
+
+    def _resolve_work(self, ap_cost: int, ctx: dict) -> dict:
+        """Perform labor at appropriate locations."""
+        # Work is most effective at fields, tavern, or village center
+        location = self.player.location
+        work_locations = {"fields", "tavern", "village_center"}
+
+        if location in work_locations:
+            # Reputation boost with NPCs at location
+            npcs_here = get_npcs_at_location(self.npc_registry, location)
+            rep_effects: dict[str, int] = {}
+            for npc in npcs_here[:3]:
+                gain = 2
+                mult = self.difficulty.get("reputation_gain_multiplier", 1.0)
+                actual = self.player.modify_reputation(npc.npc_uid, int(gain * mult))
+                if actual:
+                    rep_effects[npc.npc_uid] = actual
+
+            narration = get_template_narration("work", "success", ctx)
+            return {
+                "success": True,
+                "action_id": "work",
+                "ap_cost": ap_cost,
+                "narration": narration,
+                "effects": {"reputation": rep_effects},
+                "target": None,
+                "perception": None,
+            }
+        else:
+            narration = get_template_narration("work", "fail", ctx)
+            return {
+                "success": False,
+                "action_id": "work",
+                "ap_cost": ap_cost,
+                "narration": narration,
+                "effects": {},
+                "target": None,
+                "perception": None,
+            }
+
+    # ── Action Resolution Helpers ─────────────────────────────────────────
+
+    def _hard_fail(self, action_id: str, ap_cost: int, reason: str) -> dict:
+        """Build a hard-fail result (0 AP cost, narrates why)."""
+        return {
+            "success": False,
+            "action_id": action_id,
+            "ap_cost": 0,
+            "narration": reason,
+            "effects": {},
+            "target": None,
+            "perception": None,
+        }
+
+    def _no_target(self, action_id: str, ap_cost: int, ctx: dict) -> dict:
+        """Build a 'no target present' blocked result."""
+        narration = get_template_narration(action_id, "blocked", ctx)
+        return {
+            "success": False,
+            "action_id": action_id,
+            "ap_cost": ap_cost,
+            "narration": narration,
+            "effects": {},
+            "target": None,
+            "perception": None,
+        }
+
+    def _auto_select_npc(self) -> NPC | None:
+        """Auto-select the first active NPC at the player's location."""
+        npcs = get_npcs_at_location(self.npc_registry, self.player.location)
+        return npcs[0] if npcs else None
+
+    def _get_active_weather(self) -> str | None:
+        """Get active weather event description, if any."""
+        for ev in self.world.active_events:
+            if ev.get("id", "").startswith("weather_"):
+                return ev.get("description")
+        return None
+
+    # ── Quest Progression ─────────────────────────────────────────────────
+
+    def _check_quest_progress(
+        self,
+        action_id: str,
+        parsed_input: dict,
+        action_result: dict,
+    ) -> dict | None:
+        """Check quest completion and handle deviations.
+
+        Returns quest update dict or None.
+        """
+        target_location = parsed_input.get("target_location")
+        target_npc = parsed_input.get("target_npc")
+
+        context = {
+            "target_location": target_location or self.player.location,
+            "target_npc": target_npc,
+            "location": self.player.location,
+        }
+
+        # Check if this action completes the current checkpoint
+        completion = self.quest_manager.check_completion(action_id, target_npc, context)
+
+        if completion:
+            next_cp = completion.get("next_checkpoint")
+            rewards = completion.get("rewards", {})
+
+            # Apply quest rewards
+            if "reputation" in rewards and isinstance(rewards["reputation"], dict):
+                for npc_uid, delta in rewards["reputation"].items():
+                    self.player.modify_reputation(npc_uid, delta)
+            if "gives" in rewards:
+                for item in rewards["gives"] if isinstance(rewards["gives"], list) else [rewards["gives"]]:
+                    if isinstance(item, dict):
+                        self.player.add_item(item)
+            if "stamina" in rewards:
+                self.player.modify_stamina(rewards["stamina"])
+
+            # Advance checkpoint
+            if next_cp:
+                self.quest_manager.advance_checkpoint(next_cp)
+                # Sync player quest state
+                self.player.quest_state["current_stage"] = self.quest_manager.current_stage
+                self.player.quest_state["current_checkpoint"] = self.quest_manager.current_checkpoint
+                self.player.quest_state["completed_checkpoints"] = list(
+                    self.quest_manager.completed_checkpoints
+                )
+
+            # Log quest event
+            importance = 5 if completion.get("stage_transition") else 3
+            self.event_log.add_entry(
+                turn=self.turn,
+                time_of_day=self.world.time_of_day,
+                event_type="quest_progress",
+                actor="player",
+                action=action_id,
+                target=next_cp,
+                location=self.player.location,
+                outcome="checkpoint_completed",
+                effects={
+                    "checkpoint_completed": completion["checkpoint_completed"],
+                    "next_checkpoint": next_cp,
+                    "stage_transition": completion.get("stage_transition", False),
+                },
+                witnesses=[],
+                narration=f"Quest progress: completed {completion['checkpoint_completed']}.",
+                importance=importance,
+            )
+
+            # Auto-save on quest progress
+            self.save_game("auto")
+
+            return {
+                "type": "checkpoint_completed",
+                "completion": completion,
+                "quest_progress": self.quest_manager.get_quest_progress(),
+            }
+
+        # No completion — check for deviation
+        if action_result["success"] and action_id not in ("look", "wait", "status", "rest", "examine"):
+            deviation = self.quest_manager.handle_deviation(action_id, context)
+
+            if deviation["force_convergence"]:
+                # Force convergence: loop detection check
+                looped = self.quest_manager.check_loop_detection(
+                    action_id, self.quest_manager.current_stage
+                )
+                hint = get_nudge_hint(
+                    deviation["deviation_count"],
+                    self.quest_manager.current_checkpoint,
+                    self.mdp,
+                )
+
+                if looped or deviation["force_convergence"]:
+                    # Force back to main flow
+                    convergence_cp = hint.get("target_cp")
+                    if convergence_cp and convergence_cp != self.quest_manager.current_checkpoint:
+                        self.quest_manager.advance_checkpoint(convergence_cp)
+                        self.player.quest_state["current_checkpoint"] = self.quest_manager.current_checkpoint
+
+                return {
+                    "type": "forced_convergence",
+                    "hint": hint,
+                    "deviation_count": deviation["deviation_count"],
+                }
+
+            if deviation["needs_dynamic_cp"]:
+                # Generate dynamic checkpoint
+                cp_id = self.quest_manager.generate_dynamic_cp_id(
+                    self.quest_manager.current_stage
+                )
+                npc_name = None
+                if parsed_input.get("target_npc"):
+                    npc_obj = self.npc_registry.get(parsed_input["target_npc"])
+                    npc_name = npc_obj.name if npc_obj else None
+
+                cp_context = {
+                    "checkpoint_id": cp_id,
+                    "location": self.player.location,
+                    "npc_name": npc_name or "a nearby villager",
+                    "nudge_target": self.quest_manager.current_checkpoint,
+                }
+
+                dynamic_cp = generate_dynamic_checkpoint(
+                    self.quest_manager.current_stage,
+                    action_id,
+                    cp_context,
+                    self.llm if self.llm.available else None,
+                )
+                self.quest_manager.add_dynamic_checkpoint(dynamic_cp)
+                self._metrics["dynamic_checkpoints_created"] += 1
+
+                # Move player to dynamic checkpoint
+                self.quest_manager.current_checkpoint = cp_id
+                self.player.quest_state["current_checkpoint"] = cp_id
+                self.player.quest_state["dynamic_checkpoints"] = list(
+                    self.quest_manager.dynamic_checkpoints
+                )
+
+                # Nudge hint
+                hint = get_nudge_hint(
+                    deviation["deviation_count"],
+                    cp_id,
+                    self.mdp,
+                )
+
+                # Nudge reward shaping
+                nudge_reward = compute_nudge_reward(cp_id, action_id, self.mdp)
+
+                return {
+                    "type": "dynamic_checkpoint",
+                    "checkpoint": {
+                        "id": cp_id,
+                        "description": dynamic_cp.description,
+                        "highlighted_actions": dynamic_cp.highlighted_actions,
+                    },
+                    "hint": hint,
+                    "nudge_reward": nudge_reward,
+                    "deviation_count": deviation["deviation_count"],
+                }
+
+        return None
+
+    # ── NPC Turn Processing ───────────────────────────────────────────────
+
+    def _process_npc_turns(self) -> list[dict]:
+        """Process all NPC actions for this turn.
+
+        For each active NPC:
+        1. Check recovery from incapacitation
+        2. Discretize state
+        3. Select action (Q-learning if past cold start, else schedule)
+        4. Resolve action
+        5. Compute reward and update Q-table
+        6. Indoor HP regen
+        7. Decay epsilon
+
+        Returns:
+            List of NPC action result dicts for narration filtering.
+        """
+        results: list[dict] = []
+        gossip_context = {"gossip_pairs": self._gossip_pairs_this_turn}
+
+        for uid, npc in self.npc_registry.items():
+            # 1. Check recovery
+            if npc.is_incapacitated():
+                recovered = npc.check_recovery(self.turn)
+                if recovered:
+                    results.append({
+                        "npc_uid": uid,
+                        "action": "recover",
+                        "narration": f"{npc.name} regains consciousness, looking dazed and hostile.",
+                        "location": npc.location,
+                        "importance": 3,
+                    })
+                continue
+
+            # 2. Discretize state
+            state = npc.discretize_state(self.world.time_of_day)
+
+            # 3. Select action
+            npcs_at_loc = [
+                n for n_uid, n in self.npc_registry.items()
+                if n.location == npc.location
+                and n_uid != uid
+                and not n.is_incapacitated()
+            ]
+            player_here = self.player.location == npc.location
+
+            game_ctx: dict[str, Any] = {
+                "npcs_at_location": npcs_at_loc,
+                "player_location": self.player.location,
+                "items_at_location": [],
+            }
+            loc = self.world.get_location(npc.location)
+            if loc:
+                game_ctx["items_at_location"] = loc.items_on_ground
+
+            if self.turn <= NPC_COLD_START_TURNS:
+                # Cold start: use fallback schedule
+                scheduled = get_scheduled_action(npc, self.world.time_of_day)
+                action_id = scheduled["action"]
+                action_idx = UNIVERSAL_ACTION_IDS.index(action_id) if action_id in UNIVERSAL_ACTION_IDS else UNIVERSAL_ACTION_IDS.index("wait")
+            else:
+                # Q-learning action selection
+                valid_actions = get_valid_actions(npc, game_ctx)
+                action_idx = select_action(npc, state, valid_actions)
+                action_id = UNIVERSAL_ACTION_IDS[action_idx]
+
+            # Snapshot stats before action
+            old_stats = dict(npc.stats)
+
+            # 4. Resolve action
+            npc_result = self._resolve_npc_action(npc, action_id, npcs_at_loc, player_here, gossip_context)
+
+            # 5. Compute reward and update Q-table
+            next_state = npc.discretize_state(self.world.time_of_day)
+            reward = compute_reward(npc, old_stats, npc.stats)
+            update_q_table(npc, state, action_idx, reward, next_state)
+
+            # 6. Indoor HP regen
+            if self.world.is_indoor(npc.location):
+                npc.modify_hp(NPC_INDOOR_REGEN)
+
+            # 7. Decay epsilon (only after cold start)
+            if self.turn > NPC_COLD_START_TURNS:
+                decay_epsilon(npc)
+
+            # Log NPC action
+            npc_importance = compute_importance(
+                "npc_action",
+                action_id,
+                "success" if npc_result.get("success", True) else "fail",
+                npc_result.get("effects", {}),
+            )
+
+            self.event_log.add_entry(
+                turn=self.turn,
+                time_of_day=self.world.time_of_day,
+                event_type="npc_action",
+                actor=uid,
+                action=action_id,
+                target=npc_result.get("target"),
+                location=npc.location,
+                outcome="success" if npc_result.get("success", True) else "fail",
+                effects=npc_result.get("effects", {}),
+                witnesses=[],
+                narration=npc_result.get("narration", ""),
+                importance=npc_importance,
+            )
+
+            npc_result["npc_uid"] = uid
+            npc_result["action"] = action_id
+            npc_result["location"] = npc.location
+            npc_result["importance"] = npc_importance
+            results.append(npc_result)
+
+        return results
+
+    def _resolve_npc_action(
+        self,
+        npc: NPC,
+        action_id: str,
+        npcs_at_loc: list[NPC],
+        player_here: bool,
+        gossip_context: dict,
+    ) -> dict:
+        """Resolve a single NPC action.
+
+        Returns:
+            Dict with success, narration, target, effects.
+        """
+        target_uid = resolve_npc_target(npc, action_id, npcs_at_loc, player_here)
+
+        match action_id:
+            case "move_to":
+                dest = get_movement_destination(npc, self.world.time_of_day, {})
+                adjacent = LOCATION_ADJACENCY.get(npc.location, [])
+                if dest in adjacent:
+                    old_loc = npc.location
+                    npc.location = dest
+                    return {
+                        "success": True,
+                        "narration": f"{npc.name} moves to {dest}.",
+                        "target": dest,
+                        "effects": {"old_location": old_loc, "new_location": dest},
+                    }
+                else:
+                    # Invalid location — penalty
+                    npc.stats["happiness"] = max(0, npc.stats["happiness"] - 1)
+                    return {
+                        "success": False,
+                        "narration": f"{npc.name} hesitates, unsure where to go.",
+                        "target": None,
+                        "effects": {"invalid_move": True},
+                    }
+
+            case "talk" | "greet" | "ask_info" | "persuade" | "trade" | "give_item" | "deceive" | "intimidate":
+                if target_uid and target_uid == "player" and player_here:
+                    # NPC → player social interaction
+                    narration = f"{npc.name} approaches you to chat."
+                    # Small reputation drift based on NPC mood
+                    mood = npc.stats.get("happiness", 5)
+                    if mood >= 7:
+                        self.player.modify_reputation(npc.npc_uid, 1)
+                    return {
+                        "success": True,
+                        "narration": narration,
+                        "target": "player",
+                        "effects": {},
+                    }
+                elif target_uid and target_uid != "player":
+                    target_npc_obj = self.npc_registry.get(target_uid)
+                    if target_npc_obj and not target_npc_obj.is_incapacitated():
+                        result = resolve_npc_npc_interaction(npc, target_npc_obj, action_id, {})
+
+                        # Gossip propagation after social interaction
+                        if action_id in ("talk", "greet", "ask_info"):
+                            recent_player_events = [
+                                e for e in self.event_log.get_recent(5)
+                                if e.get("actor") == "player"
+                                and abs(e.get("effects", {}).get("reputation_change", 0)) >= 3
+                            ]
+                            for evt in recent_player_events[:1]:
+                                propagate_gossip(
+                                    npc, target_npc_obj, evt,
+                                    self.turn, gossip_context,
+                                )
+
+                        return result
+                # No target available — generic
+                npc.stats["happiness"] = min(10, npc.stats["happiness"] + 0.1)
+                return {
+                    "success": False,
+                    "narration": f"{npc.name} looks around for someone to talk to.",
+                    "target": None,
+                    "effects": {},
+                }
+
+            case "attack":
+                if target_uid and target_uid == "player" and player_here:
+                    # NPC attacks player
+                    attacker = npc.get_combat_dict()
+                    defender = self.player.get_combat_dict()
+                    diff_cfg = self.difficulty.to_dict()
+                    combat_result = resolve_attack(attacker, defender, diff_cfg)
+
+                    self.player.in_combat = True
+                    self.player.combat_target = npc.npc_uid
+
+                    if combat_result.hit:
+                        # Apply defending reduction
+                        damage = combat_result.damage
+                        self.player.modify_health(-damage)
+                        narration = combat_result.narrative
+
+                        # Last chance: HP = 0 during dynamic CP
+                        if self.player.health <= 0:
+                            cp = self.mdp.get_checkpoint(self.quest_manager.current_checkpoint)
+                            if cp and cp.is_dynamic:
+                                # Check if within 2 CPs of main flow
+                                from backend.quest.nudge import compute_distance_to_main
+                                dist = compute_distance_to_main(
+                                    self.quest_manager.current_checkpoint, self.mdp
+                                )
+                                if dist <= 2:
+                                    self.player.health = 1
+                                    narration += " At the brink of death, you cling to life by sheer willpower."
+
+                        return {
+                            "success": True,
+                            "narration": narration,
+                            "target": "player",
+                            "effects": {
+                                "damage": damage,
+                                "player_hp": self.player.health,
+                            },
+                        }
+                    else:
+                        return {
+                            "success": False,
+                            "narration": combat_result.narrative,
+                            "target": "player",
+                            "effects": {"damage": 0},
+                        }
+                elif target_uid and target_uid != "player":
+                    target_npc_obj = self.npc_registry.get(target_uid)
+                    if target_npc_obj and not target_npc_obj.is_incapacitated():
+                        result = resolve_npc_npc_interaction(npc, target_npc_obj, "attack", {})
+                        # Check incapacitation
+                        if target_npc_obj.current_hp <= 0:
+                            if target_npc_obj.quest_critical:
+                                target_npc_obj.current_hp = 1
+                            else:
+                                target_npc_obj.incapacitate(self.turn)
+                        return result
+                return {
+                    "success": False,
+                    "narration": f"{npc.name} clenches their fists but finds no one to fight.",
+                    "target": None,
+                    "effects": {},
+                }
+
+            case "defend":
+                npc.is_defending = True
+                return {
+                    "success": True,
+                    "narration": f"{npc.name} takes a defensive stance.",
+                    "target": None,
+                    "effects": {},
+                }
+
+            case "flee":
+                adjacent = LOCATION_ADJACENCY.get(npc.location, [])
+                if adjacent:
+                    dest = random.choice(adjacent)
+                    npc.location = dest
+                    return {
+                        "success": True,
+                        "narration": f"{npc.name} hurries away.",
+                        "target": dest,
+                        "effects": {"fled_to": dest},
+                    }
+                return {
+                    "success": False,
+                    "narration": f"{npc.name} looks around nervously.",
+                    "target": None,
+                    "effects": {},
+                }
+
+            case "rest":
+                hp_gain = 5 if self.world.is_indoor(npc.location) else 2
+                npc.modify_hp(hp_gain)
+                npc.stats["health"] = min(10, npc.stats["health"] + 0.5)
+                return {
+                    "success": True,
+                    "narration": f"{npc.name} takes a moment to rest.",
+                    "target": None,
+                    "effects": {"hp_restored": hp_gain},
+                }
+
+            case "work":
+                income_gain = random.uniform(0.3, 1.0)
+                npc.stats["income"] = min(10, npc.stats["income"] + income_gain)
+                npc.stats["happiness"] = max(0, npc.stats["happiness"] - 0.2)
+                return {
+                    "success": True,
+                    "narration": f"{npc.name} busies themselves with work.",
+                    "target": None,
+                    "effects": {"income_gain": income_gain},
+                }
+
+            case "look" | "search" | "examine":
+                npc.stats["happiness"] = min(10, npc.stats["happiness"] + 0.1)
+                return {
+                    "success": True,
+                    "narration": f"{npc.name} looks around curiously.",
+                    "target": None,
+                    "effects": {},
+                }
+
+            case "eat":
+                npc.modify_hp(3)
+                npc.stats["health"] = min(10, npc.stats["health"] + 0.3)
+                return {
+                    "success": True,
+                    "narration": f"{npc.name} eats a quick meal.",
+                    "target": None,
+                    "effects": {"hp_restored": 3},
+                }
+
+            case "sneak" | "hide":
+                npc.stats["happiness"] = min(10, npc.stats["happiness"] + 0.05)
+                return {
+                    "success": True,
+                    "narration": f"{npc.name} moves quietly.",
+                    "target": None,
+                    "effects": {},
+                }
+
+            case "steal":
+                if target_uid and target_uid != "player":
+                    target_npc_obj = self.npc_registry.get(target_uid)
+                    if target_npc_obj:
+                        npc.npc_relationships[target_uid] = max(
+                            -100,
+                            npc.npc_relationships.get(target_uid, 0) - 5,
+                        )
+                return {
+                    "success": False,
+                    "narration": f"{npc.name} eyes nearby belongings.",
+                    "target": target_uid,
+                    "effects": {},
+                }
+
+            case "wait":
+                return {
+                    "success": True,
+                    "narration": f"{npc.name} waits patiently.",
+                    "target": None,
+                    "effects": {},
+                }
+
+            case _:
+                return {
+                    "success": True,
+                    "narration": f"{npc.name} goes about their business.",
+                    "target": None,
+                    "effects": {},
+                }
+
+    def _filter_npc_narrations(self, npc_results: list[dict]) -> list[dict]:
+        """Filter NPC action narrations based on player proximity and importance."""
+        filtered: list[dict] = []
+        for res in npc_results:
+            uid = res.get("npc_uid", "")
+            npc = self.npc_registry.get(uid)
+            if not npc:
+                continue
+
+            display_info = filter_npc_narration(
+                uid,
+                npc.name,
+                res.get("action", "wait"),
+                res.get("location", ""),
+                self.player.location,
+                res.get("importance", 1),
+            )
+            res["display_type"] = display_info["display_type"]
+            res["display_narration"] = display_info["narration"]
+            filtered.append(res)
+        return filtered
+
+    # ── Random Events ─────────────────────────────────────────────────────
+
+    def _check_random_events(self) -> list[dict]:
+        """Check for and apply random events."""
+        active_ids = [e.get("id") for e in self.world.active_events]
+        freq_mult = self.difficulty.get("random_event_frequency", 1.0)
+
+        new_events = self.random_events.check_events(
+            turn=self.turn,
+            time_of_day=self.world.time_of_day,
+            active_event_ids=active_ids,
+            player_reputation=self.player.reputation,
+            global_reputation=self.player.global_reputation,
+            npc_locations=_npc_locations_map(self.npc_registry),
+            frequency_multiplier=freq_mult,
+        )
+
+        for event in new_events:
+            self.world.add_event(event)
+            # Log event
+            self.event_log.add_entry(
+                turn=self.turn,
+                time_of_day=self.world.time_of_day,
+                event_type="random_event",
+                actor="world",
+                action=event["id"],
+                target=None,
+                location=self.player.location,
+                outcome="triggered",
+                effects=event.get("effects", {}),
+                witnesses=[],
+                narration=event.get("description", "Something unexpected happens."),
+                importance=3,
+            )
+
+        return new_events
+
+    # ── Game Over Check ───────────────────────────────────────────────────
+
+    def _check_game_over(self) -> str | None:
+        """Check all game-ending conditions."""
+        if self.player.health <= 0:
+            return "fail"
+        if self.quest_manager.quest_complete:
+            return "success"
+        if self.quest_manager.quest_failed:
+            return "fail"
+        if self.turn >= self.max_turns:
+            return "turn_limit"
+        return None
+
+    # ── Save / Load ───────────────────────────────────────────────────────
+
+    def _auto_save(self) -> None:
+        """Auto-save every AUTO_SAVE_INTERVAL turns, rotating MAX_AUTO_SAVES files."""
+        if self.turn % AUTO_SAVE_INTERVAL != 0:
+            return
+
+        self._auto_save_counter += 1
+        slot = f"auto_{(self._auto_save_counter - 1) % MAX_AUTO_SAVES + 1}"
+        filepath = self.save_game(slot)
+        self._auto_save_files.append(filepath)
+
+        # Rotate: keep only MAX_AUTO_SAVES
+        while len(self._auto_save_files) > MAX_AUTO_SAVES:
+            old_file = self._auto_save_files.pop(0)
+            old_path = Path(old_file)
+            if old_path.exists():
+                try:
+                    old_path.unlink()
+                except OSError:
+                    pass
+            backup_path = old_path.with_suffix(".json.backup")
+            if backup_path.exists():
+                try:
+                    backup_path.unlink()
+                except OSError:
+                    pass
+
+    def save_game(self, slot: str = "auto") -> str:
+        """Save full game state to JSON file. Returns filepath.
+
+        Creates a .backup copy for corruption recovery.
+        """
+        save_data: dict[str, Any] = {
+            "save_version": SAVE_VERSION,
+            "game_version": GAME_VERSION,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "seed": self.seed,
+            "turn": self.turn,
+            "max_turns": self.max_turns,
+            "game_over": self.game_over,
+            "game_result": self.game_result,
+            "difficulty": self.difficulty.to_dict(),
+            "world": self.world.to_dict(),
+            "player": self.player.to_dict(),
+            "npc_registry": {
+                uid: npc.to_dict() for uid, npc in self.npc_registry.items()
+            },
+            "quest_manager": self.quest_manager.to_dict(),
+            "event_log": self.event_log.to_list(),
+            "metrics": self._metrics,
+        }
+
+        filename = f"save_{slot}.json"
+        filepath = SAVES_DIR / filename
+        filepath.parent.mkdir(parents=True, exist_ok=True)
+
+        # Write save
+        with open(filepath, "w", encoding="utf-8") as f:
+            json.dump(save_data, f, indent=2, default=str)
+
+        # Create backup
+        backup_path = filepath.with_suffix(".json.backup")
+        shutil.copy2(str(filepath), str(backup_path))
+
+        logger.info("Game saved to %s (turn %d)", filepath.name, self.turn)
+        return str(filepath)
+
+    def load_game(self, filepath: str) -> dict:
+        """Load game from save file. Falls back to .backup on corruption.
+
+        Returns:
+            The loaded game state dict.
+        """
+        path = Path(filepath)
+        backup_path = path.with_suffix(".json.backup")
+
+        save_data: dict | None = None
+        for try_path in (path, backup_path):
+            if not try_path.exists():
+                continue
+            try:
+                with open(try_path, "r", encoding="utf-8") as f:
+                    save_data = json.load(f)
+                if try_path == backup_path:
+                    logger.warning("Loaded from backup: %s", backup_path.name)
+                break
+            except (json.JSONDecodeError, OSError) as exc:
+                logger.error("Failed to load %s: %s", try_path, exc)
+                continue
+
+        if save_data is None:
+            raise FileNotFoundError(
+                f"Save file not found or corrupted: {filepath}"
+            )
+
+        # Restore state
+        self.seed = save_data.get("seed", MASTER_SEED)
+        random.seed(self.seed)
+        np.random.seed(self.seed)
+
+        self.turn = save_data.get("turn", 0)
+        self.max_turns = save_data.get("max_turns", MAX_TURNS)
+        self.game_over = save_data.get("game_over", False)
+        self.game_result = save_data.get("game_result")
+
+        # Difficulty
+        self.difficulty.from_dict(save_data.get("difficulty", {}))
+
+        # World
+        self.world.from_dict(save_data.get("world", {}))
+
+        # Player
+        self.player.from_dict(save_data.get("player", {}))
+
+        # NPCs — need archetypes for reconstruction
+        archetypes = load_archetypes()
+        npc_data = save_data.get("npc_registry", {})
+        self.npc_registry = {}
+        for uid, npc_dict in npc_data.items():
+            arch_key = npc_dict.get("archetype")
+            arch_data = archetypes.get(arch_key, {})
+            self.npc_registry[uid] = NPC.from_dict(npc_dict, arch_data)
+
+        # Quest
+        self.quest_manager = QuestManager.from_dict(
+            save_data.get("quest_manager", {}),
+            self.mdp,
+        )
+
+        # Event log
+        self.event_log.from_list(save_data.get("event_log", []))
+
+        # Metrics
+        self._metrics = save_data.get("metrics", self._metrics)
+
+        self._pretrained = True  # Q-tables are stored in save
+
+        logger.info("Game loaded from %s (turn %d)", path.name, self.turn)
+        return self.get_full_state()
+
+    # ── State Queries ─────────────────────────────────────────────────────
+
+    def get_full_state(self) -> dict:
+        """Get complete game state for API/frontend."""
+        npcs_here = get_npcs_at_location(self.npc_registry, self.player.location)
+        loc = self.world.get_location(self.player.location)
+
+        return {
+            "turn": self.turn,
+            "time_period": self.world.time_of_day,
+            "player": self.player.to_dict(),
+            "location": {
+                "id": self.player.location,
+                "name": loc.name if loc else self.player.location,
+                "description": loc.description if loc else "",
+                "type": loc.type if loc else "outdoor",
+                "adjacent": self.world.get_adjacent(self.player.location),
+                "objects": loc.objects if loc else [],
+                "items_on_ground": loc.items_on_ground if loc else [],
+            },
+            "npcs_here": [
+                {
+                    "npc_uid": n.npc_uid,
+                    "name": n.name,
+                    "archetype": n.archetype,
+                    "status": n.status,
+                    "reputation": self.player.get_reputation(n.npc_uid),
+                    "reputation_label": self.player.get_reputation_label(n.npc_uid),
+                }
+                for n in npcs_here
+            ],
+            "quest": self.quest_manager.get_quest_progress(),
+            "graph": self.mdp.to_graph_data(self.quest_manager.current_checkpoint),
+            "active_events": self.world.active_events,
+            "game_over": self.game_over,
+            "game_result": self.game_result,
+            "max_turns": self.max_turns,
+        }
+
+    def get_save_list(self) -> list[dict]:
+        """List available save files with metadata."""
+        saves: list[dict] = []
+        if not SAVES_DIR.exists():
+            return saves
+
+        for path in sorted(SAVES_DIR.glob("save_*.json")):
+            if path.suffix == ".backup":
+                continue
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                saves.append({
+                    "filename": path.name,
+                    "filepath": str(path),
+                    "slot": path.stem.replace("save_", ""),
+                    "turn": data.get("turn", 0),
+                    "timestamp": data.get("timestamp", ""),
+                    "game_version": data.get("game_version", ""),
+                    "player_name": data.get("player", {}).get("name", "Unknown"),
+                    "difficulty": data.get("difficulty", {}).get("preset", "normal"),
+                })
+            except (json.JSONDecodeError, OSError):
+                saves.append({
+                    "filename": path.name,
+                    "filepath": str(path),
+                    "slot": path.stem.replace("save_", ""),
+                    "turn": -1,
+                    "timestamp": "",
+                    "error": "corrupted",
+                })
+
+        return saves
+
+    def get_metrics(self) -> dict:
+        """Return game metrics for the research dashboard."""
+        return {
+            **self._metrics,
+            "current_turn": self.turn,
+            "game_over": self.game_over,
+            "game_result": self.game_result,
+            "quest_progress": self.quest_manager.get_quest_progress(),
+            "npc_states": {
+                uid: {
+                    "name": npc.name,
+                    "location": npc.location,
+                    "status": npc.status,
+                    "hp": f"{npc.current_hp}/{npc.max_hp}",
+                    "happiness": npc.stats.get("happiness", 0),
+                    "epsilon": round(npc.epsilon, 4),
+                }
+                for uid, npc in self.npc_registry.items()
+            },
+            "player_health": self.player.health,
+            "player_stamina": self.player.stamina,
+            "player_location": self.player.location,
+            "event_log_size": len(self.event_log),
+        }

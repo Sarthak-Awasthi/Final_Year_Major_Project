@@ -1,0 +1,208 @@
+/* ═══════════════════════════════════════════════════════════════
+   MVP Research Game — Cytoscape.js Graph Styles
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ─── Container ─── */
+.mdp-graph-container {
+    width: 100%;
+    height: 240px;
+    background: var(--bg);
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+    position: relative;
+    overflow: hidden;
+}
+
+.mdp-graph-container.fullscreen {
+    position: fixed;
+    inset: 0;
+    width: 100vw;
+    height: 100vh;
+    z-index: 900;
+    border-radius: 0;
+    border: none;
+}
+
+/* ─── Legend Overlay ─── */
+.graph-legend {
+    display: flex;
+    gap: 12px;
+    margin-top: 8px;
+    flex-wrap: wrap;
+}
+
+.legend-item {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 0.68rem;
+    color: var(--text-muted);
+}
+
+.legend-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.legend-static    { background: var(--blue); }
+.legend-dynamic   { background: var(--orange); }
+.legend-current   { background: var(--amber); box-shadow: 0 0 6px rgba(243, 156, 18, 0.5); }
+.legend-completed { background: var(--green); }
+
+/* ─── Fullscreen Legend Overlay ─── */
+.mdp-graph-container.fullscreen + .graph-legend {
+    position: fixed;
+    bottom: 16px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 901;
+    background: var(--surface);
+    padding: 8px 16px;
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+}
+
+/* ─── Fullscreen Close Button ─── */
+.graph-close-fullscreen {
+    position: fixed;
+    top: 16px;
+    right: 16px;
+    z-index: 910;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text-primary);
+    font-size: 1.2rem;
+    width: 36px;
+    height: 36px;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    transition: background var(--transition);
+}
+
+.graph-close-fullscreen:hover {
+    background: var(--surface-hover);
+}
+
+.mdp-graph-container.fullscreen ~ .graph-close-fullscreen {
+    display: flex;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   CYTOSCAPE NODE & EDGE STYLES
+   
+   These are defined as a JS stylesheet object in graph.js,
+   but we document the visual spec here for reference.
+   
+   Applied programmatically via cy.style():
+   
+   Node types:
+     - static      → blue (#4A90D9), round rectangle
+     - dynamic     → orange (#E67E22), diamond shape
+     - current     → amber (#F39C12), round rectangle, pulse glow
+     - completed   → green (#2ECC71), round rectangle, dimmed
+     - terminal_success → green (#2ECC71), star shape
+     - terminal_fail    → red (#E74C3C), star shape
+     - stage_node  → larger, bold label
+   
+   Edges:
+     - Default     → #3a3a44, bezier curve
+     - Active path → amber (#F39C12), thicker
+     - Completed   → green (#2ECC71), dimmed
+   
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ─── Pulse Animation for Current Node ─── */
+@keyframes currentNodePulse {
+    0%   { box-shadow: 0 0 0 0 rgba(243, 156, 18, 0.4); }
+    50%  { box-shadow: 0 0 0 8px rgba(243, 156, 18, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(243, 156, 18, 0); }
+}
+
+/* Cytoscape overlay for pointer events */
+.mdp-graph-container canvas {
+    outline: none;
+}
+
+/* ─── Node Tooltip (Cytoscape popper/tippy) ─── */
+.cy-tooltip {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 8px 12px;
+    font-family: var(--font-main);
+    font-size: 0.78rem;
+    color: var(--text-primary);
+    max-width: 220px;
+    z-index: 950;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.cy-tooltip .tooltip-title {
+    font-weight: 600;
+    margin-bottom: 4px;
+    font-size: 0.82rem;
+}
+
+.cy-tooltip .tooltip-type {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-bottom: 4px;
+}
+
+.cy-tooltip .tooltip-desc {
+    font-size: 0.76rem;
+    color: var(--text-secondary);
+    line-height: 1.4;
+}
+
+/* ─── Graph Controls Overlay ─── */
+.graph-controls {
+    position: absolute;
+    top: 8px;
+    left: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    z-index: 10;
+}
+
+.graph-control-btn {
+    width: 28px;
+    height: 28px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text-muted);
+    font-size: 0.85rem;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all var(--transition);
+}
+
+.graph-control-btn:hover {
+    background: var(--surface-hover);
+    color: var(--text-primary);
+}
+
+/* ─── Graph Info Overlay (stage label) ─── */
+.graph-stage-label {
+    position: absolute;
+    bottom: 8px;
+    left: 8px;
+    font-size: 0.7rem;
+    font-family: var(--font-mono);
+    color: var(--text-muted);
+    background: rgba(10, 10, 15, 0.7);
+    padding: 3px 8px;
+    border-radius: var(--radius-sm);
+    z-index: 10;
+}

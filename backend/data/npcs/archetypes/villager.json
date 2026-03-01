@@ -1,0 +1,57 @@
+{
+    "archetype": "villager",
+    "base_personality": "Curious and cautious in equal measure, the villager represents the everyday folk of the settlement. Friendly enough to newcomers but quick to follow the crowd's opinion. Knows a little about everything and a lot about nothing.",
+    "reward_weights": {
+        "happiness": 0.3,
+        "income": 0.2,
+        "health": 0.3,
+        "reputation": 0.2
+    },
+    "combat_stats": {
+        "base_attack": 3,
+        "base_defense": 2,
+        "max_hp": 50
+    },
+    "base_stats": {
+        "happiness": 6,
+        "income": 3,
+        "health": 6,
+        "reputation": 5
+    },
+    "fallback_schedule": [
+        {"time": "morning", "action": "work", "location": "fields"},
+        {"time": "midday", "action": "talk", "location": "village_center"},
+        {"time": "afternoon", "action": "work", "location": "village_center"},
+        {"time": "evening", "action": "talk", "location": "tavern"},
+        {"time": "night", "action": "rest", "location": "village_center"}
+    ],
+    "scripted_dialogue": {
+        "greeting": "Oh, hello! You're the newcomer everyone's been talking about, aren't you? Nice to meet you, I'm sure.",
+        "quest_hint": "I don't know much, but old Petra next door says she's been having bad dreams — visions of fire and shadow. She thinks it means something. Maybe it does.",
+        "hostile": "Stay away from me! I've heard what you've done, and I want no part of it. The guards will hear of this."
+    },
+    "movement_weights": {
+        "gate": 0.10,
+        "village_center": 0.35,
+        "elders_house": 0.10,
+        "fields": 0.25,
+        "tavern": 0.20
+    },
+    "generic_responses": {
+        "greeting": [
+            "Oh hey! Nice day, isn't it? Well, nice enough, I suppose.",
+            "Hello there! Don't think we've spoken properly yet. I'm around if you need anything.",
+            "Good to see a new face. This village could use some excitement."
+        ],
+        "ask_info": [
+            "I hear things here and there. Can't promise it's all true, though.",
+            "Hmm, let me think... I think I overheard something about that at the tavern last night.",
+            "I'm not the best person to ask, but I'll tell you what I know."
+        ],
+        "unknown": [
+            "Sorry, I really don't know anything about that. Maybe ask someone more important?",
+            "That's beyond me, I'm afraid. I'm just a simple villager.",
+            "Wish I could help, but I've got no clue. The elder might know, though."
+        ]
+    }
+}

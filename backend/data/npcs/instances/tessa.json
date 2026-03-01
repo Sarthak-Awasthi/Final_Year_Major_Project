@@ -1,0 +1,38 @@
+{
+    "npc_uid": "tavkeeper_t9c3",
+    "name": "Tessa",
+    "archetype": "tavern_keeper",
+    "location": "tavern",
+    "personality": "Social, gossipy, observant, warm but shrewd",
+    "stats": {
+        "happiness": 7,
+        "income": 5,
+        "health": 7,
+        "reputation": 6
+    },
+    "reward_weights": {
+        "happiness": 0.5,
+        "income": 0.2,
+        "health": 0.1,
+        "reputation": 0.2
+    },
+    "combat_stats": {
+        "base_attack": 5,
+        "base_defense": 5,
+        "max_hp": 70
+    },
+    "current_hp": 70,
+    "status": "active",
+    "epsilon": 0.15,
+    "npc_relationships": {
+        "elder_m8b2": 25,
+        "farmer_j4a1": 30,
+        "guard_a3f1": 20,
+        "guard_b7e2": 15,
+        "villager_c1d4": 20
+    },
+    "q_table": {},
+    "conversation_history": [],
+    "known_events": [],
+    "quest_critical": false
+}

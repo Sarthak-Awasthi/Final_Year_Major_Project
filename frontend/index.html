@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MVP Research Game</title>
+
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+    <!-- Cytoscape.js -->
+    <script src="https://unpkg.com/cytoscape@3.28.1/dist/cytoscape.min.js"></script>
+
+    <!-- Stylesheets -->
+    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="css/components.css">
+    <link rel="stylesheet" href="css/graph.css">
+</head>
+<body>
+    <!-- ═══════════════════════════════════════════════════════
+         NEW GAME MODAL
+         ═══════════════════════════════════════════════════════ -->
+    <div id="new-game-modal" class="modal-overlay active">
+        <div class="modal-card">
+            <h2 class="modal-title">MVP Research Game</h2>
+            <p class="modal-subtitle">Hierarchical MDP + RL + LLM Research Prototype</p>
+
+            <div class="modal-form">
+                <div class="form-group">
+                    <label for="player-name-input">Player Name</label>
+                    <input type="text" id="player-name-input" placeholder="Enter your name..." maxlength="32" autocomplete="off">
+                </div>
+
+                <div class="form-group">
+                    <label for="seed-input">Seed (optional)</label>
+                    <input type="number" id="seed-input" placeholder="Random seed for reproducibility" min="0" max="999999">
+                </div>
+
+                <div class="form-group">
+                    <label for="difficulty-select">Difficulty</label>
+                    <select id="difficulty-select">
+                        <option value="easy">Easy</option>
+                        <option value="normal" selected>Normal</option>
+                        <option value="hard">Hard</option>
+                    </select>
+                </div>
+
+                <button id="start-game-btn" class="btn btn-primary btn-lg">Start Game</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════
+         GAME OVER OVERLAY
+         ═══════════════════════════════════════════════════════ -->
+    <div id="game-over-overlay" class="modal-overlay">
+        <div class="modal-card game-over-card">
+            <div id="game-over-icon" class="game-over-icon"></div>
+            <h2 id="game-over-title" class="modal-title">Game Over</h2>
+            <p id="game-over-message" class="modal-subtitle"></p>
+
+            <div id="game-over-summary" class="game-over-summary">
+                <div class="summary-row">
+                    <span class="summary-label">Turns Taken</span>
+                    <span id="summary-turns" class="summary-value">—</span>
+                </div>
+                <div class="summary-row">
+                    <span class="summary-label">Checkpoints Completed</span>
+                    <span id="summary-checkpoints" class="summary-value">—</span>
+                </div>
+                <div class="summary-row">
+                    <span class="summary-label">NPCs Met</span>
+                    <span id="summary-npcs" class="summary-value">—</span>
+                </div>
+                <div class="summary-row">
+                    <span class="summary-label">Combat Encounters</span>
+                    <span id="summary-combat" class="summary-value">—</span>
+                </div>
+            </div>
+
+            <div class="modal-actions">
+                <button id="new-game-after-btn" class="btn btn-primary">New Game</button>
+                <button id="export-log-btn" class="btn btn-secondary">Export Log</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════
+         MAIN GAME LAYOUT
+         ═══════════════════════════════════════════════════════ -->
+    <div id="game-container" class="game-container hidden">
+
+        <!-- ─── HEADER ─── -->
+        <header id="game-header" class="game-header">
+            <div class="header-left">
+                <h1 class="game-title">MVP Research Game</h1>
+            </div>
+            <div class="header-center">
+                <div class="header-stat">
+                    <span class="header-label">Turn</span>
+                    <span id="turn-counter" class="header-value mono">0</span>
+                </div>
+                <div class="header-divider"></div>
+                <div class="header-stat">
+                    <span class="header-label">Time</span>
+                    <span id="time-period" class="header-value mono">Morning</span>
+                </div>
+                <div class="header-divider"></div>
+                <div class="header-stat">
+                    <span class="header-label">Location</span>
+                    <span id="current-location" class="header-value">Village Center</span>
+                </div>
+            </div>
+            <div class="header-right">
+                <div id="game-status" class="game-status">
+                    <span class="status-dot status-active"></span>
+                    <span id="status-text">Active</span>
+                </div>
+                <div id="llm-status" class="llm-indicator" title="LLM Status">
+                    <span class="llm-dot"></span>
+                    <span class="llm-label">LLM</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- ─── MAIN 3-COLUMN GRID ─── -->
+        <main class="game-main">
+
+            <!-- ═══ LEFT SIDEBAR ═══ -->
+            <aside class="sidebar sidebar-left">
+
+                <!-- Player Stats -->
+                <section id="player-panel" class="panel">
+                    <h3 class="panel-title">Player</h3>
+                    <div class="player-name-display">
+                        <span id="player-name">—</span>
+                    </div>
+
+                    <div class="stat-bar-group">
+                        <div class="stat-bar-header">
+                            <span class="stat-bar-label">Health</span>
+                            <span id="health-text" class="stat-bar-value mono">100 / 100</span>
+                        </div>
+                        <div class="stat-bar">
+                            <div id="health-bar" class="stat-bar-fill health-fill" style="width: 100%"></div>
+                        </div>
+                    </div>
+
+                    <div class="stat-bar-group">
+                        <div class="stat-bar-header">
+                            <span class="stat-bar-label">Stamina</span>
+                            <span id="stamina-text" class="stat-bar-value mono">50 / 50</span>
+                        </div>
+                        <div class="stat-bar">
+                            <div id="stamina-bar" class="stat-bar-fill stamina-fill" style="width: 100%"></div>
+                        </div>
+                    </div>
+
+                    <div class="stat-row">
+                        <span class="stat-label">Reputation</span>
+                        <span id="global-reputation" class="stat-value mono">0</span>
+                    </div>
+
+                    <div class="stat-row">
+                        <span class="stat-label">Attack</span>
+                        <span id="player-attack" class="stat-value mono">8</span>
+                    </div>
+                    <div class="stat-row">
+                        <span class="stat-label">Defense</span>
+                        <span id="player-defense" class="stat-value mono">3</span>
+                    </div>
+                </section>
+
+                <!-- Inventory -->
+                <section id="inventory-panel" class="panel">
+                    <h3 class="panel-title">
+                        Inventory
+                        <span id="inventory-count" class="panel-badge mono">0/10</span>
+                    </h3>
+                    <div id="inventory-list" class="inventory-list">
+                        <div class="empty-state">Empty</div>
+                    </div>
+                </section>
+
+                <!-- Equipment -->
+                <section id="equipment-panel" class="panel">
+                    <h3 class="panel-title">Equipment</h3>
+                    <div class="equipment-slots">
+                        <div class="equipment-slot">
+                            <span class="slot-label">Weapon</span>
+                            <span id="equipped-weapon" class="slot-value">None</span>
+                        </div>
+                        <div class="equipment-slot">
+                            <span class="slot-label">Armor</span>
+                            <span id="equipped-armor" class="slot-value">None</span>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Quest Progress -->
+                <section id="quest-panel" class="panel">
+                    <h3 class="panel-title">Quest</h3>
+                    <div class="quest-info">
+                        <div class="stat-row">
+                            <span class="stat-label">Stage</span>
+                            <span id="quest-stage" class="stat-value mono">—</span>
+                        </div>
+                        <div class="stat-row">
+                            <span class="stat-label">Checkpoint</span>
+                            <span id="quest-checkpoint" class="stat-value mono">—</span>
+                        </div>
+                    </div>
+                    <div class="quest-progress-bar">
+                        <div id="quest-progress-fill" class="quest-progress-fill" style="width: 0%"></div>
+                    </div>
+                    <div id="quest-description" class="quest-description text-muted">
+                        Start a new game to begin your quest.
+                    </div>
+                </section>
+            </aside>
+
+            <!-- ═══ CENTER CONTENT ═══ -->
+            <div class="center-content">
+
+                <!-- Narrative Log -->
+                <section id="narrative-log" class="panel narrative-panel">
+                    <div id="narrative-content" class="narrative-content">
+                        <div class="narrative-entry narrative-system">
+                            <span class="narrative-text">Welcome to the MVP Research Game. Start a new game to begin.</span>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Action Palette -->
+                <section id="action-palette" class="panel action-palette-panel">
+                    <div class="action-tabs">
+                        <button class="action-tab active" data-category="navigation">Navigation</button>
+                        <button class="action-tab" data-category="exploration">Exploration</button>
+                        <button class="action-tab" data-category="social">Social</button>
+                        <button class="action-tab" data-category="combat">Combat</button>
+                        <button class="action-tab" data-category="stealth">Stealth</button>
+                        <button class="action-tab" data-category="utility">Utility</button>
+                    </div>
+
+                    <div class="action-groups">
+                        <!-- Navigation -->
+                        <div class="action-group active" data-category="navigation">
+                            <button class="action-btn action-nav" data-action="move_to" data-ap="3">
+                                <span class="action-name">Move To</span>
+                                <span class="action-cost">3 AP</span>
+                            </button>
+                        </div>
+
+                        <!-- Exploration -->
+                        <div class="action-group" data-category="exploration">
+                            <button class="action-btn action-explore" data-action="look" data-ap="1">
+                                <span class="action-name">Look</span>
+                                <span class="action-cost">1 AP</span>
+                            </button>
+                            <button class="action-btn action-explore" data-action="search" data-ap="5">
+                                <span class="action-name">Search</span>
+                                <span class="action-cost">5 AP</span>
+                            </button>
+                            <button class="action-btn action-explore" data-action="examine" data-ap="2">
+                                <span class="action-name">Examine</span>
+                                <span class="action-cost">2 AP</span>
+                            </button>
+                        </div>
+
+                        <!-- Social -->
+                        <div class="action-group" data-category="social">
+                            <button class="action-btn action-social" data-action="talk" data-ap="1">
+                                <span class="action-name">Talk</span>
+                                <span class="action-cost">1 AP</span>
+                            </button>
+                            <button class="action-btn action-social" data-action="greet" data-ap="1">
+                                <span class="action-name">Greet</span>
+                                <span class="action-cost">1 AP</span>
+                            </button>
+                            <button class="action-btn action-social" data-action="ask_info" data-ap="1">
+                                <span class="action-name">Ask Info</span>
+                                <span class="action-cost">1 AP</span>
+                            </button>
+                            <button class="action-btn action-social" data-action="persuade" data-ap="2">
+                                <span class="action-name">Persuade</span>
+                                <span class="action-cost">2 AP</span>
+                            </button>
+                            <button class="action-btn action-social" data-action="trade" data-ap="2">
+                                <span class="action-name">Trade</span>
+                                <span class="action-cost">2 AP</span>
+                            </button>
+                            <button class="action-btn action-social" data-action="give_item" data-ap="1">
+                                <span class="action-name">Give Item</span>
+                                <span class="action-cost">1 AP</span>
+                            </button>
+                            <button class="action-btn action-social" data-action="deceive" data-ap="2">
+                                <span class="action-name">Deceive</span>
+                                <span class="action-cost">2 AP</span>
+                            </button>
+                            <button class="action-btn action-social" data-action="intimidate" data-ap="2">
+                                <span class="action-name">Intimidate</span>
+                                <span class="action-cost">2 AP</span>
+                            </button>
+                        </div>
+
+                        <!-- Combat -->
+                        <div class="action-group" data-category="combat">
+                            <button class="action-btn action-combat" data-action="attack" data-ap="10">
+                                <span class="action-name">Attack</span>
+                                <span class="action-cost">10 AP</span>
+                            </button>
+                            <button class="action-btn action-combat" data-action="defend" data-ap="5">
+                                <span class="action-name">Defend</span>
+                                <span class="action-cost">5 AP</span>
+                            </button>
+                            <button class="action-btn action-combat" data-action="flee" data-ap="5">
+                                <span class="action-name">Flee</span>
+                                <span class="action-cost">5 AP</span>
+                            </button>
+                        </div>
+
+                        <!-- Stealth -->
+                        <div class="action-group" data-category="stealth">
+                            <button class="action-btn action-stealth" data-action="sneak" data-ap="5">
+                                <span class="action-name">Sneak</span>
+                                <span class="action-cost">5 AP</span>
+                            </button>
+                            <button class="action-btn action-stealth" data-action="hide" data-ap="3">
+                                <span class="action-name">Hide</span>
+                                <span class="action-cost">3 AP</span>
+                            </button>
+                            <button class="action-btn action-stealth" data-action="steal" data-ap="5">
+                                <span class="action-name">Steal</span>
+                                <span class="action-cost">5 AP</span>
+                            </button>
+                        </div>
+
+                        <!-- Utility -->
+                        <div class="action-group" data-category="utility">
+                            <button class="action-btn action-utility" data-action="pick_up" data-ap="1">
+                                <span class="action-name">Pick Up</span>
+                                <span class="action-cost">1 AP</span>
+                            </button>
+                            <button class="action-btn action-utility" data-action="use_item" data-ap="2">
+                                <span class="action-name">Use Item</span>
+                                <span class="action-cost">2 AP</span>
+                            </button>
+                            <button class="action-btn action-utility" data-action="eat" data-ap="1">
+                                <span class="action-name">Eat</span>
+                                <span class="action-cost">1 AP</span>
+                            </button>
+                            <button class="action-btn action-utility" data-action="rest" data-ap="0">
+                                <span class="action-name">Rest</span>
+                                <span class="action-cost">0 AP</span>
+                            </button>
+                            <button class="action-btn action-utility" data-action="wait" data-ap="0">
+                                <span class="action-name">Wait</span>
+                                <span class="action-cost">0 AP</span>
+                            </button>
+                            <button class="action-btn action-utility" data-action="drop_item" data-ap="0">
+                                <span class="action-name">Drop Item</span>
+                                <span class="action-cost">0 AP</span>
+                            </button>
+                            <button class="action-btn action-utility" data-action="status" data-ap="0">
+                                <span class="action-name">Status</span>
+                                <span class="action-cost">0 AP</span>
+                            </button>
+                            <button class="action-btn action-utility" data-action="equip" data-ap="1">
+                                <span class="action-name">Equip</span>
+                                <span class="action-cost">1 AP</span>
+                            </button>
+                            <button class="action-btn action-utility" data-action="work" data-ap="5">
+                                <span class="action-name">Work</span>
+                                <span class="action-cost">5 AP</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Target Selector (shown when action needs a target) -->
+                    <div id="target-selector" class="target-selector hidden">
+                        <span class="target-label">Target:</span>
+                        <select id="target-select" class="target-dropdown">
+                            <option value="">Select target...</option>
+                        </select>
+                        <button id="confirm-action-btn" class="btn btn-primary btn-sm">Confirm</button>
+                        <button id="cancel-action-btn" class="btn btn-secondary btn-sm">Cancel</button>
+                    </div>
+                </section>
+
+                <!-- Text Input -->
+                <section id="text-input" class="panel text-input-panel">
+                    <div class="text-input-row">
+                        <input type="text" id="free-text-input" class="text-input-field" placeholder="Type a command or describe your action..." autocomplete="off" maxlength="200">
+                        <button id="send-text-btn" class="btn btn-primary btn-sm">
+                            <span class="send-icon">&#9654;</span>
+                        </button>
+                    </div>
+                    <div class="text-input-hint">
+                        <span class="text-muted">Press Enter to send. NLP parses your intent into an action.</span>
+                    </div>
+                </section>
+            </div>
+
+            <!-- ═══ RIGHT SIDEBAR ═══ -->
+            <aside class="sidebar sidebar-right">
+
+                <!-- MDP Graph -->
+                <section id="mdp-graph-panel" class="panel">
+                    <h3 class="panel-title">
+                        Quest Graph
+                        <button id="graph-fullscreen-btn" class="panel-action-btn" title="Fullscreen">&#x26F6;</button>
+                    </h3>
+                    <div id="mdp-graph" class="mdp-graph-container"></div>
+                    <div class="graph-legend">
+                        <span class="legend-item"><span class="legend-dot legend-static"></span>Static</span>
+                        <span class="legend-item"><span class="legend-dot legend-dynamic"></span>Dynamic</span>
+                        <span class="legend-item"><span class="legend-dot legend-current"></span>Current</span>
+                        <span class="legend-item"><span class="legend-dot legend-completed"></span>Done</span>
+                    </div>
+                </section>
+
+                <!-- NPC Panel -->
+                <section id="npc-panel" class="panel">
+                    <h3 class="panel-title">NPCs Here</h3>
+                    <div id="npc-list" class="npc-list">
+                        <div class="empty-state">No NPCs at this location</div>
+                    </div>
+                </section>
+
+                <!-- Event Feed -->
+                <section id="event-feed" class="panel">
+                    <h3 class="panel-title">Events</h3>
+                    <div id="event-list" class="event-list">
+                        <div class="empty-state">No events yet</div>
+                    </div>
+                </section>
+            </aside>
+        </main>
+
+        <!-- ─── FOOTER ─── -->
+        <footer id="footer-bar" class="game-footer">
+            <div class="footer-left">
+                <span class="footer-label">Difficulty:</span>
+                <select id="footer-difficulty" class="footer-select">
+                    <option value="easy">Easy</option>
+                    <option value="normal" selected>Normal</option>
+                    <option value="hard">Hard</option>
+                </select>
+            </div>
+            <div class="footer-center">
+                <button id="save-btn" class="btn btn-footer">Save</button>
+                <button id="load-btn" class="btn btn-footer">Load</button>
+                <button id="quick-save-btn" class="btn btn-footer">Quick Save</button>
+            </div>
+            <div class="footer-right">
+                <button id="metrics-btn" class="btn btn-footer">Metrics</button>
+                <button id="help-btn" class="btn btn-footer">Help</button>
+            </div>
+        </footer>
+    </div>
+
+    <!-- ─── TOAST CONTAINER ─── -->
+    <div id="toast-container" class="toast-container"></div>
+
+    <!-- ─── SAVE/LOAD MODAL ─── -->
+    <div id="save-load-modal" class="modal-overlay">
+        <div class="modal-card">
+            <h2 class="modal-title" id="save-load-title">Save Game</h2>
+            <div id="save-slot-list" class="save-slot-list">
+                <div class="save-slot" data-slot="1">
+                    <span class="slot-number">Slot 1</span>
+                    <span class="slot-info">Empty</span>
+                    <button class="btn btn-sm btn-primary slot-action-btn">Save</button>
+                </div>
+                <div class="save-slot" data-slot="2">
+                    <span class="slot-number">Slot 2</span>
+                    <span class="slot-info">Empty</span>
+                    <button class="btn btn-sm btn-primary slot-action-btn">Save</button>
+                </div>
+                <div class="save-slot" data-slot="3">
+                    <span class="slot-number">Slot 3</span>
+                    <span class="slot-info">Empty</span>
+                    <button class="btn btn-sm btn-primary slot-action-btn">Save</button>
+                </div>
+            </div>
+            <button id="close-save-load-btn" class="btn btn-secondary">Close</button>
+        </div>
+    </div>
+
+    <!-- ─── MOVE-TO LOCATION MODAL ─── -->
+    <div id="move-modal" class="modal-overlay">
+        <div class="modal-card modal-sm">
+            <h2 class="modal-title">Move To</h2>
+            <div id="location-list" class="location-list">
+                <button class="location-btn" data-location="village_center">Village Center</button>
+                <button class="location-btn" data-location="elders_house">Elder's House</button>
+                <button class="location-btn" data-location="tavern">Tavern</button>
+                <button class="location-btn" data-location="gate">Gate</button>
+                <button class="location-btn" data-location="fields">Fields</button>
+            </div>
+            <button id="close-move-modal-btn" class="btn btn-secondary btn-sm">Cancel</button>
+        </div>
+    </div>
+
+    <!-- ─── APP ENTRY ─── -->
+    <script type="module" src="js/app.js"></script>
+</body>
+</html>

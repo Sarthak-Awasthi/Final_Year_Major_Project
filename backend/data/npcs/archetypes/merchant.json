@@ -1,0 +1,57 @@
+{
+    "archetype": "merchant",
+    "base_personality": "Shrewd and affable, the merchant treats every interaction as a potential deal. Quick with a smile and quicker with a price. Values profit and connections, but maintains a code of fair trade — a cheated customer never returns.",
+    "reward_weights": {
+        "happiness": 0.1,
+        "income": 0.5,
+        "health": 0.2,
+        "reputation": 0.2
+    },
+    "combat_stats": {
+        "base_attack": 3,
+        "base_defense": 3,
+        "max_hp": 60
+    },
+    "base_stats": {
+        "happiness": 7,
+        "income": 8,
+        "health": 5,
+        "reputation": 6
+    },
+    "fallback_schedule": [
+        {"time": "morning", "action": "move_to", "location": "gate"},
+        {"time": "midday", "action": "trade", "location": "village_center"},
+        {"time": "afternoon", "action": "trade", "location": "village_center"},
+        {"time": "evening", "action": "talk", "location": "tavern"},
+        {"time": "night", "action": "rest", "location": "tavern"}
+    ],
+    "scripted_dialogue": {
+        "greeting": "Welcome, welcome! You look like someone with discerning taste. Come, see what I have to offer today.",
+        "quest_hint": "I travel the roads between towns, and I've heard whispers — merchants going missing, strange figures on the paths at night. Something is disrupting trade.",
+        "hostile": "I don't do business with your sort. Take your coin and your trouble elsewhere — I've nothing for you."
+    },
+    "movement_weights": {
+        "gate": 0.25,
+        "village_center": 0.35,
+        "elders_house": 0.05,
+        "fields": 0.05,
+        "tavern": 0.30
+    },
+    "generic_responses": {
+        "greeting": [
+            "A customer! Or just browsing? Either way, welcome!",
+            "Good to see you again, friend. The stock has changed since your last visit.",
+            "Ah, a familiar face. What can I do for you today?"
+        ],
+        "ask_info": [
+            "Information has value, my friend — but for you, a discount. What do you need to know?",
+            "I hear things on the road that most folk never learn. Ask, and I'll share what I can.",
+            "Rumors, gossip, hard facts — I trade in all of them. What's your interest?"
+        ],
+        "unknown": [
+            "That's outside my area of expertise, I'm afraid. I deal in goods, not mysteries.",
+            "Can't help you there. But if you need supplies, I'm your person.",
+            "Hmm, no idea. Try asking around the tavern — people talk freely over ale."
+        ]
+    }
+}

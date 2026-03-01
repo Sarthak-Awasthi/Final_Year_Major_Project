@@ -1,0 +1,38 @@
+{
+    "npc_uid": "villager_c1d4",
+    "name": "Old Petra",
+    "archetype": "villager",
+    "location": "village_center",
+    "personality": "Curious, nervous, cooperative, loves gossip and village life",
+    "stats": {
+        "happiness": 5,
+        "income": 2,
+        "health": 5,
+        "reputation": 5
+    },
+    "reward_weights": {
+        "happiness": 0.3,
+        "income": 0.2,
+        "health": 0.3,
+        "reputation": 0.2
+    },
+    "combat_stats": {
+        "base_attack": 3,
+        "base_defense": 2,
+        "max_hp": 50
+    },
+    "current_hp": 50,
+    "status": "active",
+    "epsilon": 0.15,
+    "npc_relationships": {
+        "elder_m8b2": 15,
+        "farmer_j4a1": 10,
+        "tavkeeper_t9c3": 15,
+        "guard_a3f1": 10,
+        "guard_b7e2": 5
+    },
+    "q_table": {},
+    "conversation_history": [],
+    "known_events": [],
+    "quest_critical": false
+}

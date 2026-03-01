@@ -1,0 +1,46 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Models (large GGUF files)
+models/*.gguf
+models/*.bin
+
+# Save files (generated at runtime)
+backend/data/saves/*.json
+backend/data/saves/*.backup
+!backend/data/saves/.gitkeep
+
+# Metrics (generated at runtime)
+backend/data/metrics/*.json
+!backend/data/metrics/.gitkeep
+
+# Logs (generated at runtime)
+backend/data/logs/*.jsonl
+backend/data/logs/*.log
+!backend/data/logs/.gitkeep
+
+# spaCy model cache
+en_core_web_md*

@@ -1,0 +1,38 @@
+{
+    "npc_uid": "elder_m8b2",
+    "name": "Elder Maren",
+    "archetype": "elder",
+    "location": "elders_house",
+    "personality": "Wise, cautious, knowledgeable, deeply connected to village history",
+    "stats": {
+        "happiness": 5,
+        "income": 2,
+        "health": 6,
+        "reputation": 8
+    },
+    "reward_weights": {
+        "happiness": 0.1,
+        "income": 0.1,
+        "health": 0.3,
+        "reputation": 0.5
+    },
+    "combat_stats": {
+        "base_attack": 2,
+        "base_defense": 2,
+        "max_hp": 40
+    },
+    "current_hp": 40,
+    "status": "active",
+    "epsilon": 0.15,
+    "npc_relationships": {
+        "farmer_j4a1": 15,
+        "tavkeeper_t9c3": 20,
+        "guard_a3f1": 25,
+        "guard_b7e2": 20,
+        "villager_c1d4": 15
+    },
+    "q_table": {},
+    "conversation_history": [],
+    "known_events": [],
+    "quest_critical": true
+}

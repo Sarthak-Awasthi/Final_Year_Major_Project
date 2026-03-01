@@ -1,0 +1,531 @@
+{
+  "quest_id": "main_quest_01",
+  "title": "The Elder's Lost Artifact",
+  "description": "Elder Maren's ancestral artifact has gone missing. You must find and return it to restore peace to Thornhaven.",
+  "version": "1.0.0",
+  "max_stages": 7,
+  "terminal_states": ["S_success", "S_fail"],
+  "stages": [
+    {
+      "stage_id": 1,
+      "title": "Arrival at the Gate",
+      "description": "You arrive at the outskirts of Thornhaven. The village gate looms ahead, flanked by two watchful guards. Your journey has been long, but the village beyond promises answers — and perhaps purpose.",
+      "location": "gate",
+      "checkpoints": [
+        {
+          "cp_id": "1_1",
+          "description": "You approach the village gate as dusk settles over the surrounding hills. Two guards stand watch beneath a weathered wooden arch, their torches casting flickering shadows across the rutted path. One rests a hand on his sword hilt; the other eyes you with quiet suspicion.",
+          "context": {
+            "npcs_present": ["guard_a3f1", "guard_b7e2"],
+            "objects": ["village_gate", "notice_board"],
+            "environment": "The gate is a sturdy wooden structure reinforced with iron bands. A notice board beside it is covered in faded postings. The road behind you stretches into gathering darkness."
+          },
+          "highlighted_actions": [
+            {"id": "greet", "label": "Greet the guards", "type": "social"},
+            {"id": "sneak", "label": "Sneak past the guards", "type": "stealth"},
+            {"id": "examine", "label": "Show travel papers", "type": "exploration"}
+          ],
+          "quest_transitions": {
+            "greet": {
+              "next": "1_2",
+              "effects": {"stamina": -1, "reputation": {"guard_a3f1": 2, "guard_b7e2": 2}}
+            },
+            "sneak": {
+              "next": "1_2",
+              "effects": {"stamina": -5, "reputation": {"guard_a3f1": -5, "guard_b7e2": -5}},
+              "success_prob": 0.6
+            },
+            "examine": {
+              "next": "1_2",
+              "effects": {"stamina": -1, "reputation": {"guard_a3f1": 5, "guard_b7e2": 5}},
+              "requires": {"item": "travel_papers"}
+            }
+          },
+          "is_dynamic": false,
+          "nudge_target": "1_2"
+        },
+        {
+          "cp_id": "1_2",
+          "description": "The guards wave you through with a curt nod. Beyond the gate, the cobblestone path widens into a small village square. Warm light spills from distant windows, and the faint smell of woodsmoke and baking bread drifts on the evening air.",
+          "context": {
+            "npcs_present": ["guard_a3f1", "guard_b7e2"],
+            "objects": ["cobblestone_path", "village_gate_interior"],
+            "environment": "The inner side of the gate is quieter. A lantern hangs from a post, illuminating a worn signpost pointing toward the village center. The guards resume their watch behind you."
+          },
+          "highlighted_actions": [
+            {"id": "move_to", "label": "Enter the village", "type": "navigation"},
+            {"id": "look", "label": "Look around the gate area", "type": "exploration"},
+            {"id": "talk", "label": "Ask the guards about the village", "type": "social"}
+          ],
+          "quest_transitions": {
+            "move_to": {
+              "next": "2_1",
+              "effects": {"stamina": -3, "target_location": "village_center"}
+            }
+          },
+          "is_dynamic": false,
+          "nudge_target": "2_1"
+        }
+      ]
+    },
+    {
+      "stage_id": 2,
+      "title": "Seeking the Elder",
+      "description": "You've entered Thornhaven. The village center bustles with quiet rural life. You need to find Elder Maren — the village matriarch who may have need of a capable traveler.",
+      "location": "village_center",
+      "checkpoints": [
+        {
+          "cp_id": "2_1",
+          "description": "You stand in the heart of Thornhaven. A moss-covered stone well sits at the center of a modest square, its rope and bucket swaying gently in the breeze. Market stalls — most shuttered for the evening — line the western edge. A weathered signpost points toward the Elder's house, the tavern, the fields, and the gate.",
+          "context": {
+            "npcs_present": ["villager_c1d4"],
+            "objects": ["stone_well", "market_stalls", "signpost"],
+            "environment": "The village center is the crossroads of Thornhaven. Paths branch in every direction. Old Petra shuffles about near the well, muttering to herself as she draws water."
+          },
+          "highlighted_actions": [
+            {"id": "look", "label": "Look around the village center", "type": "exploration"},
+            {"id": "ask_info", "label": "Ask about the Elder", "type": "social"},
+            {"id": "move_to", "label": "Go to the Elder's House", "type": "navigation"}
+          ],
+          "quest_transitions": {
+            "ask_info": {
+              "next": "2_2",
+              "effects": {"stamina": -1, "reputation": {"villager_c1d4": 3}}
+            },
+            "move_to": {
+              "next": "2_2",
+              "effects": {"stamina": -3, "target_location": "elders_house"}
+            }
+          },
+          "is_dynamic": false,
+          "nudge_target": "2_2"
+        },
+        {
+          "cp_id": "2_2",
+          "description": "You arrive at a cozy stone cottage nestled beneath a canopy of ancient oaks. Smoke curls from the chimney, and the door stands slightly ajar. Inside, Elder Maren sits in a worn armchair by the fireplace, her weathered hands clasped tightly. Her eyes are distant, troubled — the weight of something unspoken pressing visibly on her shoulders.",
+          "context": {
+            "npcs_present": ["elder_m8b2"],
+            "objects": ["bookshelves", "artifact_display", "fireplace"],
+            "environment": "The Elder's house is warm and cluttered with a lifetime of collected wisdom. Bookshelves sag under leather-bound volumes. A glass display case near the mantle catches your eye — it sits conspicuously empty, its velvet cushion bearing the faint impression of something recently removed."
+          },
+          "highlighted_actions": [
+            {"id": "greet", "label": "Greet Elder Maren", "type": "social"},
+            {"id": "talk", "label": "Talk to Elder Maren", "type": "social"},
+            {"id": "examine", "label": "Examine the empty display case", "type": "exploration"}
+          ],
+          "quest_transitions": {
+            "greet": {
+              "next": "3_1",
+              "effects": {"stamina": -1, "reputation": {"elder_m8b2": 2}}
+            },
+            "talk": {
+              "next": "3_1",
+              "effects": {"stamina": -1, "reputation": {"elder_m8b2": 3}}
+            },
+            "examine": {
+              "next": "3_1",
+              "effects": {"stamina": -2}
+            }
+          },
+          "is_dynamic": false,
+          "nudge_target": "3_1"
+        }
+      ]
+    },
+    {
+      "stage_id": 3,
+      "title": "The Missing Artifact",
+      "description": "Elder Maren reveals the source of her distress: her family's ancestral jade amulet has vanished. She needs someone trustworthy to help recover it before its loss causes lasting harm to the village's morale.",
+      "location": "elders_house",
+      "checkpoints": [
+        {
+          "cp_id": "3_1",
+          "description": "Elder Maren sighs heavily, the firelight deepening the lines on her face. 'You seem like someone who can help,' she begins, her voice carrying the quiet authority of decades. 'My family's artifact — a jade amulet, passed down for seven generations — has gone missing. It is more than a trinket. It is the heart of Thornhaven's heritage.'",
+          "context": {
+            "npcs_present": ["elder_m8b2"],
+            "objects": ["empty_display_case", "fireplace", "family_portrait"],
+            "environment": "The hearth crackles softly. Elder Maren gestures toward the empty display case, her expression a mixture of grief and quiet desperation. The portrait above the mantle shows the amulet around a younger woman's neck — unmistakably jade, carved with intricate spiraling runes."
+          },
+          "highlighted_actions": [
+            {"id": "talk", "label": "Ask for details about the amulet", "type": "social"},
+            {"id": "ask_info", "label": "Learn about the artifact's history", "type": "social"},
+            {"id": "examine", "label": "Study the empty display case closely", "type": "exploration"}
+          ],
+          "quest_transitions": {
+            "talk": {
+              "next": "3_2",
+              "effects": {"stamina": -1, "reputation": {"elder_m8b2": 3}}
+            },
+            "ask_info": {
+              "next": "3_2",
+              "effects": {"stamina": -1, "reputation": {"elder_m8b2": 2}}
+            },
+            "examine": {
+              "next": "3_2",
+              "effects": {"stamina": -2}
+            }
+          },
+          "is_dynamic": false,
+          "nudge_target": "3_2"
+        },
+        {
+          "cp_id": "3_2",
+          "description": "Elder Maren leans forward, her voice dropping to a conspiratorial whisper. 'I last saw the amulet a few days ago, resting in its case as always. But Farmer Jak — he mentioned seeing something strange near the old oak tree in the fields. A figure moving at night, he said, though he couldn't be sure.' She meets your eyes. 'Could you investigate? I haven't the strength for such things anymore.'",
+          "context": {
+            "npcs_present": ["elder_m8b2"],
+            "objects": ["fireplace", "village_map_on_wall"],
+            "environment": "The fire pops and hisses. A hand-drawn map of Thornhaven hangs on the wall behind Maren. The fields and the old oak tree are marked with faded ink. Maren's expression is hopeful but guarded — she's placed her trust carefully."
+          },
+          "highlighted_actions": [
+            {"id": "talk", "label": "Accept the quest", "type": "social"},
+            {"id": "persuade", "label": "Ask for a reward upfront", "type": "social"},
+            {"id": "move_to", "label": "Head to the fields immediately", "type": "navigation"}
+          ],
+          "quest_transitions": {
+            "talk": {
+              "next": "4_1",
+              "effects": {"stamina": -1, "reputation": {"elder_m8b2": 10}}
+            },
+            "persuade": {
+              "next": "4_1",
+              "effects": {"stamina": -2, "reputation": {"elder_m8b2": 5}, "gives": ["coin_pouch_extra"]},
+              "success_prob": 0.7
+            },
+            "move_to": {
+              "next": "4_1",
+              "effects": {"stamina": -3, "target_location": "fields"}
+            }
+          },
+          "is_dynamic": false,
+          "nudge_target": "4_1"
+        }
+      ]
+    },
+    {
+      "stage_id": 4,
+      "title": "The Investigation",
+      "description": "Armed with Elder Maren's account and Farmer Jak's sighting, you must gather clues about the missing jade amulet. The fields and the tavern may hold the answers you seek.",
+      "location": "village_center",
+      "checkpoints": [
+        {
+          "cp_id": "4_1",
+          "description": "You step back into the cool air of Thornhaven, the weight of Elder Maren's request settling on your shoulders. You need to gather clues about the missing artifact. Farmer Jak works in the fields to the north, and the tavern to the south is where villagers trade gossip over mugs of ale. Either could hold a thread worth pulling.",
+          "context": {
+            "npcs_present": [],
+            "objects": ["signpost", "stone_well"],
+            "environment": "The village center is quieter now. A breeze carries the distant sound of a hammer on an anvil. The signpost points clearly: fields to the north, tavern to the south, Elder's house to the east, gate to the west."
+          },
+          "highlighted_actions": [
+            {"id": "move_to", "label": "Go to the Fields", "type": "navigation"},
+            {"id": "move_to", "label": "Go to the Tavern", "type": "navigation"},
+            {"id": "ask_info", "label": "Ask around the village center", "type": "social"}
+          ],
+          "quest_transitions": {
+            "move_to_fields": {
+              "next": "4_2",
+              "effects": {"stamina": -3, "target_location": "fields"}
+            },
+            "move_to_tavern": {
+              "next": "4_3",
+              "effects": {"stamina": -3, "target_location": "tavern"}
+            },
+            "ask_info": {
+              "next": "4_2",
+              "effects": {"stamina": -1}
+            }
+          },
+          "is_dynamic": false,
+          "nudge_target": "4_2"
+        },
+        {
+          "cp_id": "4_2",
+          "description": "You find Farmer Jak in the fields, bent low over a row of turnips. He straightens when he sees you approach, wiping his sun-darkened brow with a calloused hand. His expression shifts from curiosity to recognition — he's heard of the Elder's trouble, and he's been expecting someone to come asking questions.",
+          "context": {
+            "npcs_present": ["farmer_j4a1"],
+            "objects": ["crops", "scarecrow", "old_oak_tree_distant"],
+            "environment": "The fields stretch wide under an open sky. Rows of vegetables and grain sway in the wind. In the distance, the silhouette of a massive oak tree stands alone on a low rise — its canopy darker and denser than anything else on the horizon."
+          },
+          "highlighted_actions": [
+            {"id": "talk", "label": "Talk to Farmer Jak", "type": "social"},
+            {"id": "ask_info", "label": "Ask about strange sightings", "type": "social"},
+            {"id": "greet", "label": "Greet Farmer Jak warmly", "type": "social"}
+          ],
+          "quest_transitions": {
+            "talk": {
+              "next": "4_3",
+              "effects": {"stamina": -1, "reputation": {"farmer_j4a1": 5}}
+            },
+            "ask_info": {
+              "next": "4_3",
+              "effects": {"stamina": -1, "reputation": {"farmer_j4a1": 3}}
+            },
+            "greet": {
+              "next": "4_3",
+              "effects": {"stamina": -1, "reputation": {"farmer_j4a1": 2}}
+            }
+          },
+          "is_dynamic": false,
+          "nudge_target": "4_3"
+        },
+        {
+          "cp_id": "4_3",
+          "description": "You've gathered enough clues to piece together a lead. Farmer Jak saw a cloaked figure near the old oak tree three nights ago, moving furtively among the roots. Whispers at the tavern confirmed that no one in the village goes near the oak after dark — it's considered bad luck. The artifact may be hidden in the tree's ancient hollow.",
+          "context": {
+            "npcs_present": [],
+            "objects": ["clue_notes", "signpost"],
+            "environment": "The evidence points clearly to the old oak tree in the fields. The sun is shifting across the sky, and the sooner you investigate, the better your chances of finding the amulet undisturbed."
+          },
+          "highlighted_actions": [
+            {"id": "move_to", "label": "Go to the Fields", "type": "navigation"},
+            {"id": "search", "label": "Search for additional clues here", "type": "exploration"},
+            {"id": "look", "label": "Review your gathered clues", "type": "exploration"}
+          ],
+          "quest_transitions": {
+            "move_to": {
+              "next": "5_1",
+              "effects": {"stamina": -3, "target_location": "fields"}
+            },
+            "search": {
+              "next": "5_1",
+              "effects": {"stamina": -5}
+            }
+          },
+          "is_dynamic": false,
+          "nudge_target": "5_1"
+        }
+      ]
+    },
+    {
+      "stage_id": 5,
+      "title": "The Old Oak Tree",
+      "description": "Your investigation has led you to the ancient oak tree in the fields — a gnarled sentinel that has watched over Thornhaven for centuries. Somewhere in its roots lies the missing jade amulet.",
+      "location": "fields",
+      "checkpoints": [
+        {
+          "cp_id": "5_1",
+          "description": "You stand before the ancient oak tree, its massive trunk scarred by centuries of wind and weather. Gnarled roots twist deep into the dark earth like the fingers of a buried giant. The canopy above filters the light into a pale green haze. There — in a hollow between two thick roots — something glints faintly, catching the light like a whispered secret.",
+          "context": {
+            "npcs_present": [],
+            "objects": ["old_oak_tree", "hollow", "glinting_object"],
+            "environment": "The air is cooler here beneath the oak's vast canopy. The ground is soft with decades of fallen leaves. The hollow between the roots is dark and narrow, but the glint within is unmistakable — something deliberately hidden, not carelessly dropped."
+          },
+          "highlighted_actions": [
+            {"id": "search", "label": "Search the hollow thoroughly", "type": "exploration"},
+            {"id": "examine", "label": "Examine the glinting object", "type": "exploration"},
+            {"id": "pick_up", "label": "Reach into the hollow", "type": "utility"}
+          ],
+          "quest_transitions": {
+            "search": {
+              "next": "5_2",
+              "effects": {"stamina": -5, "gives": ["jade_amulet"]}
+            },
+            "examine": {
+              "next": "5_2",
+              "effects": {"stamina": -2}
+            },
+            "pick_up": {
+              "next": "5_2",
+              "effects": {"stamina": -1, "gives": ["jade_amulet"]}
+            }
+          },
+          "is_dynamic": false,
+          "nudge_target": "5_2"
+        },
+        {
+          "cp_id": "5_2",
+          "description": "You hold the jade amulet in your hands. It is smaller than you expected — a palm-sized disc of deep green jade, carved with spiraling runes that seem to shift in the light. A faint warmth pulses from within, as though the stone itself remembers the generations of hands that have held it. Elder Maren will be relieved beyond words.",
+          "context": {
+            "npcs_present": [],
+            "objects": ["jade_amulet", "old_oak_tree"],
+            "environment": "The oak tree seems to settle as you remove the amulet, its branches creaking softly as if releasing a long-held breath. The fields stretch out around you in every direction. Thornhaven's rooftops are visible to the south."
+          },
+          "highlighted_actions": [
+            {"id": "move_to", "label": "Return to the village", "type": "navigation"},
+            {"id": "examine", "label": "Examine the amulet closely", "type": "exploration"},
+            {"id": "look", "label": "Search the area for more clues", "type": "exploration"}
+          ],
+          "quest_transitions": {
+            "move_to_village_center": {
+              "next": "6_1",
+              "effects": {"stamina": -3, "target_location": "village_center"}
+            },
+            "move_to_elders_house": {
+              "next": "6_2",
+              "effects": {"stamina": -3, "target_location": "elders_house"}
+            }
+          },
+          "is_dynamic": false,
+          "nudge_target": "6_1",
+          "requires_item": "jade_amulet"
+        }
+      ]
+    },
+    {
+      "stage_id": 6,
+      "title": "Return to the Elder",
+      "description": "With the jade amulet secured, you must return it to Elder Maren. The village of Thornhaven awaits the restoration of its most cherished heirloom.",
+      "location": "village_center",
+      "checkpoints": [
+        {
+          "cp_id": "6_1",
+          "description": "You hurry through the village center with the amulet safely tucked in your pack. Its subtle warmth presses against your side like a second heartbeat. Villagers glance your way — word has spread that someone has taken up the Elder's cause. Elder Maren's cottage is just ahead, lamplight glowing warmly through its small windows.",
+          "context": {
+            "npcs_present": ["villager_c1d4"],
+            "objects": ["stone_well", "signpost"],
+            "environment": "The village center hums with muted anticipation. Old Petra watches you pass with knowing eyes. The path to the Elder's house is short and well-worn."
+          },
+          "highlighted_actions": [
+            {"id": "move_to", "label": "Go to the Elder's House", "type": "navigation"},
+            {"id": "talk", "label": "Tell the villagers the good news", "type": "social"},
+            {"id": "look", "label": "Look around the village center", "type": "exploration"}
+          ],
+          "quest_transitions": {
+            "move_to": {
+              "next": "6_2",
+              "effects": {"stamina": -3, "target_location": "elders_house"}
+            }
+          },
+          "is_dynamic": false,
+          "nudge_target": "6_2"
+        },
+        {
+          "cp_id": "6_2",
+          "description": "You push open the cottage door. Elder Maren looks up from her chair, her expression hollow with exhaustion — then her eyes widen. She sees the familiar shape cradled in your hands, and the color rushes back to her face. Her lips part, but for a moment, no words come. The firelight dances across the jade amulet's ancient surface.",
+          "context": {
+            "npcs_present": ["elder_m8b2"],
+            "objects": ["artifact_display", "fireplace", "jade_amulet"],
+            "environment": "The cottage is exactly as you left it — warm, cluttered, and filled with the quiet weight of memory. But the atmosphere has shifted. Hope has entered the room with you."
+          },
+          "highlighted_actions": [
+            {"id": "give_item", "label": "Present the jade amulet to Elder Maren", "type": "social"},
+            {"id": "talk", "label": "Tell Elder Maren your story", "type": "social"},
+            {"id": "examine", "label": "Show her the amulet", "type": "exploration"}
+          ],
+          "quest_transitions": {
+            "give_item": {
+              "next": "7_1",
+              "effects": {"stamina": -1, "reputation": {"elder_m8b2": 15}, "removes": ["jade_amulet"]}
+            },
+            "talk": {
+              "next": "7_1",
+              "effects": {"stamina": -1, "reputation": {"elder_m8b2": 10}}
+            }
+          },
+          "is_dynamic": false,
+          "nudge_target": "7_1",
+          "requires_item": "jade_amulet"
+        }
+      ]
+    },
+    {
+      "stage_id": 7,
+      "title": "The Reward of Thornhaven",
+      "description": "The jade amulet is restored. Elder Maren's gratitude runs deep, and the village of Thornhaven breathes easier knowing its heritage is safe once more. A reward awaits.",
+      "location": "elders_house",
+      "checkpoints": [
+        {
+          "cp_id": "7_1",
+          "description": "'Thank you, traveler. Truly.' Elder Maren cradles the jade amulet as though holding a newborn, her weathered fingers tracing the spiraling runes with reverent familiarity. She places it gently back in the glass display case and turns to you, eyes glistening. 'This means everything — not just to me, but to all of Thornhaven. You have done our village a service that will not be forgotten.'",
+          "context": {
+            "npcs_present": ["elder_m8b2"],
+            "objects": ["artifact_display_restored", "fireplace", "gift_chest"],
+            "environment": "The jade amulet rests once more in its rightful place. The display case seems to glow with quiet satisfaction. Elder Maren moves to a wooden chest in the corner, its iron hinges protesting softly as she lifts the lid."
+          },
+          "highlighted_actions": [
+            {"id": "talk", "label": "Ask about your reward", "type": "social"},
+            {"id": "wait", "label": "Wait politely", "type": "utility"},
+            {"id": "look", "label": "Look around the cottage", "type": "exploration"}
+          ],
+          "quest_transitions": {
+            "talk": {
+              "next": "7_2",
+              "effects": {"stamina": -1, "reputation": {"elder_m8b2": 5}}
+            },
+            "wait": {
+              "next": "7_2",
+              "effects": {"stamina": 0, "reputation": {"elder_m8b2": 3}}
+            }
+          },
+          "is_dynamic": false,
+          "nudge_target": "7_2"
+        },
+        {
+          "cp_id": "7_2",
+          "description": "Elder Maren lifts a finely crafted iron shield from the chest and presents it to you with both hands. The shield bears the crest of Thornhaven — an oak tree encircled by spiraling runes, mirroring the jade amulet's carvings. 'Take this,' she says, her voice steady and warm. 'It was forged by my late husband, the village blacksmith. You've earned the gratitude of all Thornhaven, and this shield will carry our blessing wherever you go.'",
+          "context": {
+            "npcs_present": ["elder_m8b2"],
+            "objects": ["iron_shield", "artifact_display_restored", "fireplace"],
+            "environment": "The fire crackles contentedly. Through the window, you can see villagers gathered in the square — word has spread. The cottage feels lighter, as though a shadow has been lifted from its very walls. This is the final moment of your journey in Thornhaven."
+          },
+          "highlighted_actions": [
+            {"id": "talk", "label": "Thank Elder Maren", "type": "social"},
+            {"id": "pick_up", "label": "Accept the iron shield", "type": "utility"}
+          ],
+          "quest_transitions": {
+            "talk": {
+              "next": "S_success",
+              "effects": {"reputation": {"elder_m8b2": 10}, "gives": ["iron_shield"]}
+            },
+            "pick_up": {
+              "next": "S_success",
+              "effects": {"reputation": {"elder_m8b2": 5}, "gives": ["iron_shield"]}
+            }
+          },
+          "is_dynamic": false,
+          "is_terminal": true,
+          "nudge_target": "S_success"
+        }
+      ]
+    }
+  ],
+  "items": {
+    "jade_amulet": {
+      "id": "jade_amulet",
+      "name": "Jade Amulet",
+      "type": "quest",
+      "description": "An ancient jade disc carved with spiraling runes. It pulses with faint warmth — a relic passed down through seven generations of Elder Maren's family.",
+      "effects": {},
+      "quest_relevant": true,
+      "slot": null,
+      "stat_modifiers": null
+    },
+    "iron_shield": {
+      "id": "iron_shield",
+      "name": "Iron Shield of Thornhaven",
+      "type": "equipment",
+      "description": "A finely crafted iron shield bearing the crest of Thornhaven — an oak tree encircled by spiraling runes. Forged by the village's late blacksmith.",
+      "effects": {},
+      "quest_relevant": false,
+      "slot": "armor",
+      "stat_modifiers": {"armor_modifier": 5}
+    },
+    "coin_pouch_extra": {
+      "id": "coin_pouch_extra",
+      "name": "Elder's Coin Pouch",
+      "type": "misc",
+      "description": "A small leather pouch containing a handful of silver coins — an advance payment from Elder Maren for your trouble.",
+      "effects": {},
+      "quest_relevant": false,
+      "slot": null,
+      "stat_modifiers": null
+    },
+    "travel_papers": {
+      "id": "travel_papers",
+      "name": "Travel Papers",
+      "type": "misc",
+      "description": "Official documents authorizing passage through the region's villages and townships.",
+      "effects": {},
+      "quest_relevant": false,
+      "slot": null,
+      "stat_modifiers": null
+    }
+  },
+  "metadata": {
+    "author": "MVP Research Project",
+    "created": "2026-03-01",
+    "total_checkpoints": 16,
+    "total_stages": 7,
+    "estimated_turns": "30-60",
+    "difficulty": "normal"
+  }
+}

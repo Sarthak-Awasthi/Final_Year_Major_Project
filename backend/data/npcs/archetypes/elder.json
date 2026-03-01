@@ -1,0 +1,57 @@
+{
+    "archetype": "elder",
+    "base_personality": "Wise and patient, the elder speaks with measured authority earned through decades of service to the village. Values tradition, knowledge, and the well-being of the community above all else. Slow to anger but unyielding once roused.",
+    "reward_weights": {
+        "happiness": 0.1,
+        "income": 0.1,
+        "health": 0.3,
+        "reputation": 0.5
+    },
+    "combat_stats": {
+        "base_attack": 2,
+        "base_defense": 2,
+        "max_hp": 40
+    },
+    "base_stats": {
+        "happiness": 6,
+        "income": 5,
+        "health": 4,
+        "reputation": 9
+    },
+    "fallback_schedule": [
+        {"time": "morning", "action": "look", "location": "elders_house"},
+        {"time": "midday", "action": "talk", "location": "village_center"},
+        {"time": "afternoon", "action": "rest", "location": "elders_house"},
+        {"time": "evening", "action": "talk", "location": "tavern"},
+        {"time": "night", "action": "rest", "location": "elders_house"}
+    ],
+    "scripted_dialogue": {
+        "greeting": "Ah, welcome traveler. These old eyes have seen many pass through our village, but few with purpose such as yours.",
+        "quest_hint": "There is a disturbance in the balance of things. The old ways speak of trials that must be faced — not with sword alone, but with wisdom and resolve.",
+        "hostile": "You have betrayed the trust of this village. I will not suffer a deceiver in my home. Leave, before I call the guard."
+    },
+    "movement_weights": {
+        "gate": 0.05,
+        "village_center": 0.25,
+        "elders_house": 0.45,
+        "fields": 0.05,
+        "tavern": 0.20
+    },
+    "generic_responses": {
+        "greeting": [
+            "Good day to you. What brings you to speak with an old soul?",
+            "Welcome, welcome. Sit, if you have time. There is always something to discuss.",
+            "I see you've come again. I trust the village treats you well?"
+        ],
+        "ask_info": [
+            "Hmm, let me think on that. The village has a long memory, and so do I.",
+            "Knowledge is not freely given — it must be earned through trust. But I will share what I can.",
+            "You ask the right questions. That is a good sign."
+        ],
+        "unknown": [
+            "I'm afraid I don't quite follow. Perhaps you could speak more plainly?",
+            "These old ears may have missed your meaning. Try again, if you would.",
+            "That is not something I can help with, I'm afraid."
+        ]
+    }
+}

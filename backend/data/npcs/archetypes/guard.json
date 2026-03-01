@@ -1,0 +1,57 @@
+{
+    "archetype": "guard",
+    "base_personality": "Disciplined and watchful, the guard takes duty seriously and views the village's safety as a personal responsibility. Speaks bluntly, respects strength and honesty, and has little patience for deception or lawbreakers.",
+    "reward_weights": {
+        "happiness": 0.1,
+        "income": 0.2,
+        "health": 0.3,
+        "reputation": 0.4
+    },
+    "combat_stats": {
+        "base_attack": 12,
+        "base_defense": 10,
+        "max_hp": 120
+    },
+    "base_stats": {
+        "happiness": 4,
+        "income": 5,
+        "health": 9,
+        "reputation": 7
+    },
+    "fallback_schedule": [
+        {"time": "morning", "action": "look", "location": "gate"},
+        {"time": "midday", "action": "move_to", "location": "village_center"},
+        {"time": "afternoon", "action": "look", "location": "gate"},
+        {"time": "evening", "action": "look", "location": "village_center"},
+        {"time": "night", "action": "look", "location": "gate"}
+    ],
+    "scripted_dialogue": {
+        "greeting": "Halt. State your business in the village. I keep watch here, and I like to know who comes and goes.",
+        "quest_hint": "There's been movement on the roads at night — not traders, not travelers. I've reported it to the elder, but she says to wait. I don't like waiting.",
+        "hostile": "You've broken the peace of this village. I don't give second warnings. Stand down, or I'll make you."
+    },
+    "movement_weights": {
+        "gate": 0.40,
+        "village_center": 0.30,
+        "elders_house": 0.10,
+        "fields": 0.10,
+        "tavern": 0.10
+    },
+    "generic_responses": {
+        "greeting": [
+            "Citizen. Everything in order?",
+            "Keep it civil and we'll get along fine. What do you need?",
+            "You again. Staying out of trouble, I hope."
+        ],
+        "ask_info": [
+            "I patrol. I observe. If it happened on the streets, I probably saw it.",
+            "Depends what you're asking about. Security matters, I can help. Village gossip? Try the tavern.",
+            "I noticed something odd near the gate last patrol. Might be relevant to what you're asking."
+        ],
+        "unknown": [
+            "That's not my area. I watch the walls, not the politics.",
+            "Can't help with that. Ask the elder — she knows more about village matters.",
+            "Not something I'd know about. I concern myself with threats, not talk."
+        ]
+    }
+}

@@ -1,0 +1,38 @@
+{
+    "npc_uid": "guard_a3f1",
+    "name": "Aldric",
+    "archetype": "guard",
+    "location": "gate",
+    "personality": "Dutiful, professional, loyal to the village, by-the-book",
+    "stats": {
+        "happiness": 4,
+        "income": 3,
+        "health": 9,
+        "reputation": 7
+    },
+    "reward_weights": {
+        "happiness": 0.1,
+        "income": 0.2,
+        "health": 0.3,
+        "reputation": 0.4
+    },
+    "combat_stats": {
+        "base_attack": 12,
+        "base_defense": 10,
+        "max_hp": 120
+    },
+    "current_hp": 120,
+    "status": "active",
+    "epsilon": 0.15,
+    "npc_relationships": {
+        "elder_m8b2": 25,
+        "farmer_j4a1": 10,
+        "tavkeeper_t9c3": 15,
+        "guard_b7e2": 40,
+        "villager_c1d4": 10
+    },
+    "q_table": {},
+    "conversation_history": [],
+    "known_events": [],
+    "quest_critical": false
+}

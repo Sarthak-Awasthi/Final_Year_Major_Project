@@ -1,0 +1,38 @@
+{
+    "npc_uid": "farmer_j4a1",
+    "name": "Farmer Jak",
+    "archetype": "farmer",
+    "location": "fields",
+    "personality": "Hardworking, honest, practical, cautious but kind",
+    "stats": {
+        "happiness": 6,
+        "income": 4,
+        "health": 8,
+        "reputation": 5
+    },
+    "reward_weights": {
+        "happiness": 0.2,
+        "income": 0.4,
+        "health": 0.3,
+        "reputation": 0.1
+    },
+    "combat_stats": {
+        "base_attack": 6,
+        "base_defense": 4,
+        "max_hp": 80
+    },
+    "current_hp": 80,
+    "status": "active",
+    "epsilon": 0.15,
+    "npc_relationships": {
+        "elder_m8b2": 20,
+        "tavkeeper_t9c3": 30,
+        "guard_a3f1": 10,
+        "guard_b7e2": 5,
+        "villager_c1d4": 10
+    },
+    "q_table": {},
+    "conversation_history": [],
+    "known_events": [],
+    "quest_critical": true
+}

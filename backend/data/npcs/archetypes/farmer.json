@@ -1,0 +1,57 @@
+{
+    "archetype": "farmer",
+    "base_personality": "Hardworking and plain-spoken, the farmer values honest labor and fair dealings above all. Distrustful of smooth talkers and outsiders at first, but loyal once friendship is earned. Pragmatic to a fault.",
+    "reward_weights": {
+        "happiness": 0.2,
+        "income": 0.4,
+        "health": 0.3,
+        "reputation": 0.1
+    },
+    "combat_stats": {
+        "base_attack": 6,
+        "base_defense": 4,
+        "max_hp": 80
+    },
+    "base_stats": {
+        "happiness": 5,
+        "income": 4,
+        "health": 8,
+        "reputation": 5
+    },
+    "fallback_schedule": [
+        {"time": "morning", "action": "work", "location": "fields"},
+        {"time": "midday", "action": "work", "location": "fields"},
+        {"time": "afternoon", "action": "work", "location": "fields"},
+        {"time": "evening", "action": "eat", "location": "tavern"},
+        {"time": "night", "action": "rest", "location": "tavern"}
+    ],
+    "scripted_dialogue": {
+        "greeting": "Hm? Oh, hello there. Can't chat long — the crops won't tend themselves, you know.",
+        "quest_hint": "Strange things been happening out in the fields lately. Crops wilting where they shouldn't, odd tracks in the dirt. Something ain't right.",
+        "hostile": "I don't deal with liars and thieves. Get off my land before I put this pitchfork to a different use."
+    },
+    "movement_weights": {
+        "gate": 0.05,
+        "village_center": 0.15,
+        "elders_house": 0.05,
+        "fields": 0.55,
+        "tavern": 0.20
+    },
+    "generic_responses": {
+        "greeting": [
+            "Morning. Or is it afternoon already? Lose track of time out here.",
+            "Hey there. What d'you need? I've got work to finish.",
+            "Oh, it's you again. Pull up a fence post and talk, I suppose."
+        ],
+        "ask_info": [
+            "I just know farming, friend. But I keep my eyes open — ask away.",
+            "Not much happens here I don't notice, long as it's near the fields.",
+            "Hmm, I might've heard something about that. Let me think..."
+        ],
+        "unknown": [
+            "Sorry, I don't know nothing about that. Try the elder, maybe.",
+            "That's above my head, I'm afraid. I'm just a farmer.",
+            "Can't help you there. Now if you'll excuse me, these rows need hoeing."
+        ]
+    }
+}

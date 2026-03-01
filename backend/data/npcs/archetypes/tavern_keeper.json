@@ -1,0 +1,57 @@
+{
+    "archetype": "tavern_keeper",
+    "base_personality": "Warm, sociable, and sharp-eared, the tavern keeper is the heart of village social life. Keeps everyone's secrets and shares none — unless it serves a purpose. Values a full house and happy patrons above all.",
+    "reward_weights": {
+        "happiness": 0.5,
+        "income": 0.2,
+        "health": 0.1,
+        "reputation": 0.2
+    },
+    "combat_stats": {
+        "base_attack": 5,
+        "base_defense": 5,
+        "max_hp": 70
+    },
+    "base_stats": {
+        "happiness": 8,
+        "income": 6,
+        "health": 6,
+        "reputation": 7
+    },
+    "fallback_schedule": [
+        {"time": "morning", "action": "work", "location": "tavern"},
+        {"time": "midday", "action": "trade", "location": "tavern"},
+        {"time": "afternoon", "action": "talk", "location": "tavern"},
+        {"time": "evening", "action": "trade", "location": "tavern"},
+        {"time": "night", "action": "rest", "location": "tavern"}
+    ],
+    "scripted_dialogue": {
+        "greeting": "Come in, come in! Take a seat by the fire. You look like you could use a warm meal and a cold drink.",
+        "quest_hint": "People talk when they drink, and I listen. There's been whispers about the old ruins past the fields — and the elder's been asking around about something she won't name.",
+        "hostile": "You've caused enough trouble under my roof. I won't have it. Get out, and don't come back until you've learned some manners."
+    },
+    "movement_weights": {
+        "gate": 0.02,
+        "village_center": 0.13,
+        "elders_house": 0.05,
+        "fields": 0.05,
+        "tavern": 0.75
+    },
+    "generic_responses": {
+        "greeting": [
+            "Well now, a friendly face! What'll it be?",
+            "Welcome back! Your usual spot by the hearth is open.",
+            "Hello there, stranger. Or should I say friend? Pull up a chair."
+        ],
+        "ask_info": [
+            "I hear things, you know. Folks get talkative after a drink or two. What do you want to know?",
+            "Ah, asking the right person. Not much happens in this village I don't hear about eventually.",
+            "I might know something about that. Sit down, and let's talk properly."
+        ],
+        "unknown": [
+            "Can't say I know anything about that, love. Want a drink while you figure it out?",
+            "That's a new one on me. But stick around — someone who knows might wander in.",
+            "Sorry, I've got nothing on that. But the ale's good, if that helps."
+        ]
+    }
+}

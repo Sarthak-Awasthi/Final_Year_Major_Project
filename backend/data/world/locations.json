@@ -1,0 +1,54 @@
+{
+  "locations": {
+    "gate": {
+      "id": "gate",
+      "name": "Village Gate",
+      "type": "outdoor",
+      "description": "A sturdy wooden gatehouse marks the entrance to Thornhaven. The dirt road stretches behind you into rolling hills.",
+      "adjacent": ["village_center"],
+      "objects": ["village_gate", "notice_board", "merchant_cart"],
+      "environment": "Stone gatehouse, dirt road, wooden palisade walls",
+      "default_npcs": ["guard_a3f1", "guard_b7e2"]
+    },
+    "village_center": {
+      "id": "village_center",
+      "name": "Village Center",
+      "type": "outdoor",
+      "description": "The heart of Thornhaven. A stone well sits in the center, surrounded by small market stalls and cobblestone paths leading in every direction.",
+      "adjacent": ["gate", "elders_house", "fields", "tavern"],
+      "objects": ["stone_well", "market_stalls", "crates", "signpost"],
+      "environment": "Cobblestone square, thatched-roof buildings, worn stone well",
+      "default_npcs": ["villager_c1d4"]
+    },
+    "elders_house": {
+      "id": "elders_house",
+      "name": "Elder's House",
+      "type": "indoor",
+      "description": "A cozy stone cottage with a thatched roof. Inside, bookshelves line the walls and a fire crackles in the hearth. An empty display case sits prominently near the window.",
+      "adjacent": ["village_center"],
+      "objects": ["bookshelves", "artifact_display", "fireplace", "writing_desk"],
+      "environment": "Warm interior, flickering firelight, smell of old books and herbs",
+      "default_npcs": ["elder_m8b2"]
+    },
+    "fields": {
+      "id": "fields",
+      "name": "Fields",
+      "type": "outdoor",
+      "description": "Rows of crops stretch toward a gnarled old oak tree at the edge of the field. A weathered barn sits nearby, and a creek babbles along the field's border.",
+      "adjacent": ["village_center"],
+      "objects": ["crops", "old_oak_tree", "barn", "tools", "creek"],
+      "environment": "Open farmland, old oak tree, weathered barn, running creek",
+      "default_npcs": ["farmer_j4a1"]
+    },
+    "tavern": {
+      "id": "tavern",
+      "name": "Tavern",
+      "type": "indoor",
+      "description": "The Rusty Flagon. A warm, dimly-lit tavern with rough wooden tables and a long bar. A fireplace fills the room with a welcoming glow.",
+      "adjacent": ["village_center"],
+      "objects": ["bar_counter", "tables", "fireplace", "kitchen", "tavern_notice_board"],
+      "environment": "Dim interior, wood smoke, clinking mugs, quiet conversation",
+      "default_npcs": ["tavkeeper_t9c3"]
+    }
+  }
+}
