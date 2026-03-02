@@ -42,39 +42,29 @@ class QuestManager:
         self.quest_failed: bool = False
         # (action_id, stage_id) → count — used for loop detection
         self._action_history: dict[tuple[str, int], int] = {}
+        # Tracks the last static checkpoint before deviation started.
+        # Used to check convergence back to the main quest path.
+        self._deviation_origin: str | None = None
         logger.debug("QuestManager initialised at checkpoint %s", self.current_checkpoint)
 
     # ── Completion check ──────────────────────────────────────────────────
 
-    def check_completion(
+    def _check_checkpoint_completion(
         self,
+        checkpoint_id: str,
         action_id: str,
         target: str | None,
         context: dict,
     ) -> dict | None:
-        """Check whether *action_id* satisfies the current checkpoint.
+        """Core logic: check whether *action_id* satisfies a specific checkpoint.
 
-        Matching logic:
-          1. Exact key match in ``completion_conditions``.
-          2. Compound key prefix match (e.g. ``move_to_fields``).
-
-        Args:
-            action_id: The action the player performed.
-            target: Optional target NPC / item / location.
-            context: Game context dict (must include ``target_location``
-                when relevant).
+        This is the shared implementation used by both :meth:`check_completion`
+        (current checkpoint) and :meth:`check_convergence` (deviation origin).
 
         Returns:
-            A result dict or ``None`` when conditions are not satisfied::
-
-                {
-                    "checkpoint_completed": str,
-                    "next_checkpoint": str | None,
-                    "rewards": dict,
-                    "stage_transition": bool,
-                }
+            A result dict or ``None`` when conditions are not satisfied.
         """
-        cp = self.mdp.get_checkpoint(self.current_checkpoint)
+        cp = self.mdp.get_checkpoint(checkpoint_id)
         if cp is None or cp.completion_conditions is None:
             return None
 
@@ -105,17 +95,80 @@ class QuestManager:
             stage_transition = True
 
         result = {
-            "checkpoint_completed": self.current_checkpoint,
+            "checkpoint_completed": checkpoint_id,
             "next_checkpoint": next_cp,
             "rewards": rewards,
             "stage_transition": stage_transition,
         }
         logger.info(
             "Checkpoint %s completed via '%s' → next: %s",
-            self.current_checkpoint,
+            checkpoint_id,
             action_id,
             next_cp,
         )
+        return result
+
+    def check_completion(
+        self,
+        action_id: str,
+        target: str | None,
+        context: dict,
+    ) -> dict | None:
+        """Check whether *action_id* satisfies the current checkpoint.
+
+        Matching logic:
+          1. Exact key match in ``completion_conditions``.
+          2. Compound key prefix match (e.g. ``move_to_fields``).
+
+        Args:
+            action_id: The action the player performed.
+            target: Optional target NPC / item / location.
+            context: Game context dict (must include ``target_location``
+                when relevant).
+
+        Returns:
+            A result dict or ``None`` when conditions are not satisfied::
+
+                {
+                    "checkpoint_completed": str,
+                    "next_checkpoint": str | None,
+                    "rewards": dict,
+                    "stage_transition": bool,
+                }
+        """
+        return self._check_checkpoint_completion(
+            self.current_checkpoint, action_id, target, context
+        )
+
+    def check_convergence(
+        self,
+        action_id: str,
+        target: str | None,
+        context: dict,
+    ) -> dict | None:
+        """Check if action satisfies the deviation origin, enabling convergence.
+
+        When the player is on a dynamic checkpoint and performs an action that
+        would satisfy the original static checkpoint they deviated from, this
+        method detects it so the player can converge back to the main path.
+
+        Returns:
+            Completion dict or ``None``.
+        """
+        if self._deviation_origin is None:
+            return None
+        result = self._check_checkpoint_completion(
+            self._deviation_origin, action_id, target, context
+        )
+        if result:
+            logger.info(
+                "Convergence detected: action '%s' at dynamic CP %s "
+                "satisfies origin %s → %s",
+                action_id,
+                self.current_checkpoint,
+                self._deviation_origin,
+                result.get("next_checkpoint"),
+            )
         return result
 
     @staticmethod
@@ -188,20 +241,32 @@ class QuestManager:
         """Move to the next checkpoint, recording the current one.
 
         Handles terminal states (``S_success`` / ``S_fail``) and
-        cross-stage transitions automatically.
+        cross-stage transitions automatically.  Also clears the deviation
+        origin so convergence tracking resets.
         """
         old_cp = self.current_checkpoint
         self.completed_checkpoints.append(old_cp)
 
+        # Also mark the deviation origin as completed when converging
+        if (
+            self._deviation_origin is not None
+            and self._deviation_origin != old_cp
+            and self._deviation_origin not in self.completed_checkpoints
+        ):
+            self.completed_checkpoints.append(self._deviation_origin)
+
         if next_cp_id == "S_success":
+            self._deviation_origin = None
             self.trigger_success()
             return
         if next_cp_id == "S_fail":
+            self._deviation_origin = None
             self.trigger_failure()
             return
 
         self.current_checkpoint = next_cp_id
         self.deviation_count = 0  # reset on forward progress
+        self._deviation_origin = None  # clear deviation tracking
 
         new_stage = QuestMDP.get_stage_for_checkpoint(next_cp_id)
         if new_stage != self.current_stage:
@@ -220,6 +285,10 @@ class QuestManager:
     def handle_deviation(self, action_id: str, context: dict) -> dict:
         """Record and evaluate a player deviation from the expected path.
 
+        On the first deviation, records the current checkpoint as the
+        *deviation origin* so that convergence checks can later match
+        the player's actions against the original checkpoint's conditions.
+
         Args:
             action_id: The off-path action taken.
             context: Current game context.
@@ -229,12 +298,22 @@ class QuestManager:
               "force_convergence": bool}``
         """
         self.deviation_count += 1
+
+        # Record the origin checkpoint on the first deviation so we can
+        # check convergence back to the main path later.
+        if self._deviation_origin is None:
+            self._deviation_origin = self.current_checkpoint
+            logger.info(
+                "Deviation origin set to %s", self._deviation_origin
+            )
+
         needs_dynamic = self.deviation_count >= 1
         force_convergence = self.deviation_count >= NUDGE_FORCE_CONVERGENCE_THRESHOLD
         logger.info(
-            "Deviation #%d at checkpoint %s, action: %s",
+            "Deviation #%d at checkpoint %s (origin: %s), action: %s",
             self.deviation_count,
             self.current_checkpoint,
+            self._deviation_origin,
             action_id,
         )
         return {
@@ -322,6 +401,11 @@ class QuestManager:
 
     # ── Serialisation ────────────────────────────────────────────────────
 
+    @property
+    def deviation_origin(self) -> str | None:
+        """The static checkpoint the player deviated from, or None."""
+        return self._deviation_origin
+
     def to_dict(self) -> dict:
         """Serialise quest-manager state for save files."""
         return {
@@ -333,6 +417,7 @@ class QuestManager:
             "dynamic_counter": dict(self.dynamic_counter),
             "quest_complete": self.quest_complete,
             "quest_failed": self.quest_failed,
+            "deviation_origin": self._deviation_origin,
             "action_history": {
                 f"{act}|{stg}": cnt
                 for (act, stg), cnt in self._action_history.items()
@@ -363,6 +448,7 @@ class QuestManager:
         )
         manager.quest_complete = data.get("quest_complete", False)
         manager.quest_failed = data.get("quest_failed", False)
+        manager._deviation_origin = data.get("deviation_origin")
 
         # Restore action history
         manager._action_history = {}

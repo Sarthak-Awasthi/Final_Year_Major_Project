@@ -423,12 +423,14 @@ def build_narration_prompt(
 "{template_text}"
 
 ## Instructions
-Rewrite the narration to be more vivid and atmospheric. Keep it to 2-4 sentences.
-Incorporate the time of day and weather naturally. Maintain the same outcome.
-Do NOT add game mechanics or stat changes. Do NOT use purple prose.
+Enhance the narrative with atmospheric details, focusing on the setting's ambiance and the actor's emotional state. Keep the outcome, time of day, and weather consistent.
+Keep it to 2-3 sentences maximum.
+Do NOT write NPC dialogue or speech — dialogue is handled separately.
+Do NOT add game mechanics, stat changes, or action headers.
+Do NOT echo back these instructions or action details.
 Write in second person ("You...").
 
-Respond with ONLY the enhanced narration text, no JSON or formatting."""
+Respond with ONLY the enhanced narration text, nothing else."""
 
     return truncate_to_budget(prompt)
 

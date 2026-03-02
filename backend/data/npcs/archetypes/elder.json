@@ -41,12 +41,44 @@
         "greeting": [
             "Good day to you. What brings you to speak with an old soul?",
             "Welcome, welcome. Sit, if you have time. There is always something to discuss.",
-            "I see you've come again. I trust the village treats you well?"
+            "I see you've come again. I trust the village treats you well?",
+            "Ah, you return. Come, there is much on my mind.",
+            "*looks up from her reading* Yes? I was just thinking about the village's troubles."
+        ],
+        "greeting_friendly": [
+            "*smiles warmly* Your kindness is a balm to these old bones. What can I do for you?",
+            "How thoughtful of you to visit. You have a good heart, traveler.",
+            "Your warmth is appreciated, child. These are difficult times, and kindness is rare."
+        ],
+        "greeting_curious": [
+            "Ah, a curious mind! That is a treasure more valuable than any artifact. Ask away.",
+            "I can see the questions in your eyes. Come, let me share what I know.",
+            "Curiosity brought you here, I suspect. Good. The truth rewards the seeker."
         ],
         "ask_info": [
             "Hmm, let me think on that. The village has a long memory, and so do I.",
             "Knowledge is not freely given — it must be earned through trust. But I will share what I can.",
-            "You ask the right questions. That is a good sign."
+            "You ask the right questions. That is a good sign.",
+            "There is an artifact — a jade amulet, passed through my family for seven generations. It has gone missing. I fear for the village without it.",
+            "The amulet was last in its case just days ago. Farmer Jak mentioned seeing a figure near the old oak in the fields at night. Could you investigate?",
+            "If you truly wish to help, speak with the villagers. Jak in the fields, Tessa at the tavern — they see and hear more than you might think."
+        ],
+        "ask_info_curious": [
+            "You want to understand what happened? Good. The amulet is more than a trinket — it is the heart of Thornhaven's heritage.",
+            "The artifact is a jade amulet inscribed with ancient runes. Its loss has unsettled the whole village. Will you help me find it?",
+            "I appreciate your curiosity. Let me explain: the amulet protects this village. Without it, I fear dark times ahead."
+        ],
+        "talk": [
+            "There is much weighing on my mind. The amulet's disappearance troubles me deeply.",
+            "I appreciate your company, traveler. It gets lonely here with only books and worry.",
+            "Tell me — have you learned anything useful in your travels through the village?",
+            "The village needs someone like you. Someone willing to act.",
+            "Every day without the amulet, I feel the village growing more uneasy."
+        ],
+        "talk_friendly": [
+            "Your words warm this old heart. Thank you for caring about our village.",
+            "*clasps your hand* You are a true friend to Thornhaven. I am grateful.",
+            "Such kindness. You remind me of someone I knew long ago — someone who also put others first."
         ],
         "unknown": [
             "I'm afraid I don't quite follow. Perhaps you could speak more plainly?",

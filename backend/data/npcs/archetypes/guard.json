@@ -42,18 +42,39 @@
             "Keep it civil and we'll get along fine. What do you need?",
             "You again. Staying out of trouble, I hope."
         ],
+        "greeting_friendly": [
+            "*nods appreciatively* That's... kind of you. Not many folks take the time to be pleasant to the guard.",
+            "Flattery won't get you past curfew, but I appreciate the thought.",
+            "Well, that's a pleasant change from the usual complaints. Thank you."
+        ],
+        "talk": [
+            "Not much of a talker, but I suppose I can spare a moment.",
+            "Make it quick. I've got rounds to finish.",
+            "What's on your mind? I see a lot from this post — more than most realize.",
+            "The village has been tense lately. Something about the elder's missing heirloom.",
+            "I keep the peace. That's my job, and I take it seriously."
+        ],
+        "talk_friendly": [
+            "*relaxes slightly* You know, it's not often someone talks to me without wanting something. I respect that.",
+            "You're alright, traveler. Most people either fear the guard or ignore us.",
+            "Kind words go a long way in this job. The village could use more of that."
+        ],
         "ask_info": [
             "I patrol. I observe. If it happened on the streets, I probably saw it.",
             "Depends what you're asking about. Security matters, I can help. Village gossip? Try the tavern.",
-            "I noticed something odd near the gate last patrol. Might be relevant to what you're asking."
+            "I noticed something odd near the gate last patrol. Might be relevant to what you're asking.",
+            "There've been strange movements at night near the fields. I reported it to Elder Maren, but she told me to wait.",
+            "If you want to know about the village's troubles, the elder's your best bet. But be respectful — she's earned it."
         ],
         "unknown": [
             "That's not my area. I watch the walls, not the politics.",
             "Can't help with that. Ask the elder — she knows more about village matters.",
-            "Not something I'd know about. I concern myself with threats, not talk."        ],
+            "Not something I'd know about. I concern myself with threats, not talk."
+        ],
         "present_item": [
             "Let me take a look at that... noted. Carry on.",
-            "I see. Hold onto that \u2014 could be useful later.",
-            "Interesting. I'll remember you showed me this."        ]
+            "I see. Hold onto that — could be useful later.",
+            "Interesting. I'll remember you showed me this."
+        ]
     }
 }

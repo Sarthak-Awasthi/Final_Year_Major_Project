@@ -57,6 +57,9 @@
 .action-explore { border-left: 2px solid var(--cat-explore); }
 .action-explore:hover { border-left-color: var(--cat-explore); box-shadow: inset 2px 0 0 var(--cat-explore); }
 
+.action-talk { border-left: 2px solid var(--cat-talk); }
+.action-talk:hover { border-left-color: var(--cat-talk); box-shadow: inset 2px 0 0 var(--cat-talk); }
+
 .action-social { border-left: 2px solid var(--cat-social); }
 .action-social:hover { border-left-color: var(--cat-social); box-shadow: inset 2px 0 0 var(--cat-social); }
 
@@ -76,6 +79,97 @@
 
 .action-btn.insufficient-ap .action-cost {
     color: var(--red);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   TALK ACTION PICKER
+   ═══════════════════════════════════════════════════════════════ */
+
+.talk-action-picker {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 10px 12px;
+    margin-bottom: 8px;
+    animation: fadeSlideIn 150ms ease;
+}
+
+.talk-action-picker.hidden {
+    display: none;
+}
+
+.talk-picker-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+.talk-picker-label {
+    font-size: 0.78rem;
+    font-weight: 500;
+    color: var(--cat-talk);
+}
+
+.talk-picker-close {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    font-size: 1.1rem;
+    cursor: pointer;
+    padding: 0 4px;
+    line-height: 1;
+}
+
+.talk-picker-close:hover {
+    color: var(--text-primary);
+}
+
+.talk-picker-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 8px;
+}
+
+.talk-pick-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-left: 2px solid var(--cat-talk);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    font-family: var(--font-main);
+    font-size: 0.78rem;
+    font-weight: 500;
+    color: var(--text-primary);
+    transition: all var(--transition);
+}
+
+.talk-pick-btn:hover {
+    background: var(--surface-hover);
+    border-color: var(--cat-talk);
+    transform: translateY(-1px);
+}
+
+.talk-pick-btn .action-cost {
+    font-family: var(--font-mono);
+    font-size: 0.65rem;
+    color: var(--text-muted);
+}
+
+.talk-pick-btn.talk-pick-suggested {
+    border-color: var(--cat-talk);
+    background: rgba(26, 188, 156, 0.1);
+    box-shadow: 0 0 0 1px var(--cat-talk);
+}
+
+.talk-picker-footer {
+    display: flex;
+    justify-content: flex-end;
 }
 
 /* ═══════════════════════════════════════════════════════════════

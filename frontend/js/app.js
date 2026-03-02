@@ -19,15 +19,17 @@ const ACTIONS = {
         { id: 'search', name: 'Search', ap: 5 },
         { id: 'examine', name: 'Examine', ap: 2 },
     ],
-    social: [
+    talk: [
         { id: 'talk', name: 'Talk', ap: 1 },
         { id: 'greet', name: 'Greet', ap: 1 },
         { id: 'ask_info', name: 'Ask Info', ap: 1 },
         { id: 'persuade', name: 'Persuade', ap: 2 },
-        { id: 'trade', name: 'Trade', ap: 2 },
-        { id: 'give_item', name: 'Give Item', ap: 1 },
         { id: 'deceive', name: 'Deceive', ap: 2 },
         { id: 'intimidate', name: 'Intimidate', ap: 2 },
+    ],
+    social: [
+        { id: 'trade', name: 'Trade', ap: 2 },
+        { id: 'give_item', name: 'Give Item', ap: 1 },
     ],
     combat: [
         { id: 'attack', name: 'Attack', ap: 10 },
@@ -160,6 +162,12 @@ const dom = {
     // Text input
     freeTextInput:    $('#free-text-input'),
     sendTextBtn:      $('#send-text-btn'),
+
+    // Talk Action Picker
+    talkPicker:       $('#talk-action-picker'),
+    talkPickerClose:  $('#talk-picker-close'),
+    talkPickBtns:     $$('.talk-pick-btn'),
+    talkPickerSendRaw:$('#talk-picker-send-raw'),
 
     // MDP Graph
     mdpGraph:         $('#mdp-graph'),
@@ -313,8 +321,65 @@ function cancelTargetedAction() {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// Text Input
+// Text Input + Talk Action Picker
 // ═══════════════════════════════════════════════════════════════
+
+/**
+ * Keywords that indicate the user is trying a talk-category action.
+ * Maps keyword → best matching action_id from the talk category.
+ */
+const TALK_KEYWORDS = {
+    // greet
+    'greet':     'greet',
+    'hello':     'greet',
+    'hi ':       'greet',
+    'hey ':      'greet',
+    'wave':      'greet',
+    'introduce': 'greet',
+    'say hello': 'greet',
+    'say hi':    'greet',
+    // ask_info
+    'ask':       'ask_info',
+    'inquire':   'ask_info',
+    'question':  'ask_info',
+    'tell me':   'ask_info',
+    'what do you know': 'ask_info',
+    'any news':  'ask_info',
+    'ask about': 'ask_info',
+    // persuade
+    'persuade':  'persuade',
+    'convince':  'persuade',
+    'plead':     'persuade',
+    'reason with': 'persuade',
+    'appeal':    'persuade',
+    'coax':      'persuade',
+    // deceive
+    'deceive':   'deceive',
+    'lie':       'deceive',
+    'bluff':     'deceive',
+    'trick':     'deceive',
+    'mislead':   'deceive',
+    // intimidate
+    'intimidate':'intimidate',
+    'threaten':  'intimidate',
+    'scare':     'intimidate',
+    'menace':    'intimidate',
+    'demand':    'intimidate',
+    'bully':     'intimidate',
+    // talk (general)
+    'talk':      'talk',
+    'speak':     'talk',
+    'chat':      'talk',
+    'converse':  'talk',
+    'discuss':   'talk',
+    'compliment':'talk',
+    'praise':    'talk',
+};
+
+/** Stored text when the talk picker is open, so we can send it later. */
+let _pendingTalkText = null;
+/** Best-guess action from keyword match. */
+let _pendingTalkBestMatch = null;
 
 function initTextInput() {
     dom.freeTextInput.addEventListener('keydown', (e) => {
@@ -324,14 +389,99 @@ function initTextInput() {
         }
     });
     dom.sendTextBtn.addEventListener('click', submitFreeText);
+
+    // Talk picker buttons
+    dom.talkPickBtns.forEach(btn => {
+        btn.addEventListener('click', () => {
+            const actionId = btn.dataset.action;
+            sendTalkPickerAction(actionId);
+        });
+    });
+    dom.talkPickerClose.addEventListener('click', closeTalkPicker);
+    dom.talkPickerSendRaw.addEventListener('click', sendTalkPickerRaw);
+}
+
+/**
+ * Check if the user's text matches a talk-category keyword.
+ * Returns { keyword, actionId } or null.
+ */
+function detectTalkKeyword(text) {
+    const lower = text.toLowerCase();
+    // Try longest keywords first for better matching
+    const sorted = Object.keys(TALK_KEYWORDS).sort((a, b) => b.length - a.length);
+    for (const kw of sorted) {
+        if (lower.includes(kw.trim())) {
+            return { keyword: kw, actionId: TALK_KEYWORDS[kw] };
+        }
+    }
+    return null;
 }
 
 function submitFreeText() {
     const text = dom.freeTextInput.value.trim();
     if (!text) return;
 
+    // Check if this looks like a talk-category action
+    const talkMatch = detectTalkKeyword(text);
+    if (talkMatch) {
+        // Show the talk action picker instead of sending immediately
+        _pendingTalkText = text;
+        _pendingTalkBestMatch = talkMatch.actionId;
+        showTalkPicker(talkMatch.actionId);
+        return;
+    }
+
+    // Not a talk action — send directly to NLP parser
     sendAction({ text: text, source: 'text' });
     dom.freeTextInput.value = '';
+}
+
+function showTalkPicker(suggestedAction) {
+    dom.talkPicker.classList.remove('hidden');
+    // Highlight the suggested action
+    dom.talkPickBtns.forEach(btn => {
+        btn.classList.toggle('talk-pick-suggested', btn.dataset.action === suggestedAction);
+    });
+}
+
+function closeTalkPicker() {
+    dom.talkPicker.classList.add('hidden');
+    _pendingTalkText = null;
+    _pendingTalkBestMatch = null;
+}
+
+/**
+ * User picked a specific action from the talk picker.
+ * Send as a button action (precise) with the original text context.
+ */
+function sendTalkPickerAction(actionId) {
+    if (!_pendingTalkText) return;
+
+    // If there are NPCs here, prompt for target selection
+    if (gameState?.npcs_here?.length) {
+        closeTalkPicker();
+        // Stash the text context and open the NPC target selector
+        pendingAction = actionId;
+        showTargetSelector(actionId, false);
+    } else {
+        // No NPCs — send directly, engine will handle "no target" gracefully
+        sendAction({
+            action_id: actionId,
+            source: 'button',
+        });
+        dom.freeTextInput.value = '';
+        closeTalkPicker();
+    }
+}
+
+/**
+ * User chose "Send as typed" — bypass picker, let NLP decide best action.
+ */
+function sendTalkPickerRaw() {
+    if (!_pendingTalkText) return;
+    sendAction({ text: _pendingTalkText, source: 'text' });
+    dom.freeTextInput.value = '';
+    closeTalkPicker();
 }
 
 // ═══════════════════════════════════════════════════════════════

@@ -55,16 +55,17 @@ UNIVERSAL_ACTIONS: dict[str, dict] = {
     "look":       {"label": "Look around",             "category": "exploration", "base_ap": 1},
     "search":     {"label": "Search area thoroughly",  "category": "exploration", "base_ap": 5},
     "examine":    {"label": "Examine object / person", "category": "exploration", "base_ap": 2},
-    # Social
-    "talk":       {"label": "Talk to NPC",             "category": "social",      "base_ap": 1},
-    "greet":      {"label": "Greet someone",           "category": "social",      "base_ap": 1},
-    "ask_info":   {"label": "Ask for information",     "category": "social",      "base_ap": 1},
-    "persuade":   {"label": "Persuade / convince",     "category": "social",      "base_ap": 2},
+    # Talk (conversation / persuasion)
+    "talk":       {"label": "Talk to NPC",             "category": "talk",        "base_ap": 1},
+    "greet":      {"label": "Greet someone",           "category": "talk",        "base_ap": 1},
+    "ask_info":   {"label": "Ask for information",     "category": "talk",        "base_ap": 1},
+    "persuade":   {"label": "Persuade / convince",     "category": "talk",        "base_ap": 2},
+    "deceive":    {"label": "Lie / bluff",             "category": "talk",        "base_ap": 2},
+    "intimidate": {"label": "Threaten / intimidate",   "category": "talk",        "base_ap": 2},
+    # Social (exchange / barter)
     "trade":      {"label": "Trade items",             "category": "social",      "base_ap": 2},
     "give_item":  {"label": "Give item to NPC",        "category": "social",      "base_ap": 1},
     "present_item": {"label": "Present / show item to NPC", "category": "social",  "base_ap": 1},
-    "deceive":    {"label": "Lie / bluff",             "category": "social",      "base_ap": 2},
-    "intimidate": {"label": "Threaten / intimidate",   "category": "social",      "base_ap": 2},
     # Combat
     "attack":     {"label": "Attack / fight",          "category": "combat",      "base_ap": 10},
     "defend":     {"label": "Defend / block",          "category": "combat",      "base_ap": 5},
@@ -86,7 +87,10 @@ UNIVERSAL_ACTIONS: dict[str, dict] = {
 }
 
 UNIVERSAL_ACTION_IDS: list[str] = list(UNIVERSAL_ACTIONS.keys())
-ACTION_CATEGORIES: list[str] = ["navigation", "exploration", "social", "combat", "stealth", "utility"]
+ACTION_CATEGORIES: list[str] = ["navigation", "exploration", "talk", "social", "combat", "stealth", "utility"]
+
+# Actions in the "talk" category — used by text-input interception
+TALK_CATEGORY_ACTIONS: set[str] = {"talk", "greet", "ask_info", "persuade", "deceive", "intimidate"}
 
 # ─── Reputation ──────────────────────────────────────────────────────────────
 REPUTATION_MIN: int = -100
@@ -122,7 +126,7 @@ INCAPACITATION_WITNESS_PENALTY: int = -15
 
 # ─── Skill Checks ───────────────────────────────────────────────────────────
 SOCIAL_MODIFIERS: dict[str, int] = {
-    "polite": 5, "honest": 3, "neutral": 0,
+    "polite": 5, "honest": 3, "cooperative": 4, "neutral": 0,
     "rude": -5, "deceptive": -3, "intimidating": 0,
 }
 
@@ -236,20 +240,33 @@ DIFFICULTY_PRESETS: dict[str, dict] = {
 
 # ─── NLP Keywords ────────────────────────────────────────────────────────────
 EMOTION_KEYWORDS: dict[str, list[str]] = {
-    "angry":       ["furious", "angry", "rage", "damn", "hate", "kill"],
-    "friendly":    ["please", "kindly", "hello", "hi", "friend", "thanks"],
-    "fearful":     ["scared", "afraid", "nervous", "run", "hide", "danger"],
-    "curious":     ["wonder", "what", "why", "how", "interesting", "tell me"],
-    "threatening": ["or else", "better", "warn", "threat", "regret"],
+    "angry":       ["furious", "angry", "rage", "damn", "hate", "kill", "fuming", "livid", "outraged", "furiously"],
+    "friendly":    ["please", "kindly", "hello", "hi", "friend", "thanks", "grateful", "appreciate",
+                    "compliment", "praise", "flatter", "admire", "respect", "love", "nice", "good job",
+                    "well done", "thank", "glad", "happy", "cheerful", "warm", "fondly", "gently"],
+    "fearful":     ["scared", "afraid", "nervous", "run", "hide", "danger", "worried", "anxious",
+                    "terrified", "frightened", "uneasy", "dread", "wary"],
+    "curious":     ["wonder", "what", "why", "how", "interesting", "tell me", "know about",
+                    "ask about", "curious", "explain", "learn", "understand", "question",
+                    "any news", "what's going on", "what happened"],
+    "threatening": ["or else", "better", "warn", "threat", "regret", "destroy", "suffer",
+                    "punish", "consequences", "pay for"],
     "neutral":     [],
 }
 
 SOCIAL_KEYWORDS: dict[str, list[str]] = {
-    "polite":       ["please", "excuse me", "thank you", "sir", "ma'am", "kindly"],
-    "rude":         ["idiot", "fool", "shut up", "get lost", "stupid", "out of my way"],
-    "deceptive":    ["trick", "lie", "pretend", "disguise", "fool them", "bluff"],
-    "honest":       ["truth", "honest", "truly", "really", "sincerely"],
-    "intimidating": ["threaten", "scare", "force", "make them", "demand", "or else"],
+    "polite":       ["please", "excuse me", "thank you", "sir", "ma'am", "kindly", "respectfully",
+                     "could you", "would you", "if you don't mind", "pardon", "with respect"],
+    "rude":         ["idiot", "fool", "shut up", "get lost", "stupid", "out of my way",
+                     "worthless", "scum", "pathetic", "useless"],
+    "deceptive":    ["trick", "lie", "pretend", "disguise", "fool them", "bluff",
+                     "mislead", "fabricate", "make up"],
+    "honest":       ["truth", "honest", "truly", "really", "sincerely", "genuinely",
+                     "frankly", "openly", "straightforward"],
+    "intimidating": ["threaten", "scare", "force", "make them", "demand", "or else",
+                     "obey", "comply", "submit"],
+    "cooperative":  ["help", "together", "work with", "assist", "support", "cooperate",
+                     "ally", "partner", "team up", "join"],
     "neutral":      [],
 }
 
@@ -258,10 +275,15 @@ ACTION_SYNONYMS: dict[str, list[str]] = {
     "look":       ["look around", "look", "observe", "see", "glance"],
     "search":     ["search", "investigate", "explore area", "rummage", "look for"],
     "examine":    ["examine", "inspect", "study", "check out"],
-    "talk":       ["talk", "speak", "chat", "converse", "discuss", "say"],
-    "greet":      ["greet", "hello", "say hello", "say hi", "hi", "wave", "approach"],
-    "ask_info":   ["ask", "ask about", "inquire", "question", "tell me about"],
-    "persuade":   ["persuade", "convince", "plead", "reason with", "appeal"],
+    "talk":       ["talk", "speak", "chat", "converse", "discuss", "say", "tell",
+                   "compliment", "praise", "flatter", "respond", "reply", "address",
+                   "call out", "comment", "remark", "mention", "bring up"],
+    "greet":      ["greet", "hello", "say hello", "say hi", "hi", "wave", "approach",
+                   "introduce myself", "introduce"],
+    "ask_info":   ["ask", "ask about", "inquire", "question", "tell me about",
+                   "what do you know", "know about", "ask for", "request info",
+                   "what can you tell", "any information", "any news"],
+    "persuade":   ["persuade", "convince", "plead", "reason with", "appeal", "coax", "urge"],
     "trade":      ["trade", "buy", "sell", "barter", "shop", "purchase", "deal"],
     "give_item":  ["give", "hand over", "offer", "donate"],
     "present_item": ["show to", "present to", "present item", "show item", "display to", "produce", "show", "present", "show papers", "present papers"],

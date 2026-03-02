@@ -43,10 +43,24 @@
             "Hey there. What d'you need? I've got work to finish.",
             "Oh, it's you again. Pull up a fence post and talk, I suppose."
         ],
+        "greeting_friendly": [
+            "*wipes brow and grins* Well, that's a nice thing to hear. Don't get many compliments out here.",
+            "Aw, shucks. You're alright, you know that?",
+            "Kind words and honest work — that's what I respect. Thank you."
+        ],
+        "talk": [
+            "The crops are coming in well this season. Can't complain.",
+            "Something's been bothering the elder lately. Won't say what, but I can tell.",
+            "I saw something odd in the fields the other night. A figure, moving by the old oak tree. Didn't get a good look.",
+            "Honest work, honest pay. That's all a man needs.",
+            "If you're looking for the elder's missing thing, you might want to check near the old oak. Just a feeling."
+        ],
         "ask_info": [
             "I just know farming, friend. But I keep my eyes open — ask away.",
             "Not much happens here I don't notice, long as it's near the fields.",
-            "Hmm, I might've heard something about that. Let me think..."
+            "Hmm, I might've heard something about that. Let me think...",
+            "I told the elder about the figure I saw near the old oak. She seemed real interested.",
+            "The soil's been strange lately — dry patches where it shouldn't be. Old Petra says it's a bad omen."
         ],
         "unknown": [
             "Sorry, I don't know nothing about that. Try the elder, maybe.",

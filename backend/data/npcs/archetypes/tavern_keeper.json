@@ -43,10 +43,24 @@
             "Welcome back! Your usual spot by the hearth is open.",
             "Hello there, stranger. Or should I say friend? Pull up a chair."
         ],
+        "greeting_friendly": [
+            "*beams* Why, aren't you sweet! I'll pour you the good stuff for that.",
+            "Aww, you charmer! Flattery gets you the best table in the house.",
+            "How lovely! You know, kind words are the best currency a tavern keeper can receive."
+        ],
+        "talk": [
+            "Business has been slow, but that's village life for you. Always ebbs and flows.",
+            "You should have seen this place last festival. Standing room only!",
+            "Between you and me, the village has been on edge since the elder's trouble started.",
+            "A good tavern keeper listens more than she speaks. But for you, I'll make an exception.",
+            "Stay long enough and you'll hear every secret in Thornhaven. That's the power of good ale."
+        ],
         "ask_info": [
             "I hear things, you know. Folks get talkative after a drink or two. What do you want to know?",
             "Ah, asking the right person. Not much happens in this village I don't hear about eventually.",
-            "I might know something about that. Sit down, and let's talk properly."
+            "I might know something about that. Sit down, and let's talk properly.",
+            "Word is, the elder lost something precious. A jade amulet, they say. She's been beside herself.",
+            "Jak was in here the other night, talking about strange lights in the fields. Could be nothing, could be everything."
         ],
         "unknown": [
             "Can't say I know anything about that, love. Want a drink while you figure it out?",

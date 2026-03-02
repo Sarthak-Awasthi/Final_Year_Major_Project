@@ -71,7 +71,7 @@ class ParsedInput(TypedDict, total=False):
 
 # ─── Valid enum values ────────────────────────────────────────────────────────
 _VALID_EMOTIONS: set[str] = {"neutral", "angry", "friendly", "fearful", "curious", "threatening"}
-_VALID_SOCIALS: set[str] = {"neutral", "polite", "rude", "deceptive", "honest", "intimidating"}
+_VALID_SOCIALS: set[str] = {"neutral", "polite", "rude", "deceptive", "honest", "intimidating", "cooperative"}
 
 # ─── NPC name → UID lookup tables ────────────────────────────────────────────
 # Populated from NPC registry at runtime; maps lowercased name fragments to UIDs.
@@ -80,18 +80,32 @@ _NPC_NAME_MAP: dict[str, str] = {
     "maren":  "elder_m8b2",
     "elder":  "elder_m8b2",
     "elder maren": "elder_m8b2",
+    "the elder": "elder_m8b2",
     "jak":    "farmer_j4a1",
     "farmer": "farmer_j4a1",
     "farmer jak": "farmer_j4a1",
     "tessa":  "tavkeeper_t9c3",
     "tavkeeper": "tavkeeper_t9c3",
+    "bartender": "tavkeeper_t9c3",
+    "barmaid": "tavkeeper_t9c3",
+    "innkeeper": "tavkeeper_t9c3",
     "aldric": "guard_a3f1",
+    "aldrick": "guard_a3f1",
     "guard aldric": "guard_a3f1",
     "bryn":   "guard_b7e2",
+    "brynn":  "guard_b7e2",
+    "brin":   "guard_b7e2",
     "guard bryn": "guard_b7e2",
+    "guard brynn": "guard_b7e2",
     "petra":  "villager_c1d4",
     "old petra": "villager_c1d4",
     "villager": "villager_c1d4",
+}
+
+# Ambiguous names that could match multiple NPCs — require disambiguation.
+# "guard" alone is ambiguous (Aldric or Bryn); resolved at location level.
+_AMBIGUOUS_NPC_NAMES: dict[str, list[str]] = {
+    "guard": ["guard_a3f1", "guard_b7e2"],
 }
 
 # ─── Location name → ID mapping ──────────────────────────────────────────────
@@ -504,7 +518,29 @@ def _extract_target_npc(
             matched_uid = dynamic_map[name_fragment]
             break
 
-    # ── 2. spaCy NER fallback ────────────────────────────────────────────
+    # ── 1b. Handle ambiguous names (e.g. "guard" → multiple NPCs) ────────
+    if matched_uid is None:
+        for ambig_name, candidate_uids in _AMBIGUOUS_NPC_NAMES.items():
+            if ambig_name in text_lower:
+                # Prefer the one at the player's location
+                for cuid in candidate_uids:
+                    npc_c = npc_registry.get(cuid)
+                    if npc_c is None:
+                        continue
+                    npc_c_loc = getattr(npc_c, "location", None) if not isinstance(npc_c, dict) else npc_c.get("location")
+                    if npc_c_loc == player_location:
+                        matched_uid = cuid
+                        break
+                # If none at player location, pick first available
+                if matched_uid is None and candidate_uids:
+                    matched_uid = candidate_uids[0]
+                break
+
+    # ── 2. Fuzzy name fallback — check for close matches ─────────────────
+    if matched_uid is None:
+        matched_uid = _fuzzy_npc_match(text_lower, dynamic_map)
+
+    # ── 3. spaCy NER fallback ────────────────────────────────────────────
     if matched_uid is None and doc is not None:
         for ent in doc.ents:
             if ent.label_ == "PERSON":
@@ -512,11 +548,16 @@ def _extract_target_npc(
                 if ent_lower in dynamic_map:
                     matched_uid = dynamic_map[ent_lower]
                     break
+                # Also try fuzzy on NER entities
+                fuzzy_uid = _fuzzy_npc_match(ent_lower, dynamic_map)
+                if fuzzy_uid is not None:
+                    matched_uid = fuzzy_uid
+                    break
 
     if matched_uid is None:
         return None
 
-    # ── 3. Prefer NPCs at the player's location ─────────────────────────
+    # ── 4. Prefer NPCs at the player's location ─────────────────────────
     npc_data = npc_registry.get(matched_uid)
     npc_loc = getattr(npc_data, "location", None) if not isinstance(npc_data, dict) else npc_data.get("location")
     if npc_data and npc_loc == player_location:
@@ -662,6 +703,60 @@ def _mask_entities(
 # ═══════════════════════════════════════════════════════════════════════════════
 #  Helpers
 # ═══════════════════════════════════════════════════════════════════════════════
+
+
+def _fuzzy_npc_match(text_lower: str, name_map: dict[str, str]) -> str | None:
+    """Attempt fuzzy matching for NPC names (handles typos like 'brynn' → 'bryn').
+
+    Uses simple edit-distance-like heuristic: for each known name, check if
+    any word in the text is within 1-2 character edits of the known name.
+
+    Returns:
+        Matched NPC UID or ``None``.
+    """
+    words = text_lower.split()
+    for word in words:
+        if len(word) < 3:
+            continue
+        for known_name, uid in name_map.items():
+            if len(known_name) < 3 or " " in known_name:
+                continue
+            # Check if within 1-char edit distance (simple heuristic)
+            if _is_close_match(word, known_name, max_dist=1):
+                logger.debug("Fuzzy NPC match: '%s' → '%s' (%s)", word, known_name, uid)
+                return uid
+    return None
+
+
+def _is_close_match(a: str, b: str, max_dist: int = 1) -> bool:
+    """Check if strings *a* and *b* differ by at most *max_dist* edits.
+
+    Uses a simplified check: length difference ≤ max_dist AND
+    character overlap ratio ≥ threshold.
+    """
+    if abs(len(a) - len(b)) > max_dist:
+        return False
+    if a == b:
+        return True
+
+    # Simple Levenshtein-like check for short strings
+    if len(a) <= 6 and len(b) <= 6:
+        # Count character differences at each position
+        shorter, longer = (a, b) if len(a) <= len(b) else (b, a)
+        diffs = 0
+        j = 0
+        for i in range(len(longer)):
+            if j < len(shorter) and longer[i] == shorter[j]:
+                j += 1
+            else:
+                diffs += 1
+        diffs += len(shorter) - j
+        return diffs <= max_dist
+
+    # For longer strings, use character set overlap
+    common = sum(1 for c in set(a) if c in b)
+    return common >= max(len(a), len(b)) - max_dist
+
 
 def _empty_parsed_input(raw_text: str | None = None) -> ParsedInput:
     """Return a blank ``ParsedInput`` for empty / unparseable input."""

@@ -939,3 +939,83 @@ async def export_game_log() -> dict:
         "metrics": engine.get_metrics() if hasattr(engine, 'get_metrics') else {},
         "difficulty": engine.difficulty.to_dict(),
     }
+
+
+# ─── Playthrough Log endpoints ───────────────────────────────────────────────
+
+
+class PlaythroughLogResponse(BaseModel):
+    """Response containing playthrough log records."""
+    session_id: str
+    log_path: str
+    total_records: int
+    records: list[dict]
+
+
+@router.get(
+    "/playthrough-log",
+    response_model=PlaythroughLogResponse,
+    tags=["metrics"],
+    summary="Get structured playthrough log",
+)
+async def get_playthrough_log(
+    turns_only: bool = Query(False, description="If true, return only turn records"),
+    last_n: int = Query(0, description="Return only the last N records (0 = all)"),
+) -> PlaythroughLogResponse:
+    """Retrieve the structured per-turn playthrough log for research analysis.
+
+    Each record contains player input, system response, and world state snapshot.
+    """
+    engine = get_engine()
+    pt = engine.playthrough_logger
+
+    if turns_only:
+        records = pt.get_turn_records()
+    else:
+        records = pt.get_all_records()
+
+    if last_n > 0:
+        records = records[-last_n:]
+
+    return PlaythroughLogResponse(
+        session_id=pt.session_id,
+        log_path=pt.get_log_path(),
+        total_records=len(records),
+        records=records,
+    )
+
+
+@router.get(
+    "/playthrough-log/turn/{turn_number}",
+    tags=["metrics"],
+    summary="Get playthrough log for a specific turn",
+)
+async def get_playthrough_turn(turn_number: int) -> dict:
+    """Get the detailed log record for a specific turn number."""
+    engine = get_engine()
+    records = engine.playthrough_logger.get_turn_records()
+
+    for record in records:
+        if record.get("turn") == turn_number:
+            return record
+
+    raise HTTPException(status_code=404, detail=f"No log record for turn {turn_number}")
+
+
+@router.get(
+    "/playthrough-log/download",
+    tags=["metrics"],
+    summary="Download raw JSONL playthrough log",
+)
+async def download_playthrough_log() -> dict:
+    """Return the raw JSONL content for download/archival."""
+    engine = get_engine()
+    pt = engine.playthrough_logger
+
+    records = pt.get_all_records()
+    return {
+        "session_id": pt.session_id,
+        "format": "jsonl",
+        "log_path": pt.get_log_path(),
+        "records": records,
+    }

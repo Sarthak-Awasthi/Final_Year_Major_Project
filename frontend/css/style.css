@@ -35,6 +35,7 @@
     /* Category Colors (Action Palette) */
     --cat-nav: #4A90D9;
     --cat-explore: #9B59B6;
+    --cat-talk: #1ABC9C;
     --cat-social: #2ECC71;
     --cat-combat: #E74C3C;
     --cat-stealth: #8E44AD;
@@ -608,6 +609,7 @@ body {
 
 .action-tab[data-category="navigation"].active { color: var(--cat-nav); }
 .action-tab[data-category="exploration"].active { color: var(--cat-explore); }
+.action-tab[data-category="talk"].active { color: var(--cat-talk); }
 .action-tab[data-category="social"].active { color: var(--cat-social); }
 .action-tab[data-category="combat"].active { color: var(--cat-combat); }
 .action-tab[data-category="stealth"].active { color: var(--cat-stealth); }

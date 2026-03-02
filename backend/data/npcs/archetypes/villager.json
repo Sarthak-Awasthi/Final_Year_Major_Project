@@ -43,10 +43,24 @@
             "Hello there! Don't think we've spoken properly yet. I'm around if you need anything.",
             "Good to see a new face. This village could use some excitement."
         ],
+        "greeting_friendly": [
+            "*smiles broadly* Oh how nice! You're a pleasant one, aren't you?",
+            "That's very kind of you to say! We don't get many sweet-talkers around here.",
+            "*chuckles* Flattery! I like you already."
+        ],
+        "talk": [
+            "Have you heard? The elder's been all out of sorts. Something about a missing heirloom.",
+            "The guards have been more watchful lately. Makes you wonder what's going on.",
+            "I like it here. Quiet, usually. Though lately things have been... unsettled.",
+            "You should talk to Tessa at the tavern. She hears everything.",
+            "Old as I am, I've seen a lot in this village. But these are strange times."
+        ],
         "ask_info": [
             "I hear things here and there. Can't promise it's all true, though.",
             "Hmm, let me think... I think I overheard something about that at the tavern last night.",
-            "I'm not the best person to ask, but I'll tell you what I know."
+            "I'm not the best person to ask, but I'll tell you what I know.",
+            "The elder keeps asking about her jade amulet. I hope someone finds it — she doesn't deserve this worry.",
+            "Jak mentioned something about the fields. You should go ask him yourself."
         ],
         "unknown": [
             "Sorry, I really don't know anything about that. Maybe ask someone more important?",

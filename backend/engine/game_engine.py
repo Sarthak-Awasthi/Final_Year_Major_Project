@@ -58,6 +58,10 @@ from backend.engine.narration import (
     get_template_narration,
     passive_perception_check,
 )
+from backend.engine.playthrough_logger import (
+    PlaythroughLogger,
+    build_world_snapshot,
+)
 from backend.engine.world import World
 from backend.llm.llm_service import LLMService
 from backend.npc.dialogue import format_dialogue, resolve_dialogue
@@ -137,6 +141,8 @@ class GameEngine:
             quest_data = json.load(f)
         self.mdp = QuestMDP(quest_data)
         self.quest_manager = QuestManager(self.mdp)
+        # Store quest item definitions so string IDs in rewards can be resolved
+        self._quest_items: dict[str, dict] = quest_data.get("items", {})
 
         # NPCs
         self.npc_registry: dict[str, NPC] = create_npc_registry(seed)
@@ -166,6 +172,12 @@ class GameEngine:
             "llm_calls": 0,
             "start_time": datetime.now(timezone.utc).isoformat(),
         }
+
+        # Playthrough logger — structured per-turn research log
+        session_ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        self.playthrough_logger = PlaythroughLogger(
+            session_id=f"{session_ts}_{seed}"
+        )
 
         logger.info(
             "GameEngine initialised: seed=%d, difficulty=%s, max_turns=%d",
@@ -225,6 +237,21 @@ class GameEngine:
             narration=opening,
             importance=3,
         )
+
+        # Log game_start in playthrough log
+        try:
+            self.playthrough_logger.log_event("game_start", {
+                "seed": self.seed,
+                "difficulty": self.difficulty.preset,
+                "max_turns": self.max_turns,
+                "player_name": self.player.name,
+                "opening_narration": opening.strip(),
+                "initial_location": self.player.location,
+                "npc_count": len(self.npc_registry),
+            })
+        except Exception as exc:
+            logger.error("PlaythroughLogger game_start failed: %s", exc)
+
         return initial_state
 
     def _pretrain_npcs(self) -> None:
@@ -300,24 +327,29 @@ class GameEngine:
         weather = self._get_active_weather()
 
         # Layer 2: LLM narration enhancement (optional)
-        # Resolve target UID to display name for LLM prompts
-        raw_target = action_result.get("target")
-        target_display = _npc_names_map(self.npc_registry).get(raw_target, raw_target) if raw_target else None
+        # Skip LLM enhancement for social/dialogue actions — the dialogue
+        # pipeline already produces the NPC's response.  LLM-enhancing the
+        # narration template for these results in bloated text that drowns
+        # out or duplicates the real dialogue.
+        _social_actions = {"talk", "greet", "ask_info", "persuade", "deceive", "intimidate", "trade", "give_item", "present_item"}
+        if action_id not in _social_actions:
+            raw_target = action_result.get("target")
+            target_display = _npc_names_map(self.npc_registry).get(raw_target, raw_target) if raw_target else None
 
-        narration = enhance_narration_with_llm(
-            template_narration=narration,
-            action_id=action_id,
-            actor_name=self.player.name,
-            target_name=target_display,
-            outcome_type="success" if action_result["success"] else "fail",
-            location=self.player.location,
-            time_of_day=self.world.time_of_day,
-            weather=weather,
-            emotion=parsed_input.get("emotion", "neutral"),
-            social=parsed_input.get("social", "neutral"),
-            witnesses=[_npc_names_map(self.npc_registry).get(w, w) for w in witnesses],
-            llm_service=self.llm,
-        )
+            narration = enhance_narration_with_llm(
+                template_narration=narration,
+                action_id=action_id,
+                actor_name=self.player.name,
+                target_name=target_display,
+                outcome_type="success" if action_result["success"] else "fail",
+                location=self.player.location,
+                time_of_day=self.world.time_of_day,
+                weather=weather,
+                emotion=parsed_input.get("emotion", "neutral"),
+                social=parsed_input.get("social", "neutral"),
+                witnesses=[_npc_names_map(self.npc_registry).get(w, w) for w in witnesses],
+                llm_service=self.llm,
+            )
 
         # Layer 3: Context modifiers
         narration = add_context_modifiers(
@@ -434,6 +466,34 @@ class GameEngine:
             "game_result": self.game_result,
             "state": self.get_full_state(),
         }
+
+        # ── 12. Playthrough logging ───────────────────────────────────
+        try:
+            world_snapshot = build_world_snapshot(
+                turn=self.turn,
+                player=self.player,
+                npc_registry=self.npc_registry,
+                world=self.world,
+                quest_manager=self.quest_manager,
+                difficulty=self.difficulty,
+            )
+            self.playthrough_logger.log_turn(
+                turn=self.turn,
+                parsed_input=parsed_input,
+                action_result=action_result,
+                turn_result=turn_result,
+                world_snapshot=world_snapshot,
+            )
+        except Exception as exc:
+            logger.error("PlaythroughLogger.log_turn failed: %s", exc)
+
+        # Flush summary on game-over
+        if self.game_over:
+            try:
+                self.playthrough_logger.flush_summary(turn_result.get("state"))
+            except Exception as exc:
+                logger.error("PlaythroughLogger.flush_summary failed: %s", exc)
+
         return turn_result
 
     # ── Player Action Resolution ──────────────────────────────────────────
@@ -2161,6 +2221,14 @@ class GameEngine:
         # Check if this action completes the current checkpoint
         completion = self.quest_manager.check_completion(action_id, target_npc, context)
 
+        # If no direct completion and we're on a dynamic checkpoint,
+        # try convergence: check if the action satisfies the original
+        # static checkpoint the player deviated from.
+        if completion is None and self.quest_manager.deviation_origin is not None:
+            completion = self.quest_manager.check_convergence(
+                action_id, target_npc, context
+            )
+
         if completion:
             next_cp = completion.get("next_checkpoint")
             rewards = completion.get("rewards", {})
@@ -2173,6 +2241,19 @@ class GameEngine:
                 for item in rewards["gives"] if isinstance(rewards["gives"], list) else [rewards["gives"]]:
                     if isinstance(item, dict):
                         self.player.add_item(item)
+                    elif isinstance(item, str):
+                        # Resolve string item ID to full item dict
+                        item_def = self._quest_items.get(item)
+                        if item_def:
+                            self.player.add_item(dict(item_def))
+                            logger.info("Quest reward: gave item '%s'", item)
+                        else:
+                            logger.warning("Quest reward item '%s' not found in definitions", item)
+            if "removes" in rewards:
+                for item_id in rewards["removes"] if isinstance(rewards["removes"], list) else [rewards["removes"]]:
+                    removed = self.player.remove_item(item_id)
+                    if removed:
+                        logger.info("Quest reward: removed item '%s'", item_id)
             if "stamina" in rewards:
                 self.player.modify_stamina(rewards["stamina"])
 
@@ -2254,11 +2335,29 @@ class GameEngine:
                     npc_obj = self.npc_registry.get(parsed_input["target_npc"])
                     npc_name = npc_obj.name if npc_obj else None
 
+                # Resolve nudge_target: use the *origin* checkpoint's
+                # nudge_target so dynamic CPs always point toward the
+                # next main-path checkpoint, not back to themselves.
+                origin_cp_id = (
+                    self.quest_manager.deviation_origin
+                    or self.quest_manager.current_checkpoint
+                )
+                origin_cp = self.mdp.get_checkpoint(origin_cp_id)
+                proper_nudge_target = (
+                    origin_cp.nudge_target if origin_cp else None
+                )
+                if proper_nudge_target is None:
+                    # Fallback: first static CP in current/next stage
+                    from backend.quest.nudge import get_convergence_checkpoint
+                    proper_nudge_target = get_convergence_checkpoint(
+                        self.quest_manager.current_stage, self.mdp
+                    )
+
                 cp_context = {
                     "checkpoint_id": cp_id,
                     "location": self.player.location,
                     "npc_name": npc_name or "a nearby villager",
-                    "nudge_target": self.quest_manager.current_checkpoint,
+                    "nudge_target": proper_nudge_target,
                 }
 
                 dynamic_cp = generate_dynamic_checkpoint(
@@ -2809,6 +2908,17 @@ class GameEngine:
         shutil.copy2(str(filepath), str(backup_path))
 
         logger.info("Game saved to %s (turn %d)", filepath.name, self.turn)
+
+        # Log save event in playthrough log
+        try:
+            self.playthrough_logger.log_event("save", {
+                "slot": slot,
+                "filepath": str(filepath),
+                "turn": self.turn,
+            })
+        except Exception:
+            pass
+
         return str(filepath)
 
     def load_game(self, filepath: str) -> dict:
@@ -2882,6 +2992,16 @@ class GameEngine:
         self._pretrained = True  # Q-tables are stored in save
 
         logger.info("Game loaded from %s (turn %d)", path.name, self.turn)
+
+        # Log load event in playthrough log
+        try:
+            self.playthrough_logger.log_event("load", {
+                "filepath": str(path),
+                "turn": self.turn,
+            })
+        except Exception:
+            pass
+
         return self.get_full_state()
 
     # ── State Queries ─────────────────────────────────────────────────────

@@ -416,12 +416,58 @@ def enhance_narration_with_llm(
         raw = llm_service.generate(prompt, temperature=0.7, max_tokens=300)
         if raw and raw.strip():
             enhanced = sanitize_text(raw.strip())
+            # Strip leaked prompt/instruction content
+            enhanced = _strip_leaked_prompt(enhanced)
             if len(enhanced) >= 10:
                 logger.info("LLM narration enhancement succeeded on attempt %d", attempt + 1)
                 return enhanced
         logger.debug("LLM narration attempt %d failed or empty", attempt + 1)
 
     return template_narration
+
+
+import re as _re
+
+# Patterns that indicate the LLM echoed back prompt structure
+_LEAKED_PROMPT_PATTERNS = [
+    _re.compile(r"##\s*(Action Details|Base Narration|Instructions).*", _re.DOTALL),
+    _re.compile(r"-\s*(Action|Actor|Target|Outcome|Location|Time|Weather|Tone|Manner|Witnesses):\s*"),
+    _re.compile(r"Respond with ONLY.*", _re.DOTALL),
+    _re.compile(r"Do NOT (write|add|echo).*$", _re.MULTILINE),
+    _re.compile(r"Enhance the narrative with atmospheric.*$", _re.MULTILINE),
+    _re.compile(r"Keep (it to|the outcome).*$", _re.MULTILINE),
+    _re.compile(r"Write in second person.*$", _re.MULTILINE),
+]
+
+
+def _strip_leaked_prompt(text: str) -> str:
+    """Remove leaked prompt/instruction artifacts from LLM narration output.
+
+    The LLM sometimes echoes back parts of its instruction prompt as part of
+    the generated text. This strips those fragments.
+
+    Args:
+        text: Raw LLM output after basic sanitization.
+
+    Returns:
+        Cleaned narration text.
+    """
+    # If text contains "## Action Details" or similar, take only the text before it
+    for marker in ["## Action Details", "## Base Narration", "## Instructions"]:
+        idx = text.find(marker)
+        if idx > 0:
+            text = text[:idx].strip()
+        elif idx == 0:
+            # The entire output is prompt echo — discard
+            return ""
+
+    # Strip individual leaked lines
+    for pattern in _LEAKED_PROMPT_PATTERNS:
+        text = pattern.sub("", text)
+
+    # Collapse whitespace
+    text = " ".join(text.split())
+    return text.strip()
 
 
 def add_context_modifiers(

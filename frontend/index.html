@@ -239,6 +239,7 @@
                     <div class="action-tabs">
                         <button class="action-tab active" data-category="navigation">Navigation</button>
                         <button class="action-tab" data-category="exploration">Exploration</button>
+                        <button class="action-tab" data-category="talk">Talk</button>
                         <button class="action-tab" data-category="social">Social</button>
                         <button class="action-tab" data-category="combat">Combat</button>
                         <button class="action-tab" data-category="stealth">Stealth</button>
@@ -270,24 +271,36 @@
                             </button>
                         </div>
 
-                        <!-- Social -->
-                        <div class="action-group" data-category="social">
-                            <button class="action-btn action-social" data-action="talk" data-ap="1">
+                        <!-- Talk (conversation / persuasion) -->
+                        <div class="action-group" data-category="talk">
+                            <button class="action-btn action-talk" data-action="talk" data-ap="1">
                                 <span class="action-name">Talk</span>
                                 <span class="action-cost">1 AP</span>
                             </button>
-                            <button class="action-btn action-social" data-action="greet" data-ap="1">
+                            <button class="action-btn action-talk" data-action="greet" data-ap="1">
                                 <span class="action-name">Greet</span>
                                 <span class="action-cost">1 AP</span>
                             </button>
-                            <button class="action-btn action-social" data-action="ask_info" data-ap="1">
+                            <button class="action-btn action-talk" data-action="ask_info" data-ap="1">
                                 <span class="action-name">Ask Info</span>
                                 <span class="action-cost">1 AP</span>
                             </button>
-                            <button class="action-btn action-social" data-action="persuade" data-ap="2">
+                            <button class="action-btn action-talk" data-action="persuade" data-ap="2">
                                 <span class="action-name">Persuade</span>
                                 <span class="action-cost">2 AP</span>
                             </button>
+                            <button class="action-btn action-talk" data-action="deceive" data-ap="2">
+                                <span class="action-name">Deceive</span>
+                                <span class="action-cost">2 AP</span>
+                            </button>
+                            <button class="action-btn action-talk" data-action="intimidate" data-ap="2">
+                                <span class="action-name">Intimidate</span>
+                                <span class="action-cost">2 AP</span>
+                            </button>
+                        </div>
+
+                        <!-- Social (exchange / barter) -->
+                        <div class="action-group" data-category="social">
                             <button class="action-btn action-social" data-action="trade" data-ap="2">
                                 <span class="action-name">Trade</span>
                                 <span class="action-cost">2 AP</span>
@@ -299,14 +312,6 @@
                             <button class="action-btn action-social" data-action="present_item" data-ap="1">
                                 <span class="action-name">Present Item</span>
                                 <span class="action-cost">1 AP</span>
-                            </button>
-                            <button class="action-btn action-social" data-action="deceive" data-ap="2">
-                                <span class="action-name">Deceive</span>
-                                <span class="action-cost">2 AP</span>
-                            </button>
-                            <button class="action-btn action-social" data-action="intimidate" data-ap="2">
-                                <span class="action-name">Intimidate</span>
-                                <span class="action-cost">2 AP</span>
                             </button>
                         </div>
 
@@ -406,6 +411,25 @@
 
                 <!-- Text Input -->
                 <section id="text-input" class="panel text-input-panel">
+                    <!-- Talk Action Picker (shown when text matches a talk-category action) -->
+                    <div id="talk-action-picker" class="talk-action-picker hidden">
+                        <div class="talk-picker-header">
+                            <span class="talk-picker-label">Select a conversation action:</span>
+                            <button id="talk-picker-close" class="talk-picker-close" title="Close">&times;</button>
+                        </div>
+                        <div class="talk-picker-actions">
+                            <button class="talk-pick-btn" data-action="talk">Talk <span class="action-cost">1 AP</span></button>
+                            <button class="talk-pick-btn" data-action="greet">Greet <span class="action-cost">1 AP</span></button>
+                            <button class="talk-pick-btn" data-action="ask_info">Ask Info <span class="action-cost">1 AP</span></button>
+                            <button class="talk-pick-btn" data-action="persuade">Persuade <span class="action-cost">2 AP</span></button>
+                            <button class="talk-pick-btn" data-action="deceive">Deceive <span class="action-cost">2 AP</span></button>
+                            <button class="talk-pick-btn" data-action="intimidate">Intimidate <span class="action-cost">2 AP</span></button>
+                        </div>
+                        <div class="talk-picker-footer">
+                            <button id="talk-picker-send-raw" class="btn btn-secondary btn-sm">Send as typed</button>
+                        </div>
+                    </div>
+
                     <div class="text-input-row">
                         <input type="text" id="free-text-input" class="text-input-field" placeholder="Type a command or describe your action..." autocomplete="off" maxlength="200">
                         <button id="send-text-btn" class="btn btn-primary btn-sm">
