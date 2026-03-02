@@ -461,6 +461,151 @@
 }
 
 /* ═══════════════════════════════════════════════════════════════
+   NEARBY OBJECTS (Ground Items)
+   ═══════════════════════════════════════════════════════════════ */
+
+.ground-items-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    max-height: 180px;
+    overflow-y: auto;
+}
+
+.ground-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 8px;
+    background: var(--surface-2);
+    border-radius: var(--radius-sm);
+    transition: background var(--transition);
+}
+
+.ground-item:hover {
+    background: var(--surface-hover);
+}
+
+.ground-item .item-type-badge {
+    flex-shrink: 0;
+}
+
+.ground-item .item-name {
+    flex: 1;
+    font-size: 0.78rem;
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.ground-item .ground-item-pickup {
+    font-size: 0.65rem;
+    font-weight: 500;
+    padding: 2px 8px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--green);
+    cursor: pointer;
+    transition: all var(--transition);
+    flex-shrink: 0;
+}
+
+.ground-item .ground-item-pickup:hover {
+    background: var(--green-dim);
+    border-color: var(--green);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   POINTS OF INTEREST
+   ═══════════════════════════════════════════════════════════════ */
+
+.poi-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    max-height: 220px;
+    overflow-y: auto;
+}
+
+.poi-entry {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 8px 10px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    transition: border-color var(--transition);
+}
+
+.poi-entry:hover {
+    border-color: rgba(255, 255, 255, 0.12);
+}
+
+.poi-entry .poi-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+}
+
+.poi-entry .poi-name {
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--amber);
+}
+
+.poi-entry .poi-desc {
+    font-size: 0.72rem;
+    color: var(--text-secondary);
+    line-height: 1.35;
+}
+
+.poi-entry .poi-hint {
+    font-size: 0.7rem;
+    color: var(--orange);
+    font-style: italic;
+}
+
+.poi-entry .poi-actions {
+    display: flex;
+    gap: 4px;
+    margin-top: 2px;
+}
+
+.poi-entry .poi-btn {
+    font-size: 0.65rem;
+    font-weight: 500;
+    padding: 2px 8px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: all var(--transition);
+    flex-shrink: 0;
+}
+
+.poi-entry .poi-btn.poi-examine {
+    color: var(--blue);
+}
+
+.poi-entry .poi-btn.poi-examine:hover {
+    background: rgba(74, 144, 217, 0.1);
+    border-color: var(--blue);
+}
+
+.poi-entry .poi-btn.poi-search {
+    color: var(--green);
+}
+
+.poi-entry .poi-btn.poi-search:hover {
+    background: var(--green-dim);
+    border-color: var(--green);
+}
+
+/* ═══════════════════════════════════════════════════════════════
    EVENT FEED
    ═══════════════════════════════════════════════════════════════ */
 

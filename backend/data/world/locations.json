@@ -8,7 +8,19 @@
       "adjacent": ["village_center"],
       "objects": ["village_gate", "notice_board", "merchant_cart"],
       "environment": "Stone gatehouse, dirt road, wooden palisade walls",
-      "default_npcs": ["guard_a3f1", "guard_b7e2"]
+      "default_npcs": ["guard_a3f1", "guard_b7e2"],
+      "points_of_interest": [
+        {
+          "poi_id": "notice_board",
+          "name": "Notice Board",
+          "description": "A weathered notice board near the gate, covered in faded postings and recent announcements. Villagers pin news and requests here.",
+          "discovery_hint": "A notice board catches your eye near the gate entrance.",
+          "discovered_by_default": true,
+          "searchable": true,
+          "search_bonus": 0.1,
+          "items_hidden": []
+        }
+      ]
     },
     "village_center": {
       "id": "village_center",
@@ -18,7 +30,29 @@
       "adjacent": ["gate", "elders_house", "fields", "tavern"],
       "objects": ["stone_well", "market_stalls", "crates", "signpost"],
       "environment": "Cobblestone square, thatched-roof buildings, worn stone well",
-      "default_npcs": ["villager_c1d4"]
+      "default_npcs": ["villager_c1d4"],
+      "points_of_interest": [
+        {
+          "poi_id": "stone_well",
+          "name": "Stone Well",
+          "description": "An old stone well at the center of the square. Villagers gather here to draw water and exchange gossip. The stones are worn smooth by generations of use.",
+          "discovery_hint": "The ancient stone well sits at the heart of the village.",
+          "discovered_by_default": true,
+          "searchable": true,
+          "search_bonus": 0.05,
+          "items_hidden": []
+        },
+        {
+          "poi_id": "signpost",
+          "name": "Signpost",
+          "description": "A wooden signpost with carved arrows pointing to the Elder's House, the Tavern, the Fields, and the Gate. Some of the paint has faded, but the directions are still clear.",
+          "discovery_hint": "A signpost shows directions to all village locations.",
+          "discovered_by_default": true,
+          "searchable": false,
+          "search_bonus": 0.0,
+          "items_hidden": []
+        }
+      ]
     },
     "elders_house": {
       "id": "elders_house",
@@ -28,7 +62,42 @@
       "adjacent": ["village_center"],
       "objects": ["bookshelves", "artifact_display", "fireplace", "writing_desk"],
       "environment": "Warm interior, flickering firelight, smell of old books and herbs",
-      "default_npcs": ["elder_m8b2"]
+      "default_npcs": ["elder_m8b2"],
+      "points_of_interest": [
+        {
+          "poi_id": "artifact_display",
+          "name": "Artifact Display Case",
+          "description": "An ornate glass-topped display case near the window. Its velvet interior is empty — the jade amulet that once rested here is gone. Faint scratches near the latch suggest it was opened carefully, not forced.",
+          "discovery_hint": "An empty display case near the window catches your attention.",
+          "discovered_by_default": false,
+          "discover_on_quest_stage": 3,
+          "searchable": true,
+          "search_bonus": 0.15,
+          "items_hidden": []
+        },
+        {
+          "poi_id": "bookshelves",
+          "name": "Bookshelves",
+          "description": "Floor-to-ceiling shelves lined with dusty tomes and scrolls. Many are histories of Thornhaven and its founding families. A few books have been recently disturbed.",
+          "discovery_hint": "Bookshelves crammed with old tomes line the walls.",
+          "discovered_by_default": true,
+          "searchable": true,
+          "search_bonus": 0.1,
+          "items_hidden": []
+        },
+        {
+          "poi_id": "thornhaven_map",
+          "name": "Hand-drawn Map of Thornhaven",
+          "description": "A hand-drawn map on aged parchment hangs on the wall behind Maren's chair. It shows the village layout: the gate, the center, the tavern, the fields, and — marked with faded ink — the old oak tree at the edge of the fields.",
+          "discovery_hint": "A hand-drawn map of Thornhaven hangs on the wall, with the old oak tree marked in faded ink.",
+          "discovered_by_default": false,
+          "discover_on_quest_stage": 3,
+          "searchable": false,
+          "search_bonus": 0.0,
+          "items_hidden": [],
+          "reveals_pois": [{"location": "fields", "poi_id": "old_oak_tree"}]
+        }
+      ]
     },
     "fields": {
       "id": "fields",
@@ -38,7 +107,42 @@
       "adjacent": ["village_center"],
       "objects": ["crops", "old_oak_tree", "barn", "tools", "creek"],
       "environment": "Open farmland, old oak tree, weathered barn, running creek",
-      "default_npcs": ["farmer_j4a1"]
+      "default_npcs": ["farmer_j4a1"],
+      "points_of_interest": [
+        {
+          "poi_id": "old_oak_tree",
+          "name": "Old Oak Tree",
+          "description": "A massive, gnarled oak tree standing alone at the edge of the fields. Its trunk is thick with age, its roots twisting deep into the earth like the fingers of a buried giant. A dark hollow between two roots looks large enough to hide something.",
+          "discovery_hint": "The ancient oak tree, dark and imposing, stands at the field's edge. Farmer Jak mentioned seeing a figure here at night.",
+          "discovered_by_default": false,
+          "discover_on_quest_stage": 4,
+          "discover_on_dialogue": {"npc_uid": "farmer_j4a1", "keywords": ["oak", "tree", "old oak"]},
+          "searchable": true,
+          "search_bonus": 0.35,
+          "items_hidden": ["jade_amulet"],
+          "examine_text": "The old oak's roots twist into the dark earth. Between two thick roots, there's a hollow — deep and shadowed. Something glints faintly inside."
+        },
+        {
+          "poi_id": "barn",
+          "name": "Farmer Jak's Barn",
+          "description": "A weathered barn with a sagging roof, filled with farming tools, hay bales, and the warm smell of livestock. Jak stores his surplus harvest here.",
+          "discovery_hint": "A weathered barn sits at the edge of the field.",
+          "discovered_by_default": true,
+          "searchable": true,
+          "search_bonus": 0.1,
+          "items_hidden": []
+        },
+        {
+          "poi_id": "creek",
+          "name": "Creek",
+          "description": "A narrow creek that babbles along the field's southern border. The water is clear and cold, fed by a spring somewhere in the hills beyond the village.",
+          "discovery_hint": "A babbling creek runs along the edge of the fields.",
+          "discovered_by_default": true,
+          "searchable": true,
+          "search_bonus": 0.05,
+          "items_hidden": []
+        }
+      ]
     },
     "tavern": {
       "id": "tavern",
@@ -48,7 +152,29 @@
       "adjacent": ["village_center"],
       "objects": ["bar_counter", "tables", "fireplace", "kitchen", "tavern_notice_board"],
       "environment": "Dim interior, wood smoke, clinking mugs, quiet conversation",
-      "default_npcs": ["tavkeeper_t9c3"]
+      "default_npcs": ["tavkeeper_t9c3"],
+      "points_of_interest": [
+        {
+          "poi_id": "bar_counter",
+          "name": "Bar Counter",
+          "description": "A long, polished wooden bar where Tessa serves drinks and overhears the village's gossip. Scratches and mug rings mark years of use.",
+          "discovery_hint": "The long bar counter is the heart of the tavern.",
+          "discovered_by_default": true,
+          "searchable": false,
+          "search_bonus": 0.0,
+          "items_hidden": []
+        },
+        {
+          "poi_id": "tavern_notice_board",
+          "name": "Tavern Notice Board",
+          "description": "A small board near the entrance cluttered with job postings, missing person notices, and the occasional crude sketch. One recent posting mentions unusual activity near the fields at night.",
+          "discovery_hint": "A notice board near the tavern door has some interesting postings.",
+          "discovered_by_default": true,
+          "searchable": true,
+          "search_bonus": 0.1,
+          "items_hidden": []
+        }
+      ]
     }
   }
 }

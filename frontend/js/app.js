@@ -176,6 +176,14 @@ const dom = {
     // NPC
     npcList:          $('#npc-list'),
 
+    // Nearby Objects
+    groundItemsList:  $('#ground-items-list'),
+    groundItemCount:  $('#ground-item-count'),
+
+    // Points of Interest
+    poiList:          $('#poi-list'),
+    poiCount:         $('#poi-count'),
+
     // Events
     eventList:        $('#event-list'),
 
@@ -242,6 +250,18 @@ function handleActionClick(btn) {
         return;
     }
 
+    // pick_up opens ground item selector when items are available
+    if (actionId === 'pick_up') {
+        const groundItems = gameState?.location?.items_on_ground || [];
+        if (groundItems.length > 0) {
+            showGroundItemPicker(groundItems);
+            return;
+        }
+        // No items on ground — send directly, engine will respond "nothing to pick up"
+        sendAction({ action_id: actionId, source: 'button' });
+        return;
+    }
+
     // Actions needing both NPC target AND item selection
     const needsNpcAndItem = ['give_item', 'present_item'];
 
@@ -272,7 +292,7 @@ function showTargetSelector(actionId, showItemSelect = false) {
     if (gameState?.npcs_here) {
         gameState.npcs_here.forEach(npc => {
             const opt = document.createElement('option');
-            opt.value = npc.uid;
+            opt.value = npc.npc_uid;
             opt.textContent = npc.name;
             dom.targetSelect.appendChild(opt);
         });
@@ -298,6 +318,17 @@ function confirmTargetedAction() {
     const targetUid = dom.targetSelect.value;
     if (!targetUid || !pendingAction) return;
 
+    // pick_up: the dropdown contains ground item IDs, not NPC UIDs
+    if (pendingAction === 'pick_up') {
+        sendAction({
+            action_id: 'pick_up',
+            target_item: targetUid,
+            source: 'button',
+        });
+        cancelTargetedAction();
+        return;
+    }
+
     // For item-requiring actions, also require item selection
     const needsItem = ['give_item', 'present_item'];
     const targetItem = needsItem.includes(pendingAction) ? dom.itemSelect?.value : null;
@@ -318,6 +349,26 @@ function cancelTargetedAction() {
     pendingAction = null;
     dom.targetSelector.classList.add('hidden');
     dom.itemSelectRow.classList.add('hidden');
+}
+
+/**
+ * Show the target selector as a ground-item picker for pick_up.
+ * Reuses the target-selector UI but populates the NPC dropdown with ground items.
+ */
+function showGroundItemPicker(groundItems) {
+    pendingAction = 'pick_up';
+    dom.targetSelector.classList.remove('hidden');
+    dom.itemSelectRow.classList.add('hidden');
+
+    // Repurpose the NPC dropdown for ground items
+    dom.targetSelect.innerHTML = '<option value="">Select item to pick up...</option>';
+    groundItems.forEach(item => {
+        const opt = document.createElement('option');
+        opt.value = item.id;
+        const badge = item.quest_relevant ? ' ★' : '';
+        opt.textContent = `${item.name}${badge} (${item.type || 'misc'})`;
+        dom.targetSelect.appendChild(opt);
+    });
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -721,6 +772,8 @@ function updateAllUI() {
     updateEquipment();
     updateQuestPanel();
     updateNPCPanel();
+    updateNearbyObjects();
+    updatePOIPanel();
     updateActionButtonStates();
 }
 
@@ -815,7 +868,7 @@ function updateNPCPanel() {
         const tier = getRepTier(rep);
         const initial = (npc.name || '?')[0].toUpperCase();
         return `
-            <div class="npc-card" data-npc-uid="${npc.uid}">
+            <div class="npc-card" data-npc-uid="${npc.npc_uid}">
                 <div class="npc-avatar">${initial}</div>
                 <div class="npc-info">
                     <div class="npc-name">${npc.name}</div>
@@ -825,6 +878,82 @@ function updateNPCPanel() {
             </div>
         `;
     }).join('');
+}
+
+function updateNearbyObjects() {
+    const loc = gameState.location || {};
+    const items = loc.items_on_ground || [];
+    dom.groundItemCount.textContent = items.length;
+
+    if (items.length === 0) {
+        dom.groundItemsList.innerHTML = '<div class="empty-state">Nothing on the ground</div>';
+        return;
+    }
+
+    dom.groundItemsList.innerHTML = items.map(item => `
+        <div class="ground-item" data-item-id="${item.id}">
+            <span class="item-type-badge type-${item.type || 'misc'}">${item.type || 'misc'}</span>
+            <span class="item-name">${item.name}</span>
+            ${item.quest_relevant ? '<span class="item-quest-marker">★</span>' : ''}
+            <button class="ground-item-pickup" data-item-id="${item.id}" title="Pick up ${item.name}">Pick Up</button>
+        </div>
+    `).join('');
+
+    // Attach click handlers to pickup buttons
+    dom.groundItemsList.querySelectorAll('.ground-item-pickup').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const itemId = btn.dataset.itemId;
+            sendAction({ action_id: 'pick_up', target_item: itemId, source: 'button' });
+        });
+    });
+}
+
+function updatePOIPanel() {
+    const loc = gameState.location || {};
+    const pois = loc.discovered_pois || [];
+    dom.poiCount.textContent = pois.length;
+
+    if (pois.length === 0) {
+        dom.poiList.innerHTML = '<div class="empty-state">No discoveries yet</div>';
+        return;
+    }
+
+    dom.poiList.innerHTML = pois.map(poi => {
+        const hint = poi.has_hidden_items ? '<div class="poi-hint">Something may be hidden here...</div>' : '';
+        const searchBtn = poi.searchable
+            ? `<button class="poi-btn poi-search" data-poi-id="${poi.poi_id}" title="Search near ${poi.name}">Search</button>`
+            : '';
+        return `
+            <div class="poi-entry" data-poi-id="${poi.poi_id}">
+                <div class="poi-header">
+                    <span class="poi-name">${poi.name}</span>
+                </div>
+                <div class="poi-desc">${poi.description}</div>
+                ${hint}
+                <div class="poi-actions">
+                    <button class="poi-btn poi-examine" data-poi-id="${poi.poi_id}" title="Examine ${poi.name}">Examine</button>
+                    ${searchBtn}
+                </div>
+            </div>
+        `;
+    }).join('');
+
+    // Attach examine handlers
+    dom.poiList.querySelectorAll('.poi-examine').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            sendAction({ action_id: 'examine', target_item: btn.dataset.poiId, source: 'button' });
+        });
+    });
+
+    // Attach search handlers
+    dom.poiList.querySelectorAll('.poi-search').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            sendAction({ action_id: 'search', target_item: btn.dataset.poiId, source: 'button' });
+        });
+    });
 }
 
 function updateActionButtonStates() {

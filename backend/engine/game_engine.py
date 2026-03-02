@@ -514,6 +514,11 @@ class GameEngine:
         emotion: str = parsed_input.get("emotion", "neutral")
         social: str = parsed_input.get("social", "neutral")
 
+        # Sanitize target_npc — reject invalid UIDs (e.g. literal "undefined" from JS)
+        if target_npc and target_npc not in self.npc_registry:
+            logger.warning("Invalid target_npc %r — clearing to None", target_npc)
+            target_npc = None
+
         action_meta = UNIVERSAL_ACTIONS.get(action_id, {"base_ap": 0, "category": "utility"})
         base_ap: int = action_meta["base_ap"]
 
@@ -575,7 +580,7 @@ class GameEngine:
                 return self._resolve_look(ap_cost, narr_ctx)
 
             case "search":
-                return self._resolve_search(ap_cost, narr_ctx)
+                return self._resolve_search(target_item, ap_cost, narr_ctx)
 
             case "examine":
                 return self._resolve_examine(
@@ -775,6 +780,12 @@ class GameEngine:
                 item_names = [i.get("name", "something") for i in loc.items_on_ground]
                 discovery_parts.append(f"On the ground: {', '.join(item_names)}.")
 
+            # List discovered POIs
+            discovered_pois = self.world.get_discovered_pois(self.player.location)
+            if discovered_pois:
+                poi_names = [p.name for p in discovered_pois]
+                discovery_parts.append(f"Points of interest: {', '.join(poi_names)}.")
+
         npcs_here = get_npcs_at_location(self.npc_registry, self.player.location)
         if npcs_here:
             npc_descs = [f"{n.name} ({n.archetype})" for n in npcs_here]
@@ -793,24 +804,76 @@ class GameEngine:
             "perception": None,
         }
 
-    def _resolve_search(self, ap_cost: int, ctx: dict) -> dict:
-        """Search the current location thoroughly."""
+    def _resolve_search(self, target_item: str | None, ap_cost: int, ctx: dict) -> dict:
+        """Search the current location, optionally near a specific POI."""
         loc = self.world.get_location(self.player.location)
         if loc:
             loc.search_count += 1
 
-        npcs_here = get_npcs_at_location(self.npc_registry, self.player.location)
+        # Check if target_item is a POI ID
+        target_poi = None
+        if target_item and loc:
+            target_poi = self.world.get_poi(self.player.location, target_item)
+
+        # Base probability
         prob = compute_skill_probability(
             "search",
             search_count=loc.search_count if loc else 0,
         )
 
+        # POI search bonus
+        if target_poi and target_poi.discovered and target_poi.searchable:
+            prob = min(0.95, prob + target_poi.search_bonus)
+            ctx["target"] = target_poi.name
+
         if random.random() < prob:
-            # Check for items on ground
-            discovery = "You find something interesting amid the clutter."
-            if loc and loc.items_on_ground:
-                found_item = loc.items_on_ground[0]
-                discovery = f"You discover {found_item.get('name', 'an item')}!"
+            discovery = ""
+
+            # POI-targeted search: check for hidden items at this POI
+            if target_poi and target_poi.discovered and target_poi.items_hidden:
+                hidden_item_id = target_poi.items_hidden[0]
+                # Resolve from quest items
+                item_def = self._quest_items.get(hidden_item_id)
+                if item_def:
+                    item_dict = dict(item_def)
+                    self.player.add_item(item_dict)
+                    target_poi.items_hidden.remove(hidden_item_id)
+                    discovery = (
+                        f"Searching near the {target_poi.name}, you discover "
+                        f"{item_dict.get('name', hidden_item_id)} hidden in "
+                        f"a hollow between the roots!"
+                    )
+                    ctx["discovery"] = discovery
+                    narration = get_template_narration("search", "success", ctx)
+                    return {
+                        "success": True,
+                        "action_id": "search",
+                        "ap_cost": ap_cost,
+                        "narration": narration,
+                        "effects": {
+                            "search_count": loc.search_count if loc else 0,
+                            "picked_up": hidden_item_id,
+                            "poi_searched": target_poi.poi_id,
+                        },
+                        "target": target_poi.poi_id,
+                        "perception": None,
+                    }
+                else:
+                    target_poi.items_hidden.remove(hidden_item_id)
+
+            # POI-targeted search with no hidden items: contextual discovery
+            if target_poi and target_poi.discovered:
+                discovery = (
+                    f"You search carefully near the {target_poi.name}. "
+                    f"{target_poi.description}"
+                )
+            else:
+                # Check for items on ground
+                discovery = "You find something interesting amid the clutter."
+                if loc and loc.items_on_ground:
+                    found_item = loc.items_on_ground[0]
+                    discovery = f"You discover {found_item.get('name', 'an item')}!"
+
             ctx["discovery"] = discovery
             narration = get_template_narration("search", "success", ctx)
             return {
@@ -818,11 +881,16 @@ class GameEngine:
                 "action_id": "search",
                 "ap_cost": ap_cost,
                 "narration": narration,
-                "effects": {"search_count": loc.search_count if loc else 0},
-                "target": None,
+                "effects": {
+                    "search_count": loc.search_count if loc else 0,
+                    "poi_searched": target_poi.poi_id if target_poi else None,
+                },
+                "target": target_poi.poi_id if target_poi else None,
                 "perception": None,
             }
         else:
+            if target_poi and target_poi.discovered:
+                ctx["target"] = target_poi.name
             narration = get_template_narration("search", "fail", ctx)
             return {
                 "success": False,
@@ -830,7 +898,7 @@ class GameEngine:
                 "ap_cost": ap_cost,
                 "narration": narration,
                 "effects": {"search_count": loc.search_count if loc else 0},
-                "target": None,
+                "target": target_poi.poi_id if target_poi else None,
                 "perception": None,
             }
 
@@ -853,13 +921,24 @@ class GameEngine:
             ctx["discovery"] = discovery
             narration = get_template_narration("examine", "success", ctx)
         elif target_item:
-            item = self.player.get_item(target_item)
-            if item:
-                ctx["target"] = item["name"]
-                ctx["discovery"] = item.get("description", "Nothing remarkable.")
+            # Check if target_item is a POI
+            poi = self.world.get_poi(self.player.location, target_item)
+            if poi and poi.discovered:
+                ctx["target"] = poi.name
+                examine_text = poi.examine_text or poi.description
+                if poi.items_hidden:
+                    examine_text += " Something might be hidden here..."
+                ctx["discovery"] = examine_text
                 narration = get_template_narration("examine", "success", ctx)
             else:
-                narration = get_template_narration("examine", "blocked", ctx)
+                # Check inventory items
+                item = self.player.get_item(target_item)
+                if item:
+                    ctx["target"] = item["name"]
+                    ctx["discovery"] = item.get("description", "Nothing remarkable.")
+                    narration = get_template_narration("examine", "success", ctx)
+                else:
+                    narration = get_template_narration("examine", "blocked", ctx)
         else:
             # Examine environment
             loc = self.world.get_location(self.player.location)
@@ -984,6 +1063,17 @@ class GameEngine:
             "mood_change": mood_change,
             "reveals_info": dialogue_result.get("reveals_info", False),
         }
+
+        # Check if this dialogue triggers POI discovery
+        poi_discoveries = self.world.check_dialogue_discoveries(
+            target_npc.npc_uid, raw_dialogue
+        )
+        if poi_discoveries:
+            poi_names = [p.name for p in poi_discoveries]
+            effects["poi_discovered"] = [p.poi_id for p in poi_discoveries]
+            narration += (
+                f" (New point of interest discovered: {', '.join(poi_names)})"
+            )
 
         return {
             "success": True,
@@ -2266,6 +2356,17 @@ class GameEngine:
                 self.player.quest_state["completed_checkpoints"] = list(
                     self.quest_manager.completed_checkpoints
                 )
+                # Check for POI discoveries triggered by quest stage
+                poi_discoveries = self.world.check_quest_stage_discoveries(
+                    self.quest_manager.current_stage
+                )
+                if poi_discoveries:
+                    poi_names = [p.name for p in poi_discoveries]
+                    logger.info(
+                        "Quest stage %d revealed POIs: %s",
+                        self.quest_manager.current_stage,
+                        poi_names,
+                    )
 
             # Log quest event
             importance = 5 if completion.get("stage_transition") else 3
@@ -3023,6 +3124,17 @@ class GameEngine:
                 "adjacent": self.world.get_adjacent(self.player.location),
                 "objects": loc.objects if loc else [],
                 "items_on_ground": loc.items_on_ground if loc else [],
+                "discovered_pois": [
+                    {
+                        "poi_id": p.poi_id,
+                        "name": p.name,
+                        "description": p.description,
+                        "searchable": p.searchable,
+                        "has_hidden_items": bool(p.items_hidden),
+                        "examine_text": p.examine_text or p.description,
+                    }
+                    for p in self.world.get_discovered_pois(self.player.location)
+                ] if loc else [],
             },
             "npcs_here": [
                 {

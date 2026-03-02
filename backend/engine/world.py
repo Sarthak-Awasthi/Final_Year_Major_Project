@@ -23,6 +23,33 @@ from backend.config import (
 
 
 @dataclass
+class PointOfInterest:
+    """A discoverable point of interest within a location."""
+
+    poi_id: str
+    name: str
+    description: str
+    discovery_hint: str
+    discovered: bool = False
+    discovered_by_default: bool = False
+    discover_on_quest_stage: int | None = None
+    discover_on_dialogue: dict | None = None  # {"npc_uid": str, "keywords": list[str]}
+    searchable: bool = True
+    search_bonus: float = 0.0
+    items_hidden: list[str] = field(default_factory=list)
+    examine_text: str | None = None
+    reveals_pois: list[dict] | None = None  # [{"location": str, "poi_id": str}]
+
+    def to_dict(self) -> dict:
+        """Serialize POI state (only mutable fields needed for save)."""
+        return {
+            "poi_id": self.poi_id,
+            "discovered": self.discovered,
+            "items_hidden": self.items_hidden,
+        }
+
+
+@dataclass
 class Location:
     """A single world location."""
 
@@ -36,6 +63,7 @@ class Location:
     default_npcs: list[str]
     items_on_ground: list[dict] = field(default_factory=list)
     search_count: int = 0
+    points_of_interest: list[PointOfInterest] = field(default_factory=list)
 
 
 class World:
@@ -55,6 +83,26 @@ class World:
             data = json.load(f)
 
         for loc_id, loc_data in data["locations"].items():
+            # Build POI list
+            pois: list[PointOfInterest] = []
+            for poi_data in loc_data.get("points_of_interest", []):
+                poi = PointOfInterest(
+                    poi_id=poi_data["poi_id"],
+                    name=poi_data["name"],
+                    description=poi_data["description"],
+                    discovery_hint=poi_data.get("discovery_hint", ""),
+                    discovered=poi_data.get("discovered_by_default", False),
+                    discovered_by_default=poi_data.get("discovered_by_default", False),
+                    discover_on_quest_stage=poi_data.get("discover_on_quest_stage"),
+                    discover_on_dialogue=poi_data.get("discover_on_dialogue"),
+                    searchable=poi_data.get("searchable", True),
+                    search_bonus=poi_data.get("search_bonus", 0.0),
+                    items_hidden=list(poi_data.get("items_hidden", [])),
+                    examine_text=poi_data.get("examine_text"),
+                    reveals_pois=poi_data.get("reveals_pois"),
+                )
+                pois.append(poi)
+
             self.locations[loc_id] = Location(
                 id=loc_data["id"],
                 name=loc_data["name"],
@@ -64,6 +112,7 @@ class World:
                 objects=loc_data["objects"],
                 environment=loc_data["environment"],
                 default_npcs=loc_data.get("default_npcs", []),
+                points_of_interest=pois,
             )
 
     def advance_turn(self) -> str:
@@ -100,6 +149,95 @@ class World:
     def get_location(self, loc_id: str) -> Location | None:
         """Get a location by ID."""
         return self.locations.get(loc_id)
+
+    def get_poi(self, loc_id: str, poi_id: str) -> PointOfInterest | None:
+        """Get a specific POI within a location."""
+        loc = self.locations.get(loc_id)
+        if not loc:
+            return None
+        for poi in loc.points_of_interest:
+            if poi.poi_id == poi_id:
+                return poi
+        return None
+
+    def discover_poi(self, loc_id: str, poi_id: str) -> PointOfInterest | None:
+        """Mark a POI as discovered. Returns the POI if newly discovered, else None."""
+        poi = self.get_poi(loc_id, poi_id)
+        if poi and not poi.discovered:
+            poi.discovered = True
+            logger.info("POI discovered: %s at %s", poi_id, loc_id)
+            # Check if this POI reveals other POIs
+            if poi.reveals_pois:
+                for reveal in poi.reveals_pois:
+                    self.discover_poi(reveal["location"], reveal["poi_id"])
+            return poi
+        return None
+
+    def get_discovered_pois(self, loc_id: str) -> list[PointOfInterest]:
+        """Return all discovered POIs at a location."""
+        loc = self.locations.get(loc_id)
+        if not loc:
+            return []
+        return [p for p in loc.points_of_interest if p.discovered]
+
+    def check_quest_stage_discoveries(self, quest_stage: int) -> list[PointOfInterest]:
+        """Discover all POIs triggered by reaching a quest stage.
+
+        Returns list of newly discovered POIs.
+        """
+        newly_discovered: list[PointOfInterest] = []
+        for loc in self.locations.values():
+            for poi in loc.points_of_interest:
+                if (
+                    not poi.discovered
+                    and poi.discover_on_quest_stage is not None
+                    and quest_stage >= poi.discover_on_quest_stage
+                ):
+                    poi.discovered = True
+                    logger.info(
+                        "POI auto-discovered by quest stage %d: %s at %s",
+                        quest_stage, poi.poi_id, loc.id,
+                    )
+                    newly_discovered.append(poi)
+                    if poi.reveals_pois:
+                        for reveal in poi.reveals_pois:
+                            child = self.discover_poi(reveal["location"], reveal["poi_id"])
+                            if child:
+                                newly_discovered.append(child)
+        return newly_discovered
+
+    def check_dialogue_discoveries(
+        self, npc_uid: str, dialogue_text: str
+    ) -> list[PointOfInterest]:
+        """Discover POIs triggered by NPC dialogue containing keywords.
+
+        Returns list of newly discovered POIs.
+        """
+        newly_discovered: list[PointOfInterest] = []
+        text_lower = dialogue_text.lower()
+        for loc in self.locations.values():
+            for poi in loc.points_of_interest:
+                if poi.discovered:
+                    continue
+                trigger = poi.discover_on_dialogue
+                if not trigger:
+                    continue
+                if trigger.get("npc_uid") != npc_uid:
+                    continue
+                keywords = trigger.get("keywords", [])
+                if any(kw.lower() in text_lower for kw in keywords):
+                    poi.discovered = True
+                    logger.info(
+                        "POI discovered via dialogue with %s: %s at %s",
+                        npc_uid, poi.poi_id, loc.id,
+                    )
+                    newly_discovered.append(poi)
+                    if poi.reveals_pois:
+                        for reveal in poi.reveals_pois:
+                            child = self.discover_poi(reveal["location"], reveal["poi_id"])
+                            if child:
+                                newly_discovered.append(child)
+        return newly_discovered
 
     def get_time_bonus(self) -> int:
         """Get stealth time bonus based on current time."""
@@ -145,6 +283,11 @@ class World:
                 for loc_id, loc in self.locations.items()
                 if loc.search_count > 0
             },
+            "poi_state": {
+                loc_id: [poi.to_dict() for poi in loc.points_of_interest]
+                for loc_id, loc in self.locations.items()
+                if loc.points_of_interest
+            },
         }
 
     def from_dict(self, data: dict) -> None:
@@ -158,3 +301,14 @@ class World:
         for loc_id, count in data.get("location_search_counts", {}).items():
             if loc_id in self.locations:
                 self.locations[loc_id].search_count = count
+        # Restore POI discovery state
+        for loc_id, poi_states in data.get("poi_state", {}).items():
+            loc = self.locations.get(loc_id)
+            if not loc:
+                continue
+            poi_map = {ps["poi_id"]: ps for ps in poi_states}
+            for poi in loc.points_of_interest:
+                saved = poi_map.get(poi.poi_id)
+                if saved:
+                    poi.discovered = saved.get("discovered", poi.discovered)
+                    poi.items_hidden = saved.get("items_hidden", poi.items_hidden)
