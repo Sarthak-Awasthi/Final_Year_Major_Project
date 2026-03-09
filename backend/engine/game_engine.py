@@ -331,12 +331,13 @@ class GameEngine:
         # pipeline already produces the NPC's response.  LLM-enhancing the
         # narration template for these results in bloated text that drowns
         # out or duplicates the real dialogue.
-        _social_actions = {"talk", "greet", "ask_info", "persuade", "deceive", "intimidate", "trade", "give_item", "present_item"}
+        _social_actions = {"talk", "greet", "ask_info", "persuade", "deceive", "intimidate", "trade"}
+        llm_enhanced = False
         if action_id not in _social_actions:
             raw_target = action_result.get("target")
             target_display = _npc_names_map(self.npc_registry).get(raw_target, raw_target) if raw_target else None
 
-            narration = enhance_narration_with_llm(
+            enhanced = enhance_narration_with_llm(
                 template_narration=narration,
                 action_id=action_id,
                 actor_name=self.player.name,
@@ -350,6 +351,9 @@ class GameEngine:
                 witnesses=[_npc_names_map(self.npc_registry).get(w, w) for w in witnesses],
                 llm_service=self.llm,
             )
+            if enhanced != narration:
+                llm_enhanced = True
+                narration = enhanced
 
         # Layer 3: Context modifiers
         narration = add_context_modifiers(
@@ -358,6 +362,7 @@ class GameEngine:
             weather=weather,
             witnesses=witnesses,
             npc_names=_npc_names_map(self.npc_registry),
+            llm_enhanced=llm_enhanced,
         )
         action_result["narration"] = narration
 
@@ -2319,6 +2324,14 @@ class GameEngine:
                 action_id, target_npc, context
             )
 
+        # If still no match, scan ahead: the player may have performed
+        # a quest-critical action that satisfies a future checkpoint
+        # (e.g. returning the quest item directly, skipping travel steps).
+        if completion is None:
+            completion = self.quest_manager.check_forward_completion(
+                action_id, target_npc, context
+            )
+
         if completion:
             next_cp = completion.get("next_checkpoint")
             rewards = completion.get("rewards", {})
@@ -2349,6 +2362,16 @@ class GameEngine:
 
             # Advance checkpoint
             if next_cp:
+                # When a forward-scan match skips intermediate checkpoints,
+                # mark the matched checkpoint itself as completed so the
+                # graph and save state stay accurate.
+                matched_cp = completion["checkpoint_completed"]
+                if (
+                    matched_cp != self.quest_manager.current_checkpoint
+                    and matched_cp not in self.quest_manager.completed_checkpoints
+                ):
+                    self.quest_manager.completed_checkpoints.append(matched_cp)
+
                 self.quest_manager.advance_checkpoint(next_cp)
                 # Sync player quest state
                 self.player.quest_state["current_stage"] = self.quest_manager.current_stage

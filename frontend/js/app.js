@@ -593,6 +593,8 @@ async function startGame(playerName, seed, difficulty) {
             gameState = result;
             dom.newGameModal.classList.remove('active');
             dom.gameContainer.classList.remove('hidden');
+            // Clear the static welcome message before rendering game narration
+            dom.narrativeContent.innerHTML = '';
             updateAllUI();
             // Display opening backstory narration
             if (result.opening_narration) {

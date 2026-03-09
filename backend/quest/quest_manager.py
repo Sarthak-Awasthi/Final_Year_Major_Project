@@ -171,6 +171,52 @@ class QuestManager:
             )
         return result
 
+    def check_forward_completion(
+        self,
+        action_id: str,
+        target: str | None,
+        context: dict,
+    ) -> dict | None:
+        """Scan remaining static checkpoints for a matching transition.
+
+        When the player performs a quest-critical action that matches a
+        *future* checkpoint (e.g. returning an item directly to an NPC,
+        skipping intermediate travel steps), this method finds that match
+        and allows the quest to leap forward.
+
+        Only static (non-dynamic) checkpoints from the current stage
+        onward are scanned.  Already-completed checkpoints are skipped.
+
+        Returns:
+            Completion dict (with all skipped CPs marked) or ``None``.
+        """
+        completed_set = set(self.completed_checkpoints)
+        # Only scan within the current stage — never cross stage boundaries.
+        stage = self.mdp.stages.get(self.current_stage)
+        if stage is None:
+            return None
+        for cp_id, cp in stage.checkpoints.items():
+            if cp.is_dynamic:
+                continue
+            if cp_id in completed_set:
+                continue
+            if cp_id == self.current_checkpoint:
+                continue
+            result = self._check_checkpoint_completion(
+                cp_id, action_id, target, context
+            )
+            if result is not None:
+                logger.info(
+                    "Forward-scan match: action '%s' satisfies "
+                    "future checkpoint %s (current: %s, stage %d)",
+                    action_id,
+                    cp_id,
+                    self.current_checkpoint,
+                    self.current_stage,
+                )
+                return result
+        return None
+
     @staticmethod
     def _match_transition(
         action_id: str,

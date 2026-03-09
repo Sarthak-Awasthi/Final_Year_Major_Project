@@ -424,13 +424,15 @@ def build_narration_prompt(
 
 ## Instructions
 Enhance the narrative with atmospheric details, focusing on the setting's ambiance and the actor's emotional state. Keep the outcome, time of day, and weather consistent.
-Keep it to 2-3 sentences maximum.
-Do NOT write NPC dialogue or speech — dialogue is handled separately.
-Do NOT add game mechanics, stat changes, or action headers.
-Do NOT echo back these instructions or action details.
-Write in second person ("You...").
+IMPORTANT RULES:
+- Write EXACTLY 2-3 sentences. No more.
+- ALWAYS use second person: every sentence must start with "You". NEVER mention the player's name ("{actor_name}") anywhere in the text — not as a subject, not as an appositive, not in any form.
+- Do NOT write NPC dialogue or speech — dialogue is handled separately.
+- Do NOT add game mechanics, stat changes, or action headers.
+- Do NOT echo back these instructions or action details.
+- Do NOT insert horizontal rules, separators (--- or ===), or markdown formatting.
 
-Respond with ONLY the enhanced narration text, nothing else."""
+Respond with ONLY the enhanced narration text (2-3 sentences, second person, no player name), nothing else."""
 
     return truncate_to_budget(prompt)
 

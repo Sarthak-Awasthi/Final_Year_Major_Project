@@ -413,11 +413,13 @@ def enhance_narration_with_llm(
     )
 
     for attempt in range(LLM_MAX_RETRIES):
-        raw = llm_service.generate(prompt, temperature=0.7, max_tokens=300)
+        raw = llm_service.generate(prompt, temperature=0.7, max_tokens=150)
         if raw and raw.strip():
             enhanced = sanitize_text(raw.strip())
             # Strip leaked prompt/instruction content
             enhanced = _strip_leaked_prompt(enhanced)
+            # Trim incomplete trailing sentence caused by token limit
+            enhanced = _trim_incomplete_sentence(enhanced)
             if len(enhanced) >= 10:
                 logger.info("LLM narration enhancement succeeded on attempt %d", attempt + 1)
                 return enhanced
@@ -437,7 +439,38 @@ _LEAKED_PROMPT_PATTERNS = [
     _re.compile(r"Enhance the narrative with atmospheric.*$", _re.MULTILINE),
     _re.compile(r"Keep (it to|the outcome).*$", _re.MULTILINE),
     _re.compile(r"Write in second person.*$", _re.MULTILINE),
+    _re.compile(r"\s*-{3,}\s*"),   # --- horizontal rules / separators
+    _re.compile(r"\s*={3,}\s*"),   # === separators
+    _re.compile(r"\(Note:.*?\)", _re.DOTALL),      # LLM meta-commentary
+    _re.compile(r"\(Reminder:.*?\)", _re.DOTALL),   # LLM meta-reminders
+    _re.compile(r"\(.*?user'?s request.*?\)", _re.DOTALL | _re.IGNORECASE),
+    _re.compile(r"\(.*?the task (needs|requires|must).*?\)", _re.DOTALL | _re.IGNORECASE),
+    _re.compile(r"\*{2,}"),  # Strip bold/emphasis markdown markers
 ]
+
+
+def _trim_incomplete_sentence(text: str) -> str:
+    """Remove trailing incomplete sentence fragment from LLM output.
+
+    When the LLM hits the token limit, it often cuts off mid-sentence.
+    This finds the last sentence-ending punctuation and trims to it.
+    """
+    if not text or len(text) < 20:
+        return text
+    # If text already ends with sentence-ending punctuation, it's fine
+    stripped = text.rstrip()
+    if stripped and stripped[-1] in '.!?\'"':
+        return stripped
+    # Find last sentence-ending punctuation
+    last_end = max(stripped.rfind('.'), stripped.rfind('!'), stripped.rfind('?'))
+    # Also consider closing quotes after punctuation
+    for q in ('"', "'"):
+        pos = stripped.rfind(q)
+        if pos > 0 and pos - 1 >= 0 and stripped[pos - 1] in '.!?':
+            last_end = max(last_end, pos)
+    if last_end > 0:
+        return stripped[:last_end + 1]
+    return stripped
 
 
 def _strip_leaked_prompt(text: str) -> str:
@@ -476,13 +509,14 @@ def add_context_modifiers(
     weather: str | None = None,
     witnesses: list[str] | None = None,
     npc_names: dict[str, str] | None = None,
+    llm_enhanced: bool = False,
 ) -> str:
     """
     Layer 3: Append environmental and witness context to narration.
     """
     modifiers: list[str] = []
 
-    # Time-of-day flavor
+    # Time-of-day flavor — skip when LLM already provided atmosphere
     time_flavor = {
         "morning": "The morning sun casts long shadows.",
         "midday": "The midday sun beats down overhead.",
@@ -490,15 +524,24 @@ def add_context_modifiers(
         "evening": "Dusk settles over the village, painting the sky in amber.",
         "night": "Darkness blankets everything. Torchlight flickers nearby.",
     }
-    if time_of_day in time_flavor and random.random() < 0.3:
+    # Skip time flavor when: LLM already described atmosphere, OR active
+    # weather contradicts sunny/clear time descriptions.
+    _stormy_keywords = ("storm", "rain", "thunder", "cloud", "fog", "downpour")
+    weather_is_stormy = weather and any(k in weather.lower() for k in _stormy_keywords)
+    if (
+        not llm_enhanced
+        and not weather_is_stormy
+        and time_of_day in time_flavor
+        and random.random() < 0.3
+    ):
         modifiers.append(time_flavor[time_of_day])
 
     # Weather
     if weather:
         modifiers.append(weather)
 
-    # Witnesses
-    if witnesses and npc_names:
+    # Witnesses — skip when LLM already wove them into its prose
+    if witnesses and npc_names and not llm_enhanced:
         witness_names = [npc_names.get(w, w) for w in witnesses[:2]]
         if len(witness_names) == 1:
             modifiers.append(f"{witness_names[0]} watches nearby.")
@@ -547,6 +590,46 @@ def passive_perception_check(
     return None
 
 
+# ─── NPC Action Narration Helpers ────────────────────────────────────────────
+
+_NPC_ACTION_TEMPLATES: dict[str, str] = {
+    "look": "{name} looks around carefully.",
+    "search": "{name} searches the area.",
+    "examine": "{name} examines something closely.",
+    "talk": "{name} is engaged in conversation.",
+    "greet": "{name} greets someone nearby.",
+    "ask_info": "{name} asks around for information.",
+    "persuade": "{name} is trying to convince someone.",
+    "trade": "{name} is trading goods.",
+    "give_item": "{name} hands over an item.",
+    "present_item": "{name} presents an item for inspection.",
+    "deceive": "{name} is speaking in hushed, guarded tones.",
+    "intimidate": "{name} looms menacingly over someone.",
+    "attack": "{name} lashes out with a strike!",
+    "defend": "{name} raises their guard defensively.",
+    "flee": "{name} turns and flees!",
+    "sneak": "{name} creeps along quietly.",
+    "hide": "{name} ducks out of sight.",
+    "steal": "{name} reaches for something furtively.",
+    "pick_up": "{name} picks something up.",
+    "use_item": "{name} uses an item.",
+    "eat": "{name} eats something.",
+    "rest": "{name} sits down to rest.",
+    "wait": "{name} stands around, waiting.",
+    "drop_item": "{name} drops an item on the ground.",
+    "status": "{name} checks their belongings.",
+    "equip": "{name} readies a piece of equipment.",
+    "work": "{name} is hard at work.",
+    "move_to": "{name} heads off somewhere.",
+}
+
+
+def _npc_perspective_narration(npc_name: str, action_id: str) -> str:
+    """Return a third-person narration line for an NPC action."""
+    template = _NPC_ACTION_TEMPLATES.get(action_id, "{name} does something.")
+    return template.format(name=npc_name)
+
+
 # ─── NPC Action Narration Filtering ──────────────────────────────────────────
 
 def filter_npc_narration(
@@ -566,9 +649,8 @@ def filter_npc_narration(
         and 'narration' text.
     """
     if location == player_location:
-        narration = get_template_narration(
-            action_id, "success", {"target": npc_name}
-        )
+        # Use NPC-perspective narration (third person), not player templates
+        narration = _npc_perspective_narration(npc_name, action_id)
         return {"display_type": "full", "narration": narration}
 
     if importance >= 3:
