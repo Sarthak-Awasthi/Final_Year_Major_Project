@@ -291,7 +291,8 @@ class QuestManager:
         origin so convergence tracking resets.
         """
         old_cp = self.current_checkpoint
-        self.completed_checkpoints.append(old_cp)
+        if old_cp not in self.completed_checkpoints:
+            self.completed_checkpoints.append(old_cp)
 
         # Also mark the deviation origin as completed when converging
         if (
@@ -418,6 +419,8 @@ class QuestManager:
         total = len(self.mdp.get_all_checkpoints())
         completed = len(self.completed_checkpoints)
         pct = (completed / max(total, 1)) * 100
+        if self.quest_complete:
+            pct = 100.0
         return {
             "quest_id": self.mdp.quest_id,
             "title": self.mdp.title,
@@ -442,7 +445,8 @@ class QuestManager:
     def trigger_success(self) -> None:
         """Mark the quest as successfully completed."""
         self.quest_complete = True
-        self.completed_checkpoints.append(self.current_checkpoint)
+        if self.current_checkpoint not in self.completed_checkpoints:
+            self.completed_checkpoints.append(self.current_checkpoint)
         logger.info("Quest '%s' COMPLETED successfully", self.mdp.quest_id)
 
     # ── Serialisation ────────────────────────────────────────────────────

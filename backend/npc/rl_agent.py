@@ -292,6 +292,7 @@ def pretrain_npc(
     npc.location = original_location
     npc.current_hp = original_hp
     npc.stats = dict(original_stats)
+    npc.is_defending = False
 
     logger.info(
         "Pre-trained NPC %s: %d episodes × %d turns",

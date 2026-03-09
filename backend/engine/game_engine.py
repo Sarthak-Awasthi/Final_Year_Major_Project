@@ -300,7 +300,11 @@ class GameEngine:
         self._gossip_pairs_this_turn.clear()
 
         # ── 1. Resolve player action ──────────────────────────────────
-        action_result = self._resolve_player_action(parsed_input)
+        # Offload to thread — _resolve_player_action is sync but may
+        # invoke blocking LLM calls (dialogue, checkpoint generation).
+        action_result = await asyncio.to_thread(
+            self._resolve_player_action, parsed_input
+        )
         action_id = action_result["action_id"]
 
         # Track metrics
@@ -337,7 +341,8 @@ class GameEngine:
             raw_target = action_result.get("target")
             target_display = _npc_names_map(self.npc_registry).get(raw_target, raw_target) if raw_target else None
 
-            enhanced = enhance_narration_with_llm(
+            enhanced = await asyncio.to_thread(
+                enhance_narration_with_llm,
                 template_narration=narration,
                 action_id=action_id,
                 actor_name=self.player.name,
@@ -388,7 +393,10 @@ class GameEngine:
                 add_witnessed_event(npc_w, event_entry, self.turn)
 
         # ── 3. Quest completion / deviation check ─────────────────────
-        quest_update = self._check_quest_progress(action_id, parsed_input, action_result)
+        # Offload to thread — may invoke blocking LLM for dynamic checkpoints.
+        quest_update = await asyncio.to_thread(
+            self._check_quest_progress, action_id, parsed_input, action_result
+        )
 
         # ── 4. Process NPC turns ──────────────────────────────────────
         npc_results = self._process_npc_turns()
@@ -419,11 +427,19 @@ class GameEngine:
             npcs_here = get_npcs_at_location(
                 self.npc_registry, self.player.location
             )
+            importance_map = {r["npc_uid"]: r.get("importance", 1) for r in npc_results}
             perception = passive_perception_check(
                 self.player.location,
                 self.world.is_social(self.player.location),
                 loc.items_on_ground,
-                [{"npc_uid": n.npc_uid, "name": n.name} for n in npcs_here],
+                [
+                    {
+                        "npc_uid": n.npc_uid,
+                        "name": n.name,
+                        "action_importance": importance_map.get(n.npc_uid, 1),
+                    }
+                    for n in npcs_here
+                ],
             )
 
         # ── 10. Check game-over conditions ────────────────────────────
@@ -2053,7 +2069,10 @@ class GameEngine:
                 self.player.location,
                 self.world.is_social(self.player.location),
                 loc.items_on_ground,
-                [{"npc_uid": n.npc_uid, "name": n.name} for n in npcs_here],
+                [
+                    {"npc_uid": n.npc_uid, "name": n.name, "action_importance": 1}
+                    for n in npcs_here
+                ],
             )
 
         return {
@@ -2379,6 +2398,7 @@ class GameEngine:
                 self.player.quest_state["completed_checkpoints"] = list(
                     self.quest_manager.completed_checkpoints
                 )
+                self.player.quest_state["deviation_count"] = self.quest_manager.deviation_count
                 # Check for POI discoveries triggered by quest stage
                 poi_discoveries = self.world.check_quest_stage_discoveries(
                     self.quest_manager.current_stage
@@ -2499,6 +2519,7 @@ class GameEngine:
                 self.player.quest_state["dynamic_checkpoints"] = list(
                     self.quest_manager.dynamic_checkpoints
                 )
+                self.player.quest_state["deviation_count"] = self.quest_manager.deviation_count
 
                 # Nudge hint
                 hint = get_nudge_hint(
@@ -2560,6 +2581,9 @@ class GameEngine:
 
             # 2. Discretize state
             state = npc.discretize_state(self.world.time_of_day)
+
+            # Clear defending flag at start of NPC turn (unless this turn is defend)
+            npc.is_defending = False
 
             # 3. Select action
             npcs_at_loc = [

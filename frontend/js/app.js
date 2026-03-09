@@ -687,7 +687,7 @@ function handleWSMessage(data) {
                 updateMDPGraph(tr.state.graph);
             }
             if (tr.game_over) {
-                showGameOver(tr.game_over);
+                showGameOver({ result: tr.game_result, turn: tr.turn });
             }
             break;
         }
@@ -758,7 +758,7 @@ function handleActionResult(result) {
     }
 
     if (result.game_over) {
-        showGameOver(result.game_over);
+        showGameOver({ result: result.game_result, turn: result.turn });
     }
 }
 
@@ -1469,10 +1469,16 @@ function showGameOver(data) {
     dom.gameOverTitle.textContent = isVictory ? 'Victory!' : 'Defeat';
     dom.gameOverMessage.textContent = data.message || '';
 
-    $('#summary-turns').textContent = data.turns ?? gameState?.turn ?? '—';
-    $('#summary-checkpoints').textContent = data.checkpoints_completed ?? '—';
-    $('#summary-npcs').textContent = data.npcs_met ?? '—';
-    $('#summary-combat').textContent = data.combat_encounters ?? '—';
+    // Derive summary stats from gameState if not in data
+    const quest = gameState?.quest || {};
+    const completed = quest.completed_checkpoints?.length;
+    const npcsGreeted = gameState?.player?.greeted_npcs?.length;
+    const combatCount = gameState?.metrics?.combat_encounters;
+
+    $('#summary-turns').textContent = data.turn ?? gameState?.turn ?? '—';
+    $('#summary-checkpoints').textContent = data.checkpoints_completed ?? completed ?? '—';
+    $('#summary-npcs').textContent = data.npcs_met ?? npcsGreeted ?? '—';
+    $('#summary-combat').textContent = data.combat_encounters ?? combatCount ?? '—';
 
     dom.gameOverOverlay.classList.add('active');
 }
