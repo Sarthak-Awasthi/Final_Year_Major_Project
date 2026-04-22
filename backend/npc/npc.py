@@ -97,6 +97,30 @@ class NPC:
             for k, v in archetype_data.get("generic_responses", {}).items()
         }
 
+        # --- STEP 4: Role telemetry (for role-masked action analysis) ---
+        self.role_telemetry: dict[str, int] = {
+            "actions_selected": 0,
+            "role_aligned": 0,
+            "role_misaligned": 0,
+        }
+        self.role_telemetry_trace: list[dict] = []  # Per-turn snapshots
+        self.max_role_telemetry_trace_len: int = 100
+
+        # --- Reward tracing (for metrics/analysis) ---
+        self.reward_trace: list[dict] = []  # List of {turn, penalty, individual, community, total}
+        self.max_reward_trace_len: int = 100  # Keep only last 100 turns
+        self.lambda_coeff: float = 0.0  # Community reward coefficient (0.0 = disabled by default)
+
+        # --- Adaptation state (STEP 3: Adaptive Personality Dynamics) ---
+        self.adaptation_state: dict[str, float] = {
+            "cooperation_tendency": 0.5,      # 0.0–1.0: tendency to cooperate
+            "risk_aversion": 0.5,             # 0.0–1.0: tendency to avoid risky actions
+            "social_sensitivity": 0.5,        # 0.0–1.0: sensitivity to social feedback
+            "shock_resilience": 0.5,          # 0.0–1.0: ability to adapt to shocks
+        }
+        self.adaptation_trace: list[dict] = []  # Track adaptation over time
+        self.max_adaptation_trace_len: int = 100
+
     # ── Private helpers ───────────────────────────────────────────────────
 
     def _validate_reward_weights(self) -> None:
@@ -250,6 +274,154 @@ class NPC:
         if len(self.conversation_history) > MAX_CONVERSATION_HISTORY:
             self.conversation_history = self.conversation_history[-MAX_CONVERSATION_HISTORY:]
 
+    # ── Reward tracing ───────────────────────────────────────────────────
+
+    def add_reward_sample(self, turn: int, reward_dict: dict) -> None:
+        """Store reward components for this turn.
+
+        Keeps only the last ``max_reward_trace_len`` samples to prevent
+        unbounded memory growth.
+
+        Args:
+            turn: Current game turn.
+            reward_dict: Dict with keys: penalty, individual, community, total.
+        """
+        self.reward_trace.append({
+            "turn": turn,
+            "penalty": reward_dict.get("penalty", 0.0),
+            "individual": reward_dict.get("individual", 0.0),
+            "community": reward_dict.get("community", 0.0),
+            "total": reward_dict.get("total", 0.0),
+        })
+        if len(self.reward_trace) > self.max_reward_trace_len:
+            self.reward_trace = self.reward_trace[-self.max_reward_trace_len:]
+
+    # ── Adaptation state (STEP 3) ──────────────────────────────────────────
+
+    def update_adaptation(self, reward_dict: dict, shock_pressure: float = 0.0) -> None:
+        """Update adaptation coefficients based on reward components.
+
+        Adaptation rules:
+        - High community reward → increase cooperation_tendency
+        - Low individual reward → increase risk_aversion
+        - Active shocks → adjust shock_resilience
+        - Social feedback → adjust social_sensitivity
+
+        Args:
+            reward_dict: Dict with keys: penalty, individual, community, total.
+            shock_pressure: Aggregate shock intensity in [0.0, 1.0]. 0.0 = no shocks.
+        """
+        # Extract reward components
+        individual = reward_dict.get("individual", 0.0)
+        community = reward_dict.get("community", 0.0)
+        penalty = reward_dict.get("penalty", 0.0)
+
+        # Adaptation update rates (tuned for slow, stable drift)
+        adapt_rate = 0.02
+
+        # Cooperation: increase when community reward is positive
+        if community > 0.5:
+            self.adaptation_state["cooperation_tendency"] = min(
+                1.0,
+                self.adaptation_state["cooperation_tendency"] + adapt_rate * (community / 1.5)
+            )
+        elif community < -0.5:
+            self.adaptation_state["cooperation_tendency"] = max(
+                0.0,
+                self.adaptation_state["cooperation_tendency"] - adapt_rate * 0.5
+            )
+
+        # Risk aversion: increase when individual reward is low or penalties are high
+        if individual < -0.5 or penalty < -2.0:
+            self.adaptation_state["risk_aversion"] = min(
+                1.0,
+                self.adaptation_state["risk_aversion"] + adapt_rate * (abs(individual) / 2.0)
+            )
+        elif individual > 1.5:
+            self.adaptation_state["risk_aversion"] = max(
+                0.0,
+                self.adaptation_state["risk_aversion"] - adapt_rate * 0.5
+            )
+
+        # Shock resilience: increase under sustained shock pressure
+        if shock_pressure > 0.1:
+            self.adaptation_state["shock_resilience"] = min(
+                1.0,
+                self.adaptation_state["shock_resilience"] + adapt_rate * shock_pressure
+            )
+        elif shock_pressure == 0.0 and self.adaptation_state["shock_resilience"] > 0.5:
+            # Slowly decay back toward baseline when no shocks
+            self.adaptation_state["shock_resilience"] = max(
+                0.5,
+                self.adaptation_state["shock_resilience"] - adapt_rate * 0.3
+            )
+
+        # Social sensitivity: drift toward middle (neutral sentiment by default)
+        drift_toward_neutral = 0.01
+        for key in ["cooperation_tendency", "risk_aversion", "social_sensitivity"]:
+            self.adaptation_state[key] = (
+                self.adaptation_state[key] * (1.0 - drift_toward_neutral) +
+                0.5 * drift_toward_neutral
+            )
+
+        # Clamp all values to [0.0, 1.0]
+        for key in self.adaptation_state:
+            self.adaptation_state[key] = max(0.0, min(1.0, self.adaptation_state[key]))
+
+    def add_adaptation_sample(self, turn: int) -> None:
+        """Store adaptation state snapshot for this turn.
+
+        Keeps only the last ``max_adaptation_trace_len`` samples.
+
+        Args:
+            turn: Current game turn.
+        """
+        self.adaptation_trace.append({
+            "turn": turn,
+            "cooperation_tendency": self.adaptation_state["cooperation_tendency"],
+            "risk_aversion": self.adaptation_state["risk_aversion"],
+            "social_sensitivity": self.adaptation_state["social_sensitivity"],
+            "shock_resilience": self.adaptation_state["shock_resilience"],
+        })
+        if len(self.adaptation_trace) > self.max_adaptation_trace_len:
+            self.adaptation_trace = self.adaptation_trace[-self.max_adaptation_trace_len:]
+
+    def update_role_telemetry(self, action_id: str) -> None:
+        """Track role-alignment of selected action.
+
+        Args:
+            action_id: The action ID that was selected.
+        """
+        from backend.config import ROLE_ACTION_MASKS
+
+        self.role_telemetry["actions_selected"] += 1
+
+        role_actions = ROLE_ACTION_MASKS.get(self.archetype, [])
+        if action_id in role_actions:
+            self.role_telemetry["role_aligned"] += 1
+        else:
+            self.role_telemetry["role_misaligned"] += 1
+
+    def add_role_telemetry_sample(self, turn: int) -> None:
+        """Store role telemetry snapshot for this turn.
+
+        Args:
+            turn: Current game turn.
+        """
+        total = self.role_telemetry["actions_selected"]
+        aligned = self.role_telemetry["role_aligned"]
+        coherence = (aligned / total) if total > 0 else 0.0
+
+        self.role_telemetry_trace.append({
+            "turn": turn,
+            "actions_selected": self.role_telemetry["actions_selected"],
+            "role_aligned": self.role_telemetry["role_aligned"],
+            "role_misaligned": self.role_telemetry["role_misaligned"],
+            "role_coherence": round(coherence, 4),
+        })
+        if len(self.role_telemetry_trace) > self.max_role_telemetry_trace_len:
+            self.role_telemetry_trace = self.role_telemetry_trace[-self.max_role_telemetry_trace_len:]
+
     # ── Serialization ─────────────────────────────────────────────────────
 
     def to_dict(self) -> dict:
@@ -284,6 +456,8 @@ class NPC:
             "conversation_history": list(self.conversation_history),
             "known_events": list(self.known_events),
             "quest_critical": self.quest_critical,
+            "adaptation_state": dict(self.adaptation_state),
+            "lambda_coeff": self.lambda_coeff,
         }
 
     @classmethod
@@ -304,6 +478,12 @@ class NPC:
         npc.incapacitation_turn = data.get("incapacitation_turn", None)
         if "max_hp" in data:
             npc.max_hp = data["max_hp"]
+        # Restore adaptation state (backward compatible with old saves)
+        if "adaptation_state" in data:
+            npc.adaptation_state = dict(data["adaptation_state"])
+        # Restore lambda coefficient (backward compatible)
+        if "lambda_coeff" in data:
+            npc.lambda_coeff = float(data["lambda_coeff"])
         return npc
 
     # ── Dunder ────────────────────────────────────────────────────────────

@@ -1,9 +1,9 @@
 """
-llm_service.py — LLM service wrapper for local GGUF model inference.
+llm_service.py - Provider-agnostic LLM service adapter over HTTP APIs.
 
-Wraps llama-cpp-python with rate limiting, async support, and graceful
-degradation when the model is unavailable.  The entire game works
-without LLM; this module simply makes it *optional*.
+This module keeps LLM usage optional and non-blocking for FastAPI by
+preserving the sync generate API and async to_thread wrapper used by the
+rest of the engine.
 """
 
 from __future__ import annotations
@@ -12,72 +12,75 @@ import asyncio
 import time
 from typing import Any
 
+import httpx
+
 from backend.config import (
-    LLM_CONTEXT_SIZE,
+    LLM_API_BASE_URL,
+    LLM_API_KEY,
+    LLM_CHAT_ENDPOINT,
     LLM_DEFAULT_TEMPERATURE,
-    LLM_GPU_LAYERS,
+    LLM_ENABLED,
+    LLM_HEALTH_ENDPOINT,
     LLM_MAX_CALLS_PER_MINUTE,
-    LLM_MAX_PROMPT_TOKENS,
+    LLM_MODEL_NAME,
     LLM_MIN_INTERVAL_MS,
-    LLM_MODEL_PATH,
+    LLM_PROVIDER,
     LLM_TIMEOUT_SECONDS,
     logger,
 )
 from backend.llm.guardrails import strip_think_blocks
 
-# Attempt to import llama-cpp-python; if missing, the service still
-# instantiates but will report available=False.
-try:
-    from llama_cpp import Llama  # type: ignore[import-untyped]
-
-    _LLAMA_AVAILABLE = True
-except ImportError:
-    _LLAMA_AVAILABLE = False
-    Llama = None  # type: ignore[assignment,misc]
-
-
 class LLMService:
-    """Thin wrapper around a local GGUF model loaded via llama-cpp-python.
+    """Thin HTTP adapter for chat-completion style providers.
 
-    Key behaviours:
-    * If the model file is missing or the library is absent ➜ ``available == False``.
-    * Rate-limited: min 2 s between calls, max 20 calls/min.
-    * ``async_generate`` delegates to ``asyncio.to_thread`` so the event
-      loop is never blocked.
+    Supported formats:
+    - ``ollama`` (`/api/chat`)
+    - ``llamacpp_server`` / ``openai_compatible`` (`/v1/chat/completions`)
     """
 
     # ── Construction ──────────────────────────────────────────────────────
 
     def __init__(
         self,
-        model_path: str | None = None,
-        context_size: int = LLM_CONTEXT_SIZE,
+        provider: str | None = None,
+        base_url: str | None = None,
+        model_name: str | None = None,
     ) -> None:
-        """Load the GGUF model if possible.
+        """Initialize provider settings and perform a connectivity check.
 
         Args:
-            model_path: Filesystem path to the ``.gguf`` file.
-                Falls back to ``LLM_MODEL_PATH`` from config.
-            context_size: Context window size for the model.
+            provider: LLM provider name.
+            base_url: Provider base URL.
+            model_name: Selected model identifier on provider side.
         """
-        self._model_path: str = model_path or LLM_MODEL_PATH
-        self._context_size: int = context_size
-        self._model: Any = None
+        self._provider: str = (provider or LLM_PROVIDER).strip().lower()
+        self._base_url: str = (base_url or LLM_API_BASE_URL).rstrip("/")
+        self._model_name: str = model_name or LLM_MODEL_NAME
+        self._api_key: str = LLM_API_KEY
         self._available: bool = False
+        self._enabled: bool = LLM_ENABLED
+
+        if self._provider == "ollama":
+            self._health_endpoint = LLM_HEALTH_ENDPOINT or "/api/tags"
+            self._chat_endpoint = LLM_CHAT_ENDPOINT or "/api/chat"
+        else:
+            # Default to OpenAI-compatible endpoints.
+            self._health_endpoint = LLM_HEALTH_ENDPOINT or "/v1/models"
+            self._chat_endpoint = LLM_CHAT_ENDPOINT or "/v1/chat/completions"
 
         # Rate-limiting state
         self._last_call_time: float = 0.0
         self._calls_this_minute: int = 0
         self._minute_start: float = time.monotonic()
 
-        self._load_model()
+        self._refresh_availability()
 
     # ── Properties ────────────────────────────────────────────────────────
 
     @property
     def available(self) -> bool:
-        """Whether the model is loaded and ready for inference."""
-        return self._available
+        """Whether provider connectivity checks pass and LLM is enabled."""
+        return self._enabled and self._available
 
     # ── Public API ────────────────────────────────────────────────────────
 
@@ -99,8 +102,11 @@ class LLMService:
         Returns:
             Generated text, or ``None`` on failure / unavailability.
         """
-        if not self._available:
-            logger.warning("LLM generate called but model is not available")
+        if not self._enabled:
+            return None
+
+        if not self.available:
+            logger.warning("LLM generate called but provider is unavailable")
             return None
 
         if not self._check_rate_limit():
@@ -110,21 +116,17 @@ class LLMService:
         try:
             self._update_rate_tracking()
 
-            # Use chat completion so instruct models (Phi-3.5, etc.)
-            # apply their chat template and don't echo the prompt.
             messages = self._build_messages(prompt)
-            result = self._model.create_chat_completion(
+            text = self._request_generation(
                 messages=messages,
                 max_tokens=max_tokens,
                 temperature=temperature,
                 stop=stop or [],
             )
-            text: str = result["choices"][0]["message"]["content"].strip()
+            if text is None:
+                return None
+            text = text.strip()
 
-            # Strip <think>...</think> reasoning blocks at the source.
-            # Qwen3 (and similar models) emit chain-of-thought wrapped in
-            # <think> tags.  We let the model think (better quality) but
-            # strip it before any consumer sees the output.
             text = strip_think_blocks(text)
 
             logger.info(
@@ -163,24 +165,22 @@ class LLMService:
     def get_status(self) -> dict:
         """Return a diagnostic snapshot of the service state."""
         return {
-            "available": self._available,
-            "model_path": self._model_path,
-            "context_size": self._context_size,
+            "enabled": self._enabled,
+            "available": self.available,
+            "provider": self._provider,
+            "base_url": self._base_url,
+            "model_name": self._model_name,
             "calls_this_minute": self._calls_this_minute,
             "last_call_time": self._last_call_time,
-            "llama_cpp_installed": _LLAMA_AVAILABLE,
+            "max_calls": LLM_MAX_CALLS_PER_MINUTE,
+            "min_interval_ms": LLM_MIN_INTERVAL_MS,
         }
 
     def unload(self) -> None:
-        """Free model resources and mark the service as unavailable."""
-        if self._model is not None:
-            try:
-                del self._model
-            except Exception:
-                pass
-            self._model = None
+        """Disable LLM calls for the active runtime instance."""
+        self._enabled = False
         self._available = False
-        logger.info("LLM model unloaded")
+        logger.info("LLM service disabled")
 
     # ── Message formatting ────────────────────────────────────────────────
 
@@ -219,6 +219,87 @@ class LLMService:
                 ]
 
         return [{"role": "user", "content": prompt}]
+
+    # - Provider calls -----------------------------------------------------
+
+    def _request_generation(
+        self,
+        messages: list[dict[str, str]],
+        max_tokens: int,
+        temperature: float,
+        stop: list[str],
+    ) -> str | None:
+        """Send a chat generation request to the configured provider."""
+        endpoint = f"{self._base_url}{self._chat_endpoint}"
+
+        headers = {"Content-Type": "application/json"}
+        if self._api_key:
+            headers["Authorization"] = f"Bearer {self._api_key}"
+
+        if self._provider == "ollama":
+            payload: dict[str, Any] = {
+                "model": self._model_name,
+                "messages": messages,
+                "stream": False,
+                "options": {
+                    "temperature": temperature,
+                    "num_predict": max_tokens,
+                },
+            }
+            if stop:
+                payload["options"]["stop"] = stop
+        else:
+            payload = {
+                "model": self._model_name,
+                "messages": messages,
+                "max_tokens": max_tokens,
+                "temperature": temperature,
+                "stop": stop,
+            }
+
+        try:
+            with httpx.Client(timeout=LLM_TIMEOUT_SECONDS) as client:
+                resp = client.post(endpoint, json=payload, headers=headers)
+                resp.raise_for_status()
+                data = resp.json()
+        except Exception as exc:
+            logger.error("LLM provider request failed: %s", exc)
+            self._available = False
+            return None
+
+        text = self._extract_text(data)
+        if text is None:
+            logger.error("LLM provider returned an unsupported payload shape")
+            return None
+
+        self._available = True
+        return text
+
+    def _extract_text(self, data: Any) -> str | None:
+        """Extract assistant text from provider-specific response payloads."""
+        if not isinstance(data, dict):
+            return None
+
+        # Ollama /api/chat
+        message = data.get("message")
+        if isinstance(message, dict):
+            content = message.get("content")
+            if isinstance(content, str):
+                return content
+
+        # OpenAI-compatible format
+        choices = data.get("choices")
+        if isinstance(choices, list) and choices:
+            first = choices[0]
+            if isinstance(first, dict):
+                msg = first.get("message")
+                if isinstance(msg, dict) and isinstance(msg.get("content"), str):
+                    return msg["content"]
+                txt = first.get("text")
+                if isinstance(txt, str):
+                    return txt
+
+        return None
 
     # ── Rate limiting ─────────────────────────────────────────────────────
 
@@ -265,40 +346,21 @@ class LLMService:
         else:
             self._calls_this_minute += 1
 
-    # ── Model loading ─────────────────────────────────────────────────────
-
-    def _load_model(self) -> None:
-        """Attempt to load the GGUF model file."""
-        if not _LLAMA_AVAILABLE:
-            logger.warning(
-                "llama-cpp-python is not installed — LLM service disabled"
-            )
+    def _refresh_availability(self) -> None:
+        """Best-effort health check to avoid hard failures during first call."""
+        if not self._enabled:
             self._available = False
             return
 
-        import pathlib
-
-        path = pathlib.Path(self._model_path)
-        if not path.exists():
-            logger.warning(
-                "Model file not found at %s — LLM service disabled",
-                self._model_path,
-            )
-            self._available = False
-            return
+        endpoint = f"{self._base_url}{self._health_endpoint}"
+        headers: dict[str, str] = {}
+        if self._api_key:
+            headers["Authorization"] = f"Bearer {self._api_key}"
 
         try:
-            self._model = Llama(
-                model_path=str(path),
-                n_ctx=self._context_size,
-                n_gpu_layers=LLM_GPU_LAYERS,
-                verbose=False,
-            )
-            self._available = True
-            logger.info(
-                "LLM model loaded: %s (ctx=%d, gpu_layers=%s)",
-                path.name, self._context_size, LLM_GPU_LAYERS,
-            )
+            with httpx.Client(timeout=min(LLM_TIMEOUT_SECONDS, 5)) as client:
+                resp = client.get(endpoint, headers=headers)
+                self._available = resp.status_code < 500
         except Exception as exc:
-            logger.error("Failed to load LLM model: %s", exc)
             self._available = False
+            logger.info("LLM provider health check failed at startup: %s", exc)

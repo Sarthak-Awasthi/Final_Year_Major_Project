@@ -9,11 +9,8 @@ and fallback schedule system.
 from backend.npc.npc import NPC
 from backend.npc.personality import (
     create_npc_registry,
-    get_npc_by_name,
     get_npcs_at_location,
     load_archetypes,
-    load_npc_instances,
-    validate_archetype,
 )
 from backend.npc.dialogue import format_dialogue, resolve_dialogue
 from backend.npc.interactions import (
@@ -21,13 +18,7 @@ from backend.npc.interactions import (
     resolve_npc_npc_interaction,
     resolve_npc_target,
 )
-from backend.npc.knowledge import (
-    NPCKnowledgeEntry,
-    add_gossip_event,
-    add_witnessed_event,
-    get_player_opinion_summary,
-    get_relevant_knowledge,
-)
+from backend.npc.knowledge import add_witnessed_event
 from backend.npc.rl_agent import (
     compute_reward,
     decay_epsilon,
@@ -39,7 +30,6 @@ from backend.npc.rl_agent import (
 from backend.npc.schedule import (
     get_movement_destination,
     get_scheduled_action,
-    is_schedule_time,
 )
 
 __all__ = [
@@ -47,11 +37,8 @@ __all__ = [
     "NPC",
     # personality.py
     "create_npc_registry",
-    "get_npc_by_name",
     "get_npcs_at_location",
     "load_archetypes",
-    "load_npc_instances",
-    "validate_archetype",
     # dialogue.py
     "format_dialogue",
     "resolve_dialogue",
@@ -60,11 +47,7 @@ __all__ = [
     "resolve_npc_npc_interaction",
     "resolve_npc_target",
     # knowledge.py
-    "NPCKnowledgeEntry",
-    "add_gossip_event",
     "add_witnessed_event",
-    "get_player_opinion_summary",
-    "get_relevant_knowledge",
     # rl_agent.py
     "compute_reward",
     "decay_epsilon",
@@ -75,5 +58,4 @@ __all__ = [
     # schedule.py
     "get_movement_destination",
     "get_scheduled_action",
-    "is_schedule_time",
 ]

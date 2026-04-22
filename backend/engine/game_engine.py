@@ -36,6 +36,7 @@ from backend.config import (
     QUEST_DIR,
     SAVE_VERSION,
     SAVES_DIR,
+    SHOCK_ENABLED,
     SOCIAL_MODIFIERS,
     STAMINA_REGEN_PER_TURN,
     UNIVERSAL_ACTION_IDS,
@@ -62,6 +63,7 @@ from backend.engine.playthrough_logger import (
     PlaythroughLogger,
     build_world_snapshot,
 )
+from backend.engine.shock_manager import ShockManager
 from backend.engine.world import World
 from backend.llm.llm_service import LLMService
 from backend.npc.dialogue import format_dialogue, resolve_dialogue
@@ -134,6 +136,7 @@ class GameEngine:
         self.event_log = EventLog()
         self.random_events = RandomEventSystem()
         self.llm = LLMService()  # gracefully unavailable if no model
+        self.shock_manager = ShockManager()
 
         # Quest
         quest_path = QUEST_DIR / "main_quest.json"
@@ -262,8 +265,11 @@ class GameEngine:
             "locations": LOCATION_ADJACENCY,
             "indoor": list(INDOOR_LOCATIONS),
         }
-        for npc in self.npc_registry.values():
-            pretrain_npc(npc, world_data)
+        # Sort NPCs for deterministic iteration order, derive seed index from position
+        sorted_uids = sorted(self.npc_registry.keys())
+        for npc_index, uid in enumerate(sorted_uids):
+            npc = self.npc_registry[uid]
+            pretrain_npc(npc, world_data, npc_index=npc_index, master_seed=self.seed)
         self._pretrained = True
         logger.info("NPC pre-training complete for %d NPCs", len(self.npc_registry))
 
@@ -405,6 +411,17 @@ class GameEngine:
         # ── 5. Random events ──────────────────────────────────────────
         new_events = self._check_random_events()
 
+        # ── 5b. Shock engine tick ─────────────────────────────────────
+        expired_shocks = []
+        if SHOCK_ENABLED:
+            expired_shocks = self.shock_manager.tick(self.turn)
+            # Apply shock stat drain to NPCs
+            stat_drain = self.shock_manager.get_stat_drain()
+            if stat_drain != 0.0:
+                for npc in self.npc_registry.values():
+                    if not npc.is_incapacitated():
+                        npc.stats["happiness"] = max(0, min(10, npc.stats["happiness"] - stat_drain))
+
         # ── 6. Advance time ───────────────────────────────────────────
         new_time = self.world.advance_turn()
 
@@ -504,6 +521,13 @@ class GameEngine:
                 action_result=action_result,
                 turn_result=turn_result,
                 world_snapshot=world_snapshot,
+            )
+            # Phase 6: Log RL telemetry (reward decomposition, adaptation, shocks)
+            self.playthrough_logger.log_rl_telemetry(
+                turn=self.turn,
+                npc_registry=self.npc_registry,
+                shock_manager=self.shock_manager,
+                community_state=self.compute_community_state(),
             )
         except Exception as exc:
             logger.error("PlaythroughLogger.log_turn failed: %s", exc)
@@ -2547,6 +2571,40 @@ class GameEngine:
 
     # ── NPC Turn Processing ───────────────────────────────────────────────
 
+    def compute_community_state(self) -> dict:
+        """Aggregate village state into single dict for community reward calculation.
+
+        Returns dict with:
+        - avg_reputation: mean reputation across all NPCs (from player perspective)
+        - total_health: sum of NPC health
+        - avg_mood: mean happiness stat across NPCs
+        """
+        if not self.npc_registry:
+            return {
+                "avg_reputation": 0.0,
+                "total_health": 0.0,
+                "avg_mood": 0.0,
+            }
+
+        npcs = list(self.npc_registry.values())
+
+        # Reputation: average of all per-NPC reputation values
+        all_reps = [self.player.get_reputation(uid) for uid in self.npc_registry.keys()]
+        avg_rep = float(np.mean(all_reps)) if all_reps else 0.0
+
+        # Health: total across all NPCs
+        total_hp = float(sum(npc.current_hp for npc in npcs))
+
+        # Mood: average happiness stat
+        moods = [npc.stats.get("happiness", 5) for npc in npcs]
+        avg_mood = float(np.mean(moods)) if moods else 0.0
+
+        return {
+            "avg_reputation": avg_rep,
+            "total_health": total_hp,
+            "avg_mood": avg_mood,
+        }
+
     def _process_npc_turns(self) -> list[dict]:
         """Process all NPC actions for this turn.
 
@@ -2613,6 +2671,9 @@ class GameEngine:
                 valid_actions = get_valid_actions(npc, game_ctx)
                 action_idx = select_action(npc, state, valid_actions)
                 action_id = UNIVERSAL_ACTION_IDS[action_idx]
+            
+            # STEP 4: Track role telemetry for this action
+            npc.update_role_telemetry(action_id)
 
             # Snapshot stats before action
             old_stats = dict(npc.stats)
@@ -2622,8 +2683,28 @@ class GameEngine:
 
             # 5. Compute reward and update Q-table
             next_state = npc.discretize_state(self.world.time_of_day)
-            reward = compute_reward(npc, old_stats, npc.stats)
-            update_q_table(npc, state, action_idx, reward, next_state)
+            # Compute community state for reward (currently with lambda=0.0 for backward compat)
+            community_state = self.compute_community_state()
+            reward_dict = compute_reward(npc, old_stats, npc.stats, community_state)
+
+            # STEP 5: Apply shock reward modifier to community component
+            if SHOCK_ENABLED and self.shock_manager.has_active_shocks:
+                shock_mod = self.shock_manager.get_reward_modifier()
+                reward_dict["community"] *= shock_mod
+                reward_dict["total"] = (
+                    reward_dict["penalty"] + reward_dict["individual"]
+                    + npc.lambda_coeff * reward_dict["community"]
+                )
+
+            # Store reward for analytics
+            npc.add_reward_sample(self.turn, reward_dict)
+            # Use total reward for Q-table update
+            update_q_table(npc, state, action_idx, reward_dict["total"], next_state)
+            
+            # STEP 3+5: Update adaptation state based on reward + shock pressure
+            shock_pressure = self.shock_manager.get_adaptation_pressure() if SHOCK_ENABLED else 0.0
+            npc.update_adaptation(reward_dict, shock_pressure)
+            npc.add_adaptation_sample(self.turn)
 
             # 6. Indoor HP regen
             if self.world.is_indoor(npc.location):
@@ -3041,6 +3122,7 @@ class GameEngine:
             "quest_manager": self.quest_manager.to_dict(),
             "event_log": self.event_log.to_list(),
             "metrics": self._metrics,
+            "shock_state": self.shock_manager.to_dict(),
         }
 
         filename = f"save_{slot}.json"
@@ -3136,6 +3218,11 @@ class GameEngine:
 
         # Metrics
         self._metrics = save_data.get("metrics", self._metrics)
+
+        # Shock state (backward compatible)
+        shock_data = save_data.get("shock_state")
+        if shock_data:
+            self.shock_manager.from_dict(shock_data)
 
         self._pretrained = True  # Q-tables are stored in save
 
@@ -3241,23 +3328,67 @@ class GameEngine:
 
     def get_metrics(self) -> dict:
         """Return game metrics for the research dashboard."""
+        npc_states = {}
+        npc_adaptation = {}
+        npc_rewards = {}
+        npc_role_telemetry = {}
+        
+        for uid, npc in self.npc_registry.items():
+            npc_states[uid] = {
+                "name": npc.name,
+                "location": npc.location,
+                "status": npc.status,
+                "hp": f"{npc.current_hp}/{npc.max_hp}",
+                "happiness": npc.stats.get("happiness", 0),
+                "epsilon": round(npc.epsilon, 4),
+            }
+            
+            # STEP 3: Add adaptation telemetry
+            npc_adaptation[uid] = {
+                "cooperation_tendency": round(npc.adaptation_state["cooperation_tendency"], 4),
+                "risk_aversion": round(npc.adaptation_state["risk_aversion"], 4),
+                "social_sensitivity": round(npc.adaptation_state["social_sensitivity"], 4),
+                "shock_resilience": round(npc.adaptation_state["shock_resilience"], 4),
+            }
+            
+            # Add latest reward from trace if available
+            if npc.reward_trace:
+                latest_reward = npc.reward_trace[-1]
+                npc_rewards[uid] = {
+                    "penalty": round(latest_reward.get("penalty", 0.0), 4),
+                    "individual": round(latest_reward.get("individual", 0.0), 4),
+                    "community": round(latest_reward.get("community", 0.0), 4),
+                    "total": round(latest_reward.get("total", 0.0), 4),
+                }
+            else:
+                npc_rewards[uid] = {"penalty": 0.0, "individual": 0.0, "community": 0.0, "total": 0.0}
+            
+            # STEP 4: Add role telemetry
+            npc_role_telemetry[uid] = {
+                "role": npc.archetype,
+                "actions_selected": npc.role_telemetry["actions_selected"],
+                "role_aligned": npc.role_telemetry["role_aligned"],
+                "role_misaligned": npc.role_telemetry["role_misaligned"],
+                "role_coherence": (
+                    round(npc.role_telemetry["role_aligned"] / max(1, npc.role_telemetry["actions_selected"]), 4)
+                    if npc.role_telemetry["actions_selected"] > 0
+                    else 0.0
+                ),
+            }
+        
         return {
             **self._metrics,
             "current_turn": self.turn,
             "game_over": self.game_over,
             "game_result": self.game_result,
             "quest_progress": self.quest_manager.get_quest_progress(),
-            "npc_states": {
-                uid: {
-                    "name": npc.name,
-                    "location": npc.location,
-                    "status": npc.status,
-                    "hp": f"{npc.current_hp}/{npc.max_hp}",
-                    "happiness": npc.stats.get("happiness", 0),
-                    "epsilon": round(npc.epsilon, 4),
-                }
-                for uid, npc in self.npc_registry.items()
-            },
+            "npc_states": npc_states,
+            "npc_adaptation": npc_adaptation,
+            "npc_rewards": npc_rewards,
+            "npc_role_telemetry": npc_role_telemetry,
+            "community_state": self.compute_community_state(),
+            "shock_timeline": self.shock_manager.get_shock_timeline(),
+            "active_shocks": self.shock_manager.get_active_shocks(),
             "player_health": self.player.health,
             "player_stamina": self.player.stamina,
             "player_location": self.player.location,

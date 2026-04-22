@@ -102,8 +102,9 @@ def create_npc_registry(master_seed: int = MASTER_SEED) -> dict[str, NPC]:
     """Create the complete NPC registry from JSON data files.
 
     For each instance, the matching archetype is looked up, a
-    per-NPC random seed is derived from *master_seed* + ``hash(npc_uid)``,
-    and an :class:`NPC` object is built.
+    per-NPC random seed is derived deterministically from *master_seed*
+    and the NPC UID (avoiding non-deterministic hash()), and an :class:`NPC`
+    object is built.
 
     Args:
         master_seed: Root seed for all per-NPC randomness.
@@ -120,7 +121,11 @@ def create_npc_registry(master_seed: int = MASTER_SEED) -> dict[str, NPC]:
 
     registry: dict[str, NPC] = {}
 
-    for uid, inst_data in instances.items():
+    # Create a stable ordering of NPCs so seed derivation is deterministic
+    sorted_uids = sorted(instances.keys())
+
+    for npc_index, uid in enumerate(sorted_uids):
+        inst_data = instances[uid]
         arch_key = inst_data.get("archetype")
         if arch_key not in archetypes:
             logger.error(
@@ -131,13 +136,6 @@ def create_npc_registry(master_seed: int = MASTER_SEED) -> dict[str, NPC]:
             continue
 
         arch_data = archetypes[arch_key]
-
-        # Derive per-NPC seed deterministically
-        npc_seed = (master_seed + hash(uid)) % (2**31)
-        rng = random.Random(npc_seed)
-        # Pre-seed module-level random for this NPC if needed elsewhere;
-        # the NPC just stores data — actual RNG usage happens in rl_agent.
-        _ = rng  # reserved for future per-NPC randomisation
 
         npc = NPC(inst_data, arch_data)
         registry[uid] = npc

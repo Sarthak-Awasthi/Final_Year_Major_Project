@@ -30,6 +30,7 @@ const ACTIONS = {
     social: [
         { id: 'trade', name: 'Trade', ap: 2 },
         { id: 'give_item', name: 'Give Item', ap: 1 },
+        { id: 'present_item', name: 'Present Item', ap: 1 },
     ],
     combat: [
         { id: 'attack', name: 'Attack', ap: 10 },
@@ -87,6 +88,7 @@ let ws = null;
 let wsReconnectAttempts = 0;
 let cy = null;             // Cytoscape instance
 let pendingAction = null;  // Action waiting for target selection
+let actionInFlight = false; // Prevents double-submission
 
 // ═══════════════════════════════════════════════════════════════
 // DOM References
@@ -572,6 +574,13 @@ async function apiGet(endpoint) {
 }
 
 async function sendAction(payload) {
+    if (actionInFlight) return; // Prevent double-submission
+    actionInFlight = true;
+
+    // Show processing state on action palette
+    const palette = document.querySelector('#action-palette');
+    if (palette) palette.classList.add('processing');
+
     try {
         const result = await apiPost('/game/action', payload);
         if (result) {
@@ -579,6 +588,9 @@ async function sendAction(payload) {
         }
     } catch (e) {
         // Error already toasted by apiPost
+    } finally {
+        actionInFlight = false;
+        if (palette) palette.classList.remove('processing');
     }
 }
 
@@ -777,6 +789,7 @@ function updateAllUI() {
     updateNearbyObjects();
     updatePOIPanel();
     updateActionButtonStates();
+    fetchActiveShocks(); // Update shock indicator in header
 }
 
 function updateHeader() {
@@ -1088,14 +1101,11 @@ function initMDPGraph() {
         }, 150);
     });
 
-    // Escape exits fullscreen
+    // Escape exits fullscreen (analytics/history/debug handled in global handler)
     document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape') {
             dom.mdpGraph.classList.remove('fullscreen');
             cy.resize();
-            // Also close modals
-            closeMoveModal();
-            closeSaveLoadModal();
         }
     });
 }
@@ -1504,6 +1514,32 @@ function initFooter() {
             showToast(`Difficulty set to ${dom.footerDifficulty.value}`, 'info');
         } catch (e) { /* toasted */ }
     });
+
+    // Analytics button (Phase 6)
+    const analyticsBtn = document.querySelector('#analytics-btn');
+    if (analyticsBtn) {
+        analyticsBtn.addEventListener('click', () => {
+            if (typeof toggleAnalyticsPanel === 'function') toggleAnalyticsPanel();
+        });
+    }
+
+    // Metrics button opens analytics dashboard (Phase 6 upgrade)
+    const metricsBtn = document.querySelector('#metrics-btn');
+    if (metricsBtn) {
+        metricsBtn.addEventListener('click', () => {
+            if (typeof toggleAnalyticsPanel === 'function') {
+                toggleAnalyticsPanel();
+            } else {
+                showMetricsDashboard();
+            }
+        });
+    }
+
+    // Help button
+    const helpBtn = document.querySelector('#help-btn');
+    if (helpBtn) {
+        helpBtn.addEventListener('click', toggleHelpPanel);
+    }
 }
 
 async function openSaveLoadModal(mode) {
@@ -1594,6 +1630,9 @@ function showToast(message, level = 'info') {
     setTimeout(() => toast.remove(), 4000);
 }
 
+// Expose to global scope for analytics.js interop
+window.showToast = showToast;
+
 // ═══════════════════════════════════════════════════════════════
 // Utilities
 // ═══════════════════════════════════════════════════════════════
@@ -1619,10 +1658,11 @@ document.addEventListener('keydown', (e) => {
     switch (e.key) {
         case '1': selectActionTab('navigation'); break;
         case '2': selectActionTab('exploration'); break;
-        case '3': selectActionTab('social'); break;
-        case '4': selectActionTab('combat'); break;
-        case '5': selectActionTab('stealth'); break;
-        case '6': selectActionTab('utility'); break;
+        case '3': selectActionTab('talk'); break;
+        case '4': selectActionTab('social'); break;
+        case '5': selectActionTab('combat'); break;
+        case '6': selectActionTab('stealth'); break;
+        case '7': selectActionTab('utility'); break;
         case '/':
         case 't':
             e.preventDefault();
@@ -1662,6 +1702,15 @@ document.addEventListener('keydown', (e) => {
             e.preventDefault();
             toggleNPCDetailPanel();
             break;
+        case 'a':
+        case 'A':
+            e.preventDefault();
+            if (typeof toggleAnalyticsPanel === 'function') toggleAnalyticsPanel();
+            break;
+        case '?':
+            e.preventDefault();
+            toggleHelpPanel();
+            break;
         case 'Tab':
             e.preventDefault();
             dom.freeTextInput.focus();
@@ -1674,6 +1723,8 @@ document.addEventListener('keydown', (e) => {
             closeHistoryPanel();
             closeDebugOverlay();
             closeNPCDetailPanel();
+            closeHelpPanel();
+            if (typeof closeAnalyticsPanel === 'function') closeAnalyticsPanel();
             break;
     }
 });
@@ -1900,7 +1951,8 @@ async function refreshDebugOverlay() {
 
         html += '<div class="debug-section"><h4>LLM Status</h4>';
         html += `<div class="debug-stat">Available: ${llmStatus.available ? 'Yes' : 'No'}</div>`;
-        html += `<div class="debug-stat">Model: ${llmStatus.model_path ?? '—'}</div>`;
+        html += `<div class="debug-stat">Provider: ${llmStatus.provider ?? '—'}</div>`;
+        html += `<div class="debug-stat">Model: ${llmStatus.model_name ?? llmStatus.model_path ?? '—'}</div>`;
         html += `<div class="debug-stat">Calls/min: ${llmStatus.calls_this_minute ?? 0}/${llmStatus.max_calls ?? 20}</div>`;
         html += '</div>';
 
@@ -1997,13 +2049,13 @@ async function updateLLMStatus() {
         const status = await apiGet('/llm/status');
         if (dom.llmDot) {
             dom.llmDot.classList.toggle('llm-active', status.available === true);
-            dom.llmDot.title = status.available ? 'LLM Active' : 'LLM Inactive';
+            const provider = status.provider ? ` (${status.provider})` : '';
+            dom.llmDot.title = status.available ? `LLM Active${provider}` : `LLM Inactive${provider}`;
         }
-        const statusText = dom.statusText;
-        if (statusText && status.available) {
-            statusText.textContent = 'LLM Active';
-        } else if (statusText) {
-            statusText.textContent = 'LLM Offline';
+        // Update the LLM label text only, not the game status text
+        const llmLabel = document.querySelector('.llm-label');
+        if (llmLabel) {
+            llmLabel.textContent = status.available ? 'LLM' : 'LLM OFF';
         }
     } catch {
         if (dom.llmDot) {
@@ -2044,4 +2096,150 @@ function applyURLParams() {
             startGame(name, s, d);
         }, 200);
     }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Help Panel
+// ═══════════════════════════════════════════════════════════════
+
+let helpPanelOpen = false;
+
+function toggleHelpPanel() {
+    helpPanelOpen ? closeHelpPanel() : openHelpPanel();
+}
+
+function openHelpPanel() {
+    let panel = $('#help-panel');
+    if (!panel) {
+        panel = document.createElement('div');
+        panel.id = 'help-panel';
+        panel.className = 'overlay-panel overlay-panel-wide';
+        panel.innerHTML = `
+            <div class="overlay-panel-header">
+                <h3>Help & Keyboard Shortcuts</h3>
+                <button class="panel-close-btn" onclick="closeHelpPanel()">×</button>
+            </div>
+            <div class="overlay-panel-content">
+                <div class="debug-section">
+                    <h4>Game Overview</h4>
+                    <div class="debug-stat" style="font-family: var(--font-main); white-space: normal; line-height: 1.6;">
+                        This is a research game combining hierarchical MDP quest systems, NPC reinforcement
+                        learning agents, and optional LLM integration. Interact with NPCs, explore locations,
+                        complete quests, and observe how NPC agents learn and adapt.
+                    </div>
+                </div>
+                <div class="debug-section">
+                    <h4>Keyboard Shortcuts</h4>
+                    <div class="debug-stat"><span class="kbd">1</span>–<span class="kbd">7</span> Switch action tabs (Nav, Explore, Talk, Social, Combat, Stealth, Utility)</div>
+                    <div class="debug-stat"><span class="kbd">T</span> or <span class="kbd">/</span> Focus text input</div>
+                    <div class="debug-stat"><span class="kbd">M</span> Open move modal</div>
+                    <div class="debug-stat"><span class="kbd">S</span> Quick save &nbsp;|&nbsp; <span class="kbd">Shift+S</span> Save modal</div>
+                    <div class="debug-stat"><span class="kbd">H</span> Turn history</div>
+                    <div class="debug-stat"><span class="kbd">N</span> NPC details</div>
+                    <div class="debug-stat"><span class="kbd">D</span> Debug / Research panel</div>
+                    <div class="debug-stat"><span class="kbd">A</span> Analytics dashboard</div>
+                    <div class="debug-stat"><span class="kbd">?</span> This help panel</div>
+                    <div class="debug-stat"><span class="kbd">Tab</span> Focus text input</div>
+                    <div class="debug-stat"><span class="kbd">Esc</span> Close any panel / modal</div>
+                </div>
+                <div class="debug-section">
+                    <h4>Tips</h4>
+                    <div class="debug-stat" style="font-family: var(--font-main); white-space: normal; line-height: 1.6;">
+                        • Type natural language in the text input — the NLP parser will identify your intent.<br>
+                        • Actions requiring a target NPC will prompt you to select one.<br>
+                        • Watch the RL Agent Activity panel to see NPC behavior evolve.<br>
+                        • Use the Analytics dashboard to track cooperation progression curves.
+                    </div>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(panel);
+    }
+    panel.classList.add('active');
+    helpPanelOpen = true;
+}
+
+function closeHelpPanel() {
+    const panel = $('#help-panel');
+    if (panel) panel.classList.remove('active');
+    helpPanelOpen = false;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Active Shock Indicator
+// ═══════════════════════════════════════════════════════════════
+
+async function fetchActiveShocks() {
+    try {
+        const data = await apiGet('/shocks/active');
+        const shocks = data.active_shocks || [];
+        renderShockIndicator(shocks);
+    } catch {
+        // Silently fail — shocks endpoint may not exist
+    }
+}
+
+function renderShockIndicator(shocks) {
+    let indicator = document.querySelector('#shock-indicator');
+
+    if (shocks.length === 0) {
+        if (indicator) indicator.remove();
+        return;
+    }
+
+    if (!indicator) {
+        indicator = document.createElement('div');
+        indicator.id = 'shock-indicator';
+        indicator.style.cssText = `
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 0.72rem;
+            padding: 3px 10px;
+            border-radius: var(--radius-sm);
+            background: var(--red-dim);
+            color: var(--red);
+            font-weight: 500;
+            cursor: help;
+            transition: all var(--transition);
+        `;
+        // Insert into header-right, before the game-status
+        const headerRight = document.querySelector('.header-right');
+        if (headerRight) {
+            headerRight.insertBefore(indicator, headerRight.firstChild);
+        }
+    }
+
+    const shockColors = {
+        famine: 'var(--orange)',
+        bandit_raid: 'var(--red)',
+        plague: '#9B59B6',
+        trade_boom: 'var(--green)',
+        harsh_winter: 'var(--blue)',
+    };
+
+    const shockIcons = {
+        famine: '🌾',
+        bandit_raid: '⚔️',
+        plague: '☠️',
+        trade_boom: '📈',
+        harsh_winter: '❄️',
+    };
+
+    const labels = shocks.map(s => {
+        const icon = shockIcons[s.shock_type] || '⚡';
+        return `${icon} ${s.shock_type.replace(/_/g, ' ')}`;
+    });
+
+    // Use the first shock's color for the indicator
+    const primaryColor = shockColors[shocks[0].shock_type] || 'var(--red)';
+    indicator.style.color = primaryColor;
+    indicator.style.background = `color-mix(in srgb, ${primaryColor} 15%, transparent)`;
+
+    const tooltipParts = shocks.map(s => {
+        const pct = s.intensity != null ? ` (${Math.round(s.intensity * 100)}%)` : '';
+        return `${s.shock_type}${pct}`;
+    });
+    indicator.title = `Active shocks: ${tooltipParts.join(', ')}`;
+    indicator.innerHTML = `⚡ ${shocks.length > 1 ? shocks.length + ' Shocks' : labels[0]}`;
 }

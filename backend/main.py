@@ -84,7 +84,7 @@ app = FastAPI(
     description=(
         "REST + WebSocket API for a single-player research game combining "
         "hierarchical MDP quest systems, NPC reinforcement learning agents, "
-        "and optional local LLM integration."
+        "and optional LLM provider integration."
     ),
     version=GAME_VERSION,
     lifespan=lifespan,

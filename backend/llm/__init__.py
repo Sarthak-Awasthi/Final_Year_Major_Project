@@ -1,8 +1,8 @@
 """
-llm — Local LLM integration layer (always optional).
+llm - Optional LLM integration layer (provider API based).
 
 Submodules:
-  llm_service   LLM model wrapper with rate limiting
+  llm_service   Provider adapter with rate limiting
   prompts       Prompt template builders
   guardrails    Output validation and sanitization
   fallback      Template-based fallbacks when LLM is unavailable

@@ -21,7 +21,6 @@ QUEST_DIR = DATA_DIR / "quests"
 NPC_DIR = DATA_DIR / "npcs"
 WORLD_DIR = DATA_DIR / "world"
 CONFIG_DIR = DATA_DIR / "config"
-MODELS_DIR = BASE_DIR.parent / "models"
 
 # Ensure directories exist
 for _d in (SAVES_DIR, METRICS_DIR, LOGS_DIR):
@@ -29,6 +28,14 @@ for _d in (SAVES_DIR, METRICS_DIR, LOGS_DIR):
 
 # ─── Master Seed ──────────────────────────────────────────────────────────────
 MASTER_SEED: int = 42
+
+
+def _env_bool(name: str, default: bool) -> bool:
+    """Parse boolean-like env vars with a safe fallback."""
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
 
 # ─── Session ──────────────────────────────────────────────────────────────────
 MAX_TURNS: int = 200
@@ -150,11 +157,111 @@ NPC_NUM_MOOD_LEVELS: int = 3  # low, medium, high
 NPC_STATE_SPACE_SIZE: int = NPC_NUM_LOCATIONS * NPC_NUM_TIME_SLOTS * NPC_NUM_ENERGY_LEVELS * NPC_NUM_MOOD_LEVELS
 NPC_ACTION_SPACE_SIZE: int = len(UNIVERSAL_ACTIONS)
 
+# ─── STEP 4: Role-Specific Action Masks ──────────────────────────────────────
+# Soft-mask weights: role-aligned actions get +bonus, role-misaligned get -penalty
+ROLE_MASK_BONUS: float = 0.5        # Q-value bonus for role-aligned actions
+ROLE_MASK_PENALTY: float = -0.3     # Q-value penalty for role-misaligned actions
+ROLE_MASK_ENABLED: bool = False     # Set to True to enable role-specific masks
+
+# ─── STEP 5: Dynamic Shock Engine ────────────────────────────────────────────
+SHOCK_ENABLED: bool = True          # Toggle shock engine
+SHOCK_MAX_ACTIVE: int = 3           # Maximum concurrent shocks
+
+SHOCK_CATALOG: dict[str, dict] = {
+    "famine": {
+        "name": "Famine",
+        "description": "Crops have failed. Food is scarce and morale drops.",
+        "duration": 15,
+        "decay_profile": "linear",
+        "effects": {
+            "reward_scale": 0.5,        # halve community reward
+            "resource_drain": 0.3,      # per-turn happiness drain
+            "trust_modifier": -0.5,     # reputation drifts negative
+            "action_cost_modifier": 1.2, # actions cost more
+        },
+    },
+    "bandit_raid": {
+        "name": "Bandit Raid",
+        "description": "Raiders threaten the village. Safety is uncertain.",
+        "duration": 8,
+        "decay_profile": "sudden",
+        "effects": {
+            "reward_scale": 0.6,
+            "resource_drain": 0.5,
+            "trust_modifier": -1.0,
+            "action_cost_modifier": 1.3,
+        },
+    },
+    "plague": {
+        "name": "Plague Outbreak",
+        "description": "A sickness spreads through the village.",
+        "duration": 12,
+        "decay_profile": "linear",
+        "effects": {
+            "reward_scale": 0.4,
+            "resource_drain": 0.6,
+            "trust_modifier": -0.3,
+            "action_cost_modifier": 1.1,
+        },
+    },
+    "trade_boom": {
+        "name": "Trade Boom",
+        "description": "Merchants flock to the village. Prosperity rises.",
+        "duration": 10,
+        "decay_profile": "linear",
+        "effects": {
+            "reward_scale": 1.5,        # boost community reward
+            "resource_drain": -0.2,     # negative drain = gain
+            "trust_modifier": 0.5,
+            "action_cost_modifier": 0.9,
+        },
+    },
+    "harsh_winter": {
+        "name": "Harsh Winter",
+        "description": "A brutal cold snap grips the region.",
+        "duration": 20,
+        "decay_profile": "linear",
+        "effects": {
+            "reward_scale": 0.7,
+            "resource_drain": 0.4,
+            "trust_modifier": -0.2,
+            "action_cost_modifier": 1.15,
+        },
+    },
+}
+
+# Role-to-action mapping: each role gets a list of preferred action IDs
+ROLE_ACTION_MASKS: dict[str, list[str]] = {
+    "farmer": [
+        "work", "give_item", "trade", "talk", "greet",
+        "pick_up", "drop_item", "eat", "rest", "wait"
+    ],
+    "guard": [
+        "defend", "attack", "talk", "intimidate",
+        "greet", "look", "examine", "move_to"
+    ],
+    "tavkeeper": [
+        "trade", "talk", "greet", "give_item", "present_item",
+        "ask_info", "persuade", "rest", "wait"
+    ],
+    "elder": [
+        "talk", "persuade", "ask_info", "greet", "give_item",
+        "look", "examine", "rest", "wait"
+    ],
+    "villager": [
+        "talk", "greet", "work", "trade", "give_item",
+        "look", "move_to", "rest", "wait"
+    ],
+}
+
 # ─── LLM ─────────────────────────────────────────────────────────────────────
-LLM_ENABLED: bool = True
-LLM_MODEL_PATH: str = str(MODELS_DIR / "Phi-3.5-mini-instruct-Q4_K_M.gguf")
-LLM_CONTEXT_SIZE: int = 4096
-LLM_GPU_LAYERS: int = -1  # -1 = offload all layers to GPU; 0 = CPU only
+LLM_ENABLED: bool = _env_bool("LLM_ENABLED", True)
+LLM_PROVIDER: str = os.getenv("LLM_PROVIDER", "ollama")
+LLM_API_BASE_URL: str = os.getenv("LLM_API_BASE_URL", "http://127.0.0.1:11434")
+LLM_API_KEY: str = os.getenv("LLM_API_KEY", "")
+LLM_MODEL_NAME: str = os.getenv("LLM_MODEL_NAME", "qwen3:4b")
+LLM_HEALTH_ENDPOINT: str = os.getenv("LLM_HEALTH_ENDPOINT", "")
+LLM_CHAT_ENDPOINT: str = os.getenv("LLM_CHAT_ENDPOINT", "")
 LLM_MAX_PROMPT_TOKENS: int = 2500
 LLM_DEFAULT_TEMPERATURE: float = 0.7
 LLM_TIMEOUT_SECONDS: int = 10

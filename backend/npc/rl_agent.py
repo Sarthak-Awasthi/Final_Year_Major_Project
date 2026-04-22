@@ -47,6 +47,8 @@ def select_action(
     Invalid actions get ``-inf`` during argmax selection (the Q-table
     itself is never modified).
 
+    STEP 4: If ROLE_MASK_ENABLED, applies soft-mask adjustment based on NPC role.
+
     Args:
         npc: The acting NPC (provides ε and Q-table).
         state: Discretized state index.
@@ -56,6 +58,8 @@ def select_action(
     Returns:
         The chosen action index (into ``UNIVERSAL_ACTION_IDS``).
     """
+    from backend.config import ROLE_MASK_ENABLED, ROLE_ACTION_MASKS, ROLE_MASK_BONUS, ROLE_MASK_PENALTY
+
     if valid_actions is not None and len(valid_actions) == 0:
         # Degenerate case — no valid actions; fall back to wait
         return UNIVERSAL_ACTION_IDS.index("wait")
@@ -68,11 +72,23 @@ def select_action(
 
     # Exploit: argmax with masking
     q_row = npc.q_table[state].copy()
+
+    # Hard masking: invalid actions (precondition-based)
     if valid_actions is not None:
         mask = np.full(NPC_ACTION_SPACE_SIZE, -np.inf)
         for idx in valid_actions:
             mask[idx] = 0.0
         q_row += mask
+
+    # STEP 4: Soft masking by role (policy prioritization, not hard blocking)
+    if ROLE_MASK_ENABLED and hasattr(npc, 'archetype'):
+        role_actions = ROLE_ACTION_MASKS.get(npc.archetype, [])
+        if role_actions:
+            for idx, action_id in enumerate(UNIVERSAL_ACTION_IDS):
+                if action_id in role_actions:
+                    q_row[idx] += ROLE_MASK_BONUS  # Boost role-aligned actions
+                else:
+                    q_row[idx] += ROLE_MASK_PENALTY  # Reduce role-misaligned actions
 
     # Break ties randomly among max values
     max_val = np.max(q_row)
@@ -108,10 +124,29 @@ def update_q_table(
 
 # ── Reward computation ────────────────────────────────────────────────────────
 
-def compute_reward(npc: NPC, old_stats: dict, new_stats: dict) -> float:
-    """Compute the weighted reward signal from stat deltas.
+def compute_penalty_reward(npc: NPC, old_stats: dict, new_stats: dict) -> float:
+    """Compute penalty rewards for invalid or harmful actions.
 
-    ``R = Σ  w_i · (new_i − old_i)``
+    Returns:
+        Negative reward for penalties, 0.0 otherwise.
+    """
+    penalty = 0.0
+
+    # Penalty for health drop below 20% (self-harm)
+    hp_ratio = npc.current_hp / max(npc.max_hp, 1)
+    if hp_ratio < 0.2:
+        penalty -= 10.0
+
+    # Penalty for severe reputation damage
+    # (Note: reputation damage is tracked separately, this is a catch-all)
+
+    return penalty
+
+
+def compute_individual_reward(npc: NPC, old_stats: dict, new_stats: dict) -> float:
+    """Compute individual NPC reward from weighted stat deltas.
+
+    ``R_individual = Σ w_i · (new_i − old_i)``
 
     Args:
         npc: The NPC (provides ``reward_weights``).
@@ -119,13 +154,85 @@ def compute_reward(npc: NPC, old_stats: dict, new_stats: dict) -> float:
         new_stats: Stats dict after the action.
 
     Returns:
-        Scalar reward value.
+        Weighted scalar reward.
     """
     reward = 0.0
     for key, weight in npc.reward_weights.items():
         delta = new_stats.get(key, 0) - old_stats.get(key, 0)
         reward += weight * delta
     return reward
+
+
+def compute_community_reward(community_state: dict | None) -> float:
+    """Compute village-level reward from aggregated state.
+
+    If community_state is None, returns 0.0 (community reward disabled).
+
+    Community reward aggregates:
+    - Average reputation (higher = better)
+    - Total health (higher = better)
+    - Average mood (derived from happiness stats)
+
+    Args:
+        community_state: Dict with keys: avg_reputation, total_health,
+                        total_stamina, avg_mood. Can be None.
+
+    Returns:
+        Scalar community reward.
+    """
+    if community_state is None:
+        return 0.0
+
+    reward = 0.0
+
+    # Reputation component (range ~-100 to +100, normalize to ±1 scale)
+    avg_rep = community_state.get("avg_reputation", 0)
+    reward += (avg_rep / 100.0) * 0.5  # weight 0.5
+
+    # Health component (aggregate; higher is better)
+    total_hp = community_state.get("total_health", 0)
+    # With 6 NPCs at ~30 HP each, typical = 180, normalize to 0-1
+    hp_score = min(total_hp / 200.0, 1.0)
+    reward += hp_score * 0.3  # weight 0.3
+
+    # Mood component (average mood sentiment)
+    avg_mood = community_state.get("avg_mood", 0)
+    reward += (avg_mood / 10.0) * 0.2  # weight 0.2
+
+    return reward
+
+
+def compute_reward(
+    npc: NPC,
+    old_stats: dict,
+    new_stats: dict,
+    community_state: dict | None = None,
+) -> dict:
+    """Compute decomposed reward signal with penalty, individual, and community terms.
+
+    Args:
+        npc: The NPC (provides ``reward_weights`` and ``lambda_coeff``).
+        old_stats: Stats dict before the action.
+        new_stats: Stats dict after the action.
+        community_state: Optional village-level state for community reward.
+
+    Returns:
+        Dict with keys: penalty, individual, community, total.
+        Total = penalty + individual + lambda * community
+    """
+    penalty = compute_penalty_reward(npc, old_stats, new_stats)
+    individual = compute_individual_reward(npc, old_stats, new_stats)
+    community = compute_community_reward(community_state)
+
+    # Combine: total = penalty + individual + lambda_coeff * community
+    total = penalty + individual + npc.lambda_coeff * community
+
+    return {
+        "penalty": float(penalty),
+        "individual": float(individual),
+        "community": float(community),
+        "total": float(total),
+    }
 
 
 # ── Epsilon decay ─────────────────────────────────────────────────────────────
@@ -220,6 +327,8 @@ def pretrain_npc(
     world_data: dict,
     episodes: int = NPC_PRETRAIN_EPISODES,
     turns_per_ep: int = NPC_PRETRAIN_TURNS,
+    npc_index: int = 0,
+    master_seed: int = MASTER_SEED,
 ) -> None:
     """Pre-train an NPC's Q-table in lightweight simulation mode.
 
@@ -235,9 +344,11 @@ def pretrain_npc(
         world_data: Dict with ``"locations"`` and adjacency info.
         episodes: Number of training episodes.
         turns_per_ep: Turns per episode.
+        npc_index: Deterministic index of this NPC in the registry.
+        master_seed: Master seed for deriving per-NPC seed.
     """
-    # Deterministic seed per NPC
-    seed = (MASTER_SEED + hash(npc.npc_uid)) % (2**31)
+    # Deterministic seed per NPC derived from index, not hash()
+    seed = (master_seed + npc_index * 13) % (2**31)
     rng = _random.Random(seed)
     np_rng = np.random.RandomState(seed % (2**31))
 
@@ -282,8 +393,9 @@ def pretrain_npc(
             next_state = npc.discretize_state(next_time)
 
             # Reward
-            reward = compute_reward(npc, old_stats, npc.stats)
-            update_q_table(npc, state, action_idx, reward, next_state)
+            reward_dict = compute_reward(npc, old_stats, npc.stats)
+            # Use total reward for Q-table update
+            update_q_table(npc, state, action_idx, reward_dict["total"], next_state)
 
     # Restore NPC to initial state, keep the trained Q-table
     from backend.config import NPC_EPSILON_START

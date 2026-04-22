@@ -130,6 +130,62 @@ class PlaythroughLogger:
 
         self._write_record(record)
 
+    def log_rl_telemetry(
+        self,
+        turn: int,
+        npc_registry: dict[str, Any],
+        shock_manager: Any,
+        community_state: dict[str, Any],
+    ) -> None:
+        """Record per-turn RL telemetry for research analysis.
+
+        Captures the full RL state at the end of each turn including
+        reward decomposition, adaptation state, active shocks, and
+        community metrics. Called from the game engine after NPC turns.
+
+        Args:
+            turn: Current turn number.
+            npc_registry: ``{npc_uid: NPC}`` mapping.
+            shock_manager: ShockManager instance.
+            community_state: Community state dict from engine.
+        """
+        npc_telemetry: dict[str, dict[str, Any]] = {}
+        for uid, npc in npc_registry.items():
+            # Latest reward from this turn
+            latest_reward = npc.reward_trace[-1] if npc.reward_trace else {
+                "penalty": 0.0, "individual": 0.0, "community": 0.0, "total": 0.0
+            }
+
+            npc_telemetry[uid] = {
+                "name": npc.name,
+                "role": npc.archetype,
+                "reward": {
+                    "penalty": round(latest_reward.get("penalty", 0.0), 4),
+                    "individual": round(latest_reward.get("individual", 0.0), 4),
+                    "community": round(latest_reward.get("community", 0.0), 4),
+                    "total": round(latest_reward.get("total", 0.0), 4),
+                },
+                "adaptation": {
+                    "cooperation_tendency": round(npc.adaptation_state["cooperation_tendency"], 4),
+                    "risk_aversion": round(npc.adaptation_state["risk_aversion"], 4),
+                    "social_sensitivity": round(npc.adaptation_state["social_sensitivity"], 4),
+                    "shock_resilience": round(npc.adaptation_state["shock_resilience"], 4),
+                },
+                "epsilon": round(npc.epsilon, 4),
+            }
+
+        record: dict[str, Any] = {
+            "record_type": "rl_telemetry",
+            "session_id": self.session_id,
+            "turn": turn,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "npc_telemetry": npc_telemetry,
+            "active_shocks": shock_manager.get_active_shocks(),
+            "community_state": _safe_serialize(community_state),
+        }
+
+        self._write_record(record)
+
     def log_event(self, event_type: str, data: dict[str, Any]) -> None:
         """Log a non-turn event (game start, save, load, error, etc.).
 

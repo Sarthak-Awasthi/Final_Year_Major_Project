@@ -817,7 +817,7 @@ async def _llm_parse_input(
 ) -> ParsedInput | None:
     """LLM-powered tertiary 3-dimension analysis.
 
-    Sends the raw text to the local GGUF model with a structured prompt,
+    Sends the raw text to the configured LLM provider with a structured prompt,
     validates the JSON response against the universal action catalog,
     and returns a :class:`ParsedInput` or ``None`` on failure.
 

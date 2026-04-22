@@ -1216,7 +1216,7 @@
 .debug-section h4 {
     margin: 0 0 8px 0;
     font-size: 0.85rem;
-    color: var(--color-amber);
+    color: var(--amber);
 }
 
 .debug-stat {
@@ -1233,7 +1233,7 @@
     margin: 4px 0;
     background: var(--surface-2);
     border-radius: var(--radius-sm);
-    border-left: 2px solid var(--color-amber);
+    border-left: 2px solid var(--amber);
 }
 
 /* Metrics dashboard */
@@ -1295,7 +1295,7 @@
 
 .metric-bar-fill {
     height: 100%;
-    background: var(--color-blue);
+    background: var(--blue);
     border-radius: 3px;
     transition: width 300ms ease;
 }
@@ -1307,8 +1307,3 @@
     min-width: 30px;
 }
 
-/* LLM status indicator */
-.llm-dot.llm-active {
-    background: var(--color-green);
-    box-shadow: 0 0 6px rgba(46, 204, 113, 0.4);
-}

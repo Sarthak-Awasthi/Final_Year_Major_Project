@@ -21,6 +21,17 @@ from backend.config import (
     logger,
 )
 from backend.engine.game_engine import GameEngine
+from backend.engine.analytics import (
+    build_experiment_bundle,
+    compute_action_distribution,
+    compute_community_reward_series,
+    compute_cooperation_index,
+    compute_cooperation_series,
+    compute_policy_entropy,
+    compute_reward_series,
+    compute_shock_response,
+    compute_social_welfare_series,
+)
 from backend.player.input_parser import init_nlp, parse_button_input, parse_text_input
 from backend.api.session import SessionManager
 from backend.api.websocket import ws_manager
@@ -286,13 +297,28 @@ class ActionCatalogResponse(BaseModel):
 class LLMStatusResponse(BaseModel):
     """LLM availability information."""
 
-    available: bool = Field(description="Whether the LLM model is loaded.")
-    model_path: str = Field(default="", description="Path to the GGUF model file.")
+    available: bool = Field(description="Whether the configured provider is reachable.")
+    enabled: bool = Field(default=True, description="Whether LLM usage is enabled by config.")
+    provider: str = Field(default="", description="Configured LLM provider key.")
+    model_name: str = Field(default="", description="Selected provider model identifier.")
+    base_url: str = Field(default="", description="Provider base URL.")
+    calls_this_minute: int = Field(default=0, description="Calls made in the current minute window.")
+    max_calls: int = Field(default=20, description="Configured per-minute call cap.")
+    model_path: str = Field(default="", description="Deprecated legacy field; retained for compatibility.")
 
     model_config = {
         "json_schema_extra": {
             "examples": [
-                {"available": False, "model_path": "models/qwen3-4B-q4_k_m.gguf"}
+                {
+                    "available": True,
+                    "enabled": True,
+                    "provider": "ollama",
+                    "model_name": "qwen3:4b",
+                    "base_url": "http://127.0.0.1:11434",
+                    "calls_this_minute": 2,
+                    "max_calls": 20,
+                    "model_path": "",
+                }
             ]
         }
     }
@@ -754,19 +780,23 @@ async def get_npc_detail(npc_uid: str) -> NPCDetailResponse:
     summary="Check LLM availability",
 )
 async def get_llm_status() -> LLMStatusResponse:
-    """Return whether the local LLM model is loaded and ready."""
+    """Return provider-aware LLM connectivity and config status."""
     engine = get_engine(raise_on_missing=False)
     if engine is not None:
-        return LLMStatusResponse(
-            available=engine.llm.available,
-            model_path=engine.llm._model_path,
-        )
+        status = engine.llm.get_status()
+        return LLMStatusResponse(**status)
     # No session — report based on config
-    from backend.config import LLM_MODEL_PATH
+    from backend.config import LLM_API_BASE_URL, LLM_ENABLED, LLM_MODEL_NAME, LLM_PROVIDER
 
     return LLMStatusResponse(
         available=False,
-        model_path=LLM_MODEL_PATH,
+        enabled=LLM_ENABLED,
+        provider=LLM_PROVIDER,
+        model_name=LLM_MODEL_NAME,
+        base_url=LLM_API_BASE_URL,
+        calls_this_minute=0,
+        max_calls=20,
+        model_path="",
     )
 
 
@@ -921,6 +951,61 @@ async def set_difficulty(req: DifficultyRequest) -> DifficultyResponse:
     )
 
 
+# ─── Shock endpoints ─────────────────────────────────────────────────────────
+
+
+@router.get(
+    "/shocks/active",
+    tags=["shocks"],
+    summary="Get active shocks",
+)
+async def get_active_shocks() -> dict:
+    """Return currently active shocks and their state."""
+    engine = get_engine()
+    return {
+        "active_shocks": engine.shock_manager.get_active_shocks(),
+        "shock_timeline": engine.shock_manager.get_shock_timeline(),
+        "reward_modifier": round(engine.shock_manager.get_reward_modifier(), 4),
+        "adaptation_pressure": round(engine.shock_manager.get_adaptation_pressure(), 4),
+    }
+
+
+class TriggerShockRequest(BaseModel):
+    """Payload for manually triggering a shock."""
+    shock_type: str = Field(..., description="Shock type key from SHOCK_CATALOG.")
+    source: str = Field(default="player", description="Trigger source.")
+    scope: str = Field(default="village", description="'village' or 'location'.")
+    target_location: str | None = Field(default=None, description="Required if scope='location'.")
+    duration: int | None = Field(default=None, description="Override default duration.")
+
+
+@router.post(
+    "/shocks/trigger",
+    tags=["shocks"],
+    summary="Trigger a shock",
+)
+async def trigger_shock(req: TriggerShockRequest) -> dict:
+    """Manually activate a shock (for research experiments)."""
+    engine = get_engine()
+    shock = engine.shock_manager.activate_shock(
+        shock_type=req.shock_type,
+        source=req.source,
+        scope=req.scope,
+        target_location=req.target_location,
+        duration=req.duration,
+        turn=engine.turn,
+    )
+    if shock is None:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Failed to activate shock '{req.shock_type}'. Check type, max active, or duplicates.",
+        )
+    return {
+        "message": f"Shock '{req.shock_type}' activated.",
+        "shock": shock,
+    }
+
+
 # ─── Export endpoint ──────────────────────────────────────────────────────────
 
 @router.get(
@@ -1019,3 +1104,172 @@ async def download_playthrough_log() -> dict:
         "log_path": pt.get_log_path(),
         "records": records,
     }
+
+
+# ─── Phase 6: Analytics & Research Endpoints ─────────────────────────────────
+
+
+class TimeseriesResponse(BaseModel):
+    """Complete time-series data for the research analytics dashboard."""
+
+    reward_series: dict[str, dict[str, Any]] = Field(
+        default_factory=dict,
+        description="Per-NPC reward time-series (turns, individual, community, penalty, total).",
+    )
+    community_reward_series: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Village-level community reward averaged per turn.",
+    )
+    social_welfare_series: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Social welfare index over turns.",
+    )
+    cooperation_series: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Global cooperation index over turns.",
+    )
+    cooperation_index: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Current cooperation index: global, per-role, per-NPC.",
+    )
+    policy_entropy: dict[str, float] = Field(
+        default_factory=dict,
+        description="Per-NPC policy entropy (action distribution uniformity).",
+    )
+    action_distribution: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Action distribution global, per-role, early/late windows, and shift.",
+    )
+    shock_timeline: list[dict] = Field(
+        default_factory=list,
+        description="Active and expired shocks with timing data.",
+    )
+    shock_responses: list[dict] = Field(
+        default_factory=list,
+        description="Shock response and recovery curves per shock event.",
+    )
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "reward_series": {},
+                    "community_reward_series": {"turns": [], "avg_community": []},
+                    "social_welfare_series": {"turns": [], "welfare_index": []},
+                    "cooperation_series": {"turns": [], "global_cooperation": []},
+                    "cooperation_index": {"global": 0.5, "per_role": {}, "per_npc": {}},
+                    "policy_entropy": {},
+                    "action_distribution": {},
+                    "shock_timeline": [],
+                    "shock_responses": [],
+                }
+            ]
+        }
+    }
+
+
+class CooperationResponse(BaseModel):
+    """Lightweight cooperation index snapshot."""
+
+    global_cooperation: float = Field(description="Village-wide average cooperation tendency.")
+    per_role: dict[str, float] = Field(
+        default_factory=dict,
+        description="Average cooperation per NPC archetype.",
+    )
+    per_npc: dict[str, float] = Field(
+        default_factory=dict,
+        description="Cooperation tendency per individual NPC.",
+    )
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "global_cooperation": 0.5200,
+                    "per_role": {"elder": 0.55, "farmer": 0.50},
+                    "per_npc": {"elder_m8b2": 0.55},
+                }
+            ]
+        }
+    }
+
+
+class ExperimentBundleResponse(BaseModel):
+    """Complete experiment data bundle for offline research analysis."""
+
+    metadata: dict[str, Any] = Field(description="Experiment metadata.")
+    reward_series: dict = Field(default_factory=dict)
+    community_reward_series: dict = Field(default_factory=dict)
+    social_welfare_series: dict = Field(default_factory=dict)
+    cooperation_series: dict = Field(default_factory=dict)
+    cooperation_index: dict = Field(default_factory=dict)
+    policy_entropy: dict = Field(default_factory=dict)
+    action_distribution: dict = Field(default_factory=dict)
+    shock_timeline: list = Field(default_factory=list)
+    shock_responses: list = Field(default_factory=list)
+    adaptation_snapshot: dict = Field(default_factory=dict)
+
+
+@router.get(
+    "/metrics/timeseries",
+    response_model=TimeseriesResponse,
+    tags=["analytics"],
+    summary="Get research time-series data",
+)
+async def get_timeseries() -> TimeseriesResponse:
+    """Return all time-series data for the research analytics dashboard.
+
+    Includes per-NPC reward series, community reward, social welfare index,
+    cooperation index, policy entropy, action distribution, and shock analysis.
+    """
+    engine = get_engine()
+    npc_registry = engine.npc_registry
+    shock_timeline = engine.shock_manager.get_shock_timeline()
+    event_entries = engine.event_log.entries
+
+    return TimeseriesResponse(
+        reward_series=compute_reward_series(npc_registry),
+        community_reward_series=compute_community_reward_series(npc_registry),
+        social_welfare_series=compute_social_welfare_series(npc_registry),
+        cooperation_series=compute_cooperation_series(npc_registry),
+        cooperation_index=compute_cooperation_index(npc_registry),
+        policy_entropy=compute_policy_entropy(npc_registry),
+        action_distribution=compute_action_distribution(event_entries, npc_registry),
+        shock_timeline=shock_timeline,
+        shock_responses=compute_shock_response(npc_registry, shock_timeline),
+    )
+
+
+@router.get(
+    "/metrics/cooperation",
+    response_model=CooperationResponse,
+    tags=["analytics"],
+    summary="Get cooperation index",
+)
+async def get_cooperation() -> CooperationResponse:
+    """Return the current cooperation index: global, per-role, and per-NPC."""
+    engine = get_engine()
+    coop = compute_cooperation_index(engine.npc_registry)
+    return CooperationResponse(
+        global_cooperation=coop["global"],
+        per_role=coop["per_role"],
+        per_npc=coop["per_npc"],
+    )
+
+
+@router.get(
+    "/metrics/experiment",
+    response_model=ExperimentBundleResponse,
+    tags=["analytics"],
+    summary="Export full experiment bundle",
+)
+async def get_experiment_bundle() -> ExperimentBundleResponse:
+    """Build and return a complete experiment data bundle for offline analysis.
+
+    Includes all time-series, indices, distributions, shock analysis,
+    adaptation snapshots, and metadata (seed, difficulty, LLM provider mode).
+    """
+    engine = get_engine()
+    event_entries = engine.event_log.entries
+    bundle = build_experiment_bundle(engine, event_entries)
+    return ExperimentBundleResponse(**bundle)

@@ -23,13 +23,14 @@ This is a **single-player, single-session MVP** research game combining a hierar
 
 | Layer | Technology | Notes |
 |-------|-----------|-------|
-| Backend / Engine | **Python 3.11+ / FastAPI** | Async support required; all LLM calls use `asyncio.to_thread()` |
+| Backend / Engine | **Python 3.12 / FastAPI** | Async support required; all LLM calls use `asyncio.to_thread()` |
 | Frontend | **HTML + CSS + Vanilla JS + Cytoscape.js** | No frameworks (React, Vue, etc.). Modern minimal dark theme. |
 | NLP | **spaCy** (`en_core_web_md`) | Tokenization, lemmatization, word vectors, NER |
 | RL Engine | **NumPy-based tabular Q-learning** | No deep RL libraries. 180 states × 27 actions = 4,860 Q-table entries per NPC. |
-| LLM Runtime | **llama-cpp-python** | Runs GGUF models locally |
-| LLM Model | **qwen3-4B-q4_k_m.gguf** | 4096 token context window |
+| LLM Runtime | **httpx HTTP adapter** | Calls external LLM providers (Ollama, llama.cpp server, OpenAI-compatible) |
+| LLM Model | **qwen3:4b** (via provider) | Configurable via `LLM_MODEL_NAME` env var |
 | Persistence | **JSON files** | No database |
+| Deps | **uv + pyproject.toml** | No requirements.txt |
 | Communication | **REST API + WebSocket** | REST for actions/save/load; WebSocket for real-time MDP graph updates |
 
 ---
@@ -74,7 +75,7 @@ Pre-compute and cache action vectors at startup (`ACTION_VECTORS: dict[str, np.n
 
 ### Python (Backend)
 
-- **Python 3.11+** — use modern syntax (`match/case`, type hints, `|` union types)
+- **Python 3.12** — use modern syntax (`match/case`, type hints, `|` union types)
 - **Type hints on all functions** — parameters and return types
 - **Pydantic models** for request/response schemas and data validation
 - **Async endpoints** — all FastAPI endpoints that may invoke LLM must be `async def`
@@ -294,11 +295,11 @@ Adjacency strictly enforced; Village Center is the hub. `move_to` to non-adjacen
 
 ### Always Optional
 
-The entire game must work without LLM loaded. Every LLM call has a template/rules fallback.
+The entire game must work without an LLM provider. Every LLM call has a template/rules fallback. LLM access is via HTTP API (httpx) to external providers (Ollama, llama.cpp server, OpenAI-compatible). No in-process model loading.
 
 ### Fallback Chain
 
-1. Try LLM with timeout (10s) and validation
+1. Try LLM provider with timeout (10s) and validation
 2. On failure: retry up to 2 times
 3. On exhaustion: use template-based fallback
 
@@ -402,32 +403,33 @@ MVP/
 │   ├── quest/               # MDP, quest manager, checkpoints, nudging
 │   ├── npc/                 # NPC class, personality, dialogue, interactions, knowledge, RL, schedule
 │   ├── player/              # Player state, actions, input parser (spaCy NLP)
-│   ├── llm/                 # LLM service, prompts, guardrails, fallback
+│   ├── llm/                 # HTTP API adapter, prompts, guardrails, fallback
 │   ├── api/                 # REST routes, WebSocket, session management
 │   ├── data/                # JSON data files (quests, NPCs, world, config, saves, metrics, logs)
 │   └── tools/               # Replay, export, playtest bot
 ├── frontend/
 │   ├── index.html
 │   ├── css/                 # style.css, components.css, graph.css
-│   └── js/                  # app.js, game.js, graph.js, stats.js, metrics.js, history.js, npc-panel.js, audio.js, api.js
+│   └── js/                  # Vanilla JS modules + Cytoscape.js
 ├── models/                  # GGUF files (gitignored)
-├── Plan.md
-└── requirements.txt
+├── Plan.md                  # Canonical spec
+├── STATUS.md                # Implementation status
+└── pyproject.toml           # Dependencies (managed with uv)
 ```
 
 ---
 
-## Implementation Phase Order
+## Current Implementation Status
 
-1. **Phase 1a** — Backend Core (player, world, actions, combat, narration, event log, difficulty, input parser)
-2. **Phase 1b** — Frontend + API (REST/WS, dark theme UI, action palette, text input)
-3. **Phase 2** — Quest MDP (stages, checkpoints, transitions, quest manager, quest JSON)
-4. **Phase 3** — MDP Visualization (Cytoscape.js graph, real-time updates)
-5. **Phase 4** — Dynamic Checkpoints + Nudging + Random Events
-6. **Phase 5** — NPC RL Agents (archetypes, Q-learning, NPC-NPC interactions, gossip, pre-training)
-7. **Phase 6** — LLM Integration (llama-cpp-python, prompts, guardrails, retry logic)
-8. **Phase 7** — Polish & Demo (metrics dashboard, save/load UI, keyboard shortcuts, research tooling)
-9. **Phase 8** — Research Tooling (replay, export, playtest bot, undo, A/B profiles)
+Phases 1–4 of the RL Playground transition are complete (see Plan.md §6 and STATUS.md):
+- ✅ Phase 1: Contract stabilization + LLM HTTP migration
+- ✅ Phase 2: Dual reward (penalty + individual + community)
+- ✅ Phase 3: Adaptive personality dynamics
+- ✅ Phase 4: Role-specific policy masks
+- ❌ Phase 5: Dynamic shock engine (next)
+- ❌ Phase 6: Analytics & research curves
+
+Key RL features now live: `adaptation_state` on NPCs, `ROLE_ACTION_MASKS` in config, reward tracing, role telemetry.
 
 ---
 
@@ -437,7 +439,7 @@ MVP/
 2. **NPC UIDs are the primary key** — never reference NPCs by name alone in code; always use UID
 3. **Archetype reward weights must sum to 1.0** — validate at load time
 4. **LLM is always optional** — every code path that calls LLM must have a working template fallback
-5. **No blocking LLM calls** — always `asyncio.to_thread()` or `run_in_executor()`
+5. **No blocking LLM calls** — always `asyncio.to_thread()` or `run_in_executor()`; LLM access is HTTP-only via httpx (no in-process model loading)
 6. **All randomness from seeded sources** — `random` and `np.random` only; seed from `MASTER_SEED`
 7. **Per-NPC reputation, not global** — global_reputation is a derived read-only display value
 8. **NPCs never permanently die** — incapacitation only (see §5.6)
