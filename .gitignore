@@ -50,6 +50,7 @@ backend/data/experiments/
 # Demo and analysis outputs
 demo_output/
 graphify-out/
+report_figures/
 
 # spaCy model cache
 en_core_web_md*

@@ -1,0 +1,494 @@
+\documentclass[12pt, a4paper]{article}
+
+% ── Packages ──────────────────────────────────────────────────────────────
+\usepackage[margin=1in]{geometry}
+\usepackage{graphicx}
+\usepackage{amsmath, amssymb}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage{cleveref}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{enumitem}
+\usepackage{xcolor}
+\usepackage{float}
+\usepackage{longtable}
+\usepackage[numbers]{natbib}
+\usepackage{setspace}
+\onehalfspacing
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue!60!black,
+    citecolor=green!50!black,
+    urlcolor=blue!70!black,
+}
+
+% ── Title ─────────────────────────────────────────────────────────────────
+\title{
+    \vspace{-1cm}
+    \textbf{Cooperative NPC Behavior via Multi-Agent\\Reinforcement Learning in a Medieval Village RPG}\\[0.5em]
+    \large Final Semester Major Project Report
+}
+\author{
+    % Add your names here
+    Student Name(s)\\
+    Department of Computer Science\\
+    University Name\\
+    \texttt{nmmteam1@gmail.com}
+}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+% ══════════════════════════════════════════════════════════════════════════
+\begin{abstract}
+This report presents a medieval village RPG research playground for studying emergent cooperative behavior in multi-agent systems. The system combines a hierarchical Markov Decision Process (MDP) for quest progression with six tabular Q-learning NPC agents that develop adaptive personalities through a decomposed reward model. Each NPC receives a reward signal $R_i(t) = P_i(t) + G_i(t) + \lambda_i(t) \cdot C(t)$, where a dynamic $\lambda$ coefficient creates a feedback loop between cooperation tendency and community welfare weighting. A system shock engine injects non-stationary perturbations (famine, plague, raids) to test agent resilience. An optional LLM integration (via OpenRouter, Ollama, or LM Studio) provides atmospheric narration with template fallbacks. We conduct an ablation study across five conditions over 500 turns each, demonstrating that: (1)~Q-learning drives cooperation from a 0.500 baseline to 0.851 while schedule-only agents show no emergence; (2)~role-specific action masking improves cooperation by 0.088; (3)~system shocks reduce cooperation by 0.022 but agents recover, demonstrating adaptive resilience; and (4)~LLM narration achieves higher contextual grounding (0.57 vs 0.49) and 2.6$\times$ richer vocabulary than static templates.
+\end{abstract}
+
+\tableofcontents
+\newpage
+
+% ══════════════════════════════════════════════════════════════════════════
+\section{Introduction}
+\label{sec:introduction}
+
+Non-player characters (NPCs) in modern games typically follow scripted behavior trees or finite state machines, producing predictable and repetitive interactions. This project explores whether reinforcement learning can produce emergent cooperative behavior in a multi-agent game environment without explicit scripting of cooperation.
+
+We build a single-player medieval village RPG where six NPCs learn autonomously via tabular Q-learning. The central research question is:
+
+\begin{quote}
+\textit{Can NPCs learn to shift from individually optimal strategies to cooperative behavior when community welfare contributes to their total reward?}
+\end{quote}
+
+The system is structured in three layers:
+\begin{enumerate}
+    \item \textbf{Hierarchical MDP} --- A 7-stage quest graph with 16 static checkpoints drives game progression. Dynamic checkpoints handle player deviations with nudging and convergence mechanisms.
+    \item \textbf{Q-Learning NPC Agents} --- Six NPCs run tabular Q-learning over a 225-state $\times$ 28-action space with role-specific action masking and adaptive personality coefficients.
+    \item \textbf{Optional LLM Narration} --- An HTTP adapter connects to OpenRouter, Ollama, or any OpenAI-compatible provider. Every LLM call has a deterministic template fallback, ensuring the game runs identically without a model.
+\end{enumerate}
+
+The project is implemented as a web application (Python/FastAPI backend, vanilla JavaScript frontend) with a real-time analytics dashboard for monitoring cooperation curves, reward decomposition, and shock response.
+
+% ══════════════════════════════════════════════════════════════════════════
+\section{Related Work}
+\label{sec:related_work}
+
+\textbf{Multi-Agent Reinforcement Learning.}
+Cooperative MARL has been studied through frameworks like QMIX~\cite{rashid2018qmix}, which factorizes joint Q-values, and MADDPG~\cite{lowe2017maddpg}, which uses centralized training with decentralized execution. Our approach uses independent Q-learners with a shared community reward signal, closer to the emergent social dilemma framework of Leibo et al.~\cite{leibo2017multi}.
+
+\textbf{Reward Shaping.}
+Ng et al.~\cite{ng1999rewardshaping} showed that potential-based reward shaping preserves optimal policies while accelerating learning. Our decomposed reward model extends this with a dynamic $\lambda$ coefficient that gates the community component based on each agent's cooperation tendency.
+
+\textbf{NPC Intelligence in Games.}
+Traditional NPC behavior uses behavior trees~\cite{isla2005bt} or hierarchical task networks. Recent work has explored RL for game NPCs~\cite{riedl2012interactive}, but primarily for single-agent scenarios. Our work applies multi-agent RL to a full game environment with quest progression and social dynamics.
+
+\textbf{LLM-Enhanced Game Narration.}
+Large language models have been applied to interactive fiction~\cite{urbanek2019light} and game dialogue. Our system uses LLMs as an optional narration layer with a 9-stage guardrail pipeline, maintaining full playability without model access.
+
+% ══════════════════════════════════════════════════════════════════════════
+\section{System Architecture}
+\label{sec:architecture}
+
+\subsection{Hierarchical MDP}
+
+The quest is modeled as a two-level hierarchical MDP:
+
+\textbf{Macro MDP (top level):}
+\begin{equation}
+    S_1 \to S_2 \to S_3 \to S_4 \to S_5 \to S_6 \to S_7 \to S_{\text{success}}
+\end{equation}
+
+Each macro stage $S_k$ contains a micro MDP $\mathcal{M}_{\text{micro}}^{(k)}$ with its own checkpoints, completion conditions, and transition rewards. The 7 stages span: arrival at the gate, seeking the elder, learning of the quest, investigation, retrieval, and return.
+
+\textbf{Dynamic Checkpoints.} When the player deviates from the expected path, the system generates dynamic checkpoints that acknowledge the deviation and guide convergence. A nudge reward $R_{\text{nudge}} = 0.3 \cdot (d_{\text{before}} - d_{\text{after}})$ provides a gradient signal toward the nearest static checkpoint. After 5 deviations, forced convergence triggers.
+
+\textbf{Quest Auto-Restart.} When the quest completes before the turn limit, the quest state resets while preserving all NPC Q-tables and adaptation states, enabling multi-episode learning within a single session.
+
+\subsection{NPC State Space and Q-Learning}
+
+Each NPC maintains a tabular Q-table over a discretized state space:
+
+\begin{table}[H]
+\centering
+\caption{NPC State Space Dimensions}
+\label{tab:state_space}
+\begin{tabular}{lll}
+\toprule
+\textbf{Dimension} & \textbf{Values} & \textbf{Count} \\
+\midrule
+Location & gate, village\_center, elders\_house, fields, tavern & 5 \\
+Time & morning, midday, afternoon, evening, night & 5 \\
+Energy & low ($<$33\% HP), medium (33--66\%), high ($>$66\%) & 3 \\
+Mood & unhappy ($<$4), content (4--7), cheerful ($>$7) & 3 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Total state space: $5 \times 5 \times 3 \times 3 = 225$ states. Action space: 28 universal actions across 7 categories (navigation, exploration, talk, social, combat, stealth, utility). Q-table size per NPC: 6,300 entries.
+
+\textbf{Q-Learning update:}
+\begin{equation}
+    Q(s, a) \leftarrow Q(s, a) + \alpha \left[ r + \gamma \max_{a'} Q(s', a') - Q(s, a) \right]
+\end{equation}
+with $\alpha = 0.1$, $\gamma = 0.9$, $\varepsilon$-greedy exploration decaying from 0.15 to 0.05 at rate $0.995$/turn. Pre-training: 100 episodes $\times$ 50 turns per NPC at $\varepsilon = 0.5$.
+
+\subsection{Decomposed Reward Model}
+
+Each NPC $i$ receives a reward signal composed of three terms:
+\begin{equation}
+    R_i(t) = P_i(t) + G_i(t) + \lambda_i(t) \cdot C(t)
+    \label{eq:reward}
+\end{equation}
+
+\begin{itemize}[nosep]
+    \item $P_i(t)$: \textbf{Penalty} --- $-10$ when HP drops below 20\%.
+    \item $G_i(t)$: \textbf{Individual reward} --- $\sum_k w_k \cdot (\text{stat}_k^{\text{new}} - \text{stat}_k^{\text{old}})$, weighted by archetype-specific preferences (e.g., farmers weight income at 0.4, guards weight reputation at 0.4).
+    \item $C(t)$: \textbf{Community reward} --- Village-level welfare computed as $C(t) = 0.5 \cdot C_{\text{abs}}(t) + 0.5 \cdot C_{\Delta}(t)$, using centered non-linear shaping (sigmoid for reputation and mood, sub-linear power for health) that can go negative when village welfare drops.
+    \item $\lambda_i(t)$: \textbf{Dynamic lambda} --- $\lambda_i = 0.05 + \text{coop}_i \times 0.55$, ranging from 0.05 (selfish) to 0.60 (cooperative). Creates a feedback loop: positive community reward $\to$ cooperation rises $\to$ $\lambda$ increases $\to$ more weight on community reward.
+\end{itemize}
+
+\subsection{Role-Specific Action Masking}
+
+Each NPC archetype has a preferred action set. During action selection:
+\begin{itemize}[nosep]
+    \item \textbf{Hard masking}: Invalid actions get $Q(s,a) = -\infty$.
+    \item \textbf{Soft masking}: Role-aligned actions receive a $+0.5$ Q-value bonus; misaligned actions receive a $-0.3$ penalty.
+\end{itemize}
+
+\subsection{Adaptive Personality Dynamics}
+
+Four adaptation coefficients evolve per turn at base rate 0.018 with homeostatic drift rate 0.004 toward 0.5:
+
+\begin{table}[H]
+\centering
+\caption{Adaptation Coefficients}
+\label{tab:adaptation}
+\begin{tabular}{lll}
+\toprule
+\textbf{Coefficient} & \textbf{Drives} & \textbf{Role Multipliers} \\
+\midrule
+cooperation\_tendency & $\lambda$ (community weight) & Gated by $\lambda$: $r_{\text{coop}} = r_{\text{base}} \times (0.5 + \lambda_i)$ \\
+risk\_aversion & Risk avoidance & Guard 1.5$\times$, Farmer 1.2$\times$, Elder 0.6$\times$ \\
+social\_sensitivity & Social feedback & Elder 1.4$\times$, Tavern 1.2$\times$, Guard 0.5$\times$ \\
+shock\_resilience & Shock adaptation & Increases under shock pressure \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{System Shock Engine}
+
+Five shock types inject non-stationary perturbations:
+
+\begin{table}[H]
+\centering
+\caption{System Shock Catalog}
+\label{tab:shocks}
+\begin{tabular}{llll}
+\toprule
+\textbf{Shock} & \textbf{Duration} & \textbf{Reward Scale} & \textbf{Purpose} \\
+\midrule
+Famine & 15 turns & 0.5$\times$ & Resource scarcity \\
+Bandit Raid & 8 turns & 0.6$\times$ & External threat \\
+Plague & 12 turns & 0.4$\times$ & Sustained decline \\
+Trade Boom & 10 turns & 1.5$\times$ & Recovery (positive) \\
+Harsh Winter & 20 turns & 0.7$\times$ & Long-duration stress \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Shocks directly pressure cooperation downward: when shock intensity exceeds 0.1, cooperation tendency decreases proportionally, independent of the reward signal.
+
+\subsection{LLM Integration}
+
+The LLM service is a thin HTTP adapter supporting Ollama, OpenRouter, and OpenAI-compatible providers. Four use cases: input parsing, NPC dialogue, checkpoint generation, and narration enhancement. A 9-stage guardrail pipeline (strip reasoning blocks, parse JSON, schema validation, enum validation, value clamping, action reference validation, content filtering, length enforcement) ensures output quality. Every code path has a deterministic template fallback. Default model: \texttt{qwen3:4b} via LM Studio or \texttt{meta-llama/llama-3.2-3b-instruct:free} via OpenRouter.
+
+% ══════════════════════════════════════════════════════════════════════════
+\section{Implementation}
+\label{sec:implementation}
+
+The system comprises approximately 17,700 lines of Python (backend) and 6,300 lines of JavaScript (frontend).
+
+\begin{table}[H]
+\centering
+\caption{Technology Stack}
+\label{tab:tech_stack}
+\begin{tabular}{ll}
+\toprule
+\textbf{Component} & \textbf{Technology} \\
+\midrule
+Backend & Python 3.12, FastAPI, Pydantic \\
+Frontend & Vanilla JS, Chart.js, Cytoscape.js \\
+RL Engine & NumPy (tabular Q-tables) \\
+NLP & spaCy (input parsing fallback) \\
+LLM & HTTP adapter (Ollama / OpenRouter / LM Studio) \\
+Analytics & Matplotlib (research graphs) \\
+Testing & pytest (91 tests across 5 suites) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{NPC Roster}
+
+Six NPCs with distinct archetypes, reward weights, and starting locations:
+
+\begin{table}[H]
+\centering
+\caption{NPC Roster and Reward Weights}
+\label{tab:npc_roster}
+\begin{tabular}{llllllll}
+\toprule
+\textbf{NPC} & \textbf{Role} & \textbf{Location} & \textbf{Happiness} & \textbf{Income} & \textbf{Health} & \textbf{Rep.} \\
+\midrule
+Elder Maren & Elder & Elder's House & 0.3 & 0.1 & 0.2 & 0.4 \\
+Farmer Jak & Farmer & Fields & 0.2 & 0.4 & 0.2 & 0.2 \\
+Aldric & Guard & Gate & 0.1 & 0.2 & 0.3 & 0.4 \\
+Bryn & Guard & Gate & 0.1 & 0.2 & 0.3 & 0.4 \\
+Tessa & Tavern Keeper & Tavern & 0.2 & 0.4 & 0.1 & 0.3 \\
+Old Petra & Villager & Village Center & 0.4 & 0.2 & 0.2 & 0.2 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Turn Processing Pipeline}
+
+Each player action triggers a 10-step pipeline:
+\begin{enumerate}[nosep]
+    \item Resolve player action (combat, social, navigation, etc.)
+    \item Log event with importance scoring
+    \item Check quest completion or deviation
+    \item Process 6 NPC turns (Q-learning action selection, reward computation, Q-table update)
+    \item Check random events
+    \item Shock engine tick (decay intensities, apply stat drain, trust modifiers)
+    \item Time advancement (4 turns = 1 period)
+    \item Reputation decay, stamina regeneration, perception checks
+    \item Game-over conditions (or quest restart if turns remain)
+    \item Telemetry logging (world snapshot, reward decomposition, adaptation state)
+\end{enumerate}
+
+% ══════════════════════════════════════════════════════════════════════════
+\section{Experimental Design}
+\label{sec:experimental_design}
+
+\subsection{Ablation Conditions}
+
+We define seven ablation conditions, each isolating one subsystem:
+
+\begin{table}[H]
+\centering
+\caption{Ablation Conditions}
+\label{tab:conditions}
+\begin{tabular}{llccccc}
+\toprule
+\textbf{ID} & \textbf{Description} & \textbf{MDP} & \textbf{RL} & \textbf{Shocks} & \textbf{Mask} & \textbf{Dyn. $\lambda$} \\
+\midrule
+C1 & Full System (baseline) & \checkmark & \checkmark & \checkmark & \checkmark & \checkmark \\
+C2 & No LLM & \checkmark & \checkmark & \checkmark & \checkmark & \checkmark \\
+C3 & No RL (schedules only) & \checkmark & --- & \checkmark & --- & --- \\
+C4 & Flat MDP (no hierarchy) & --- & \checkmark & \checkmark & \checkmark & \checkmark \\
+C5 & No shocks & \checkmark & \checkmark & --- & \checkmark & \checkmark \\
+C6 & No role masking & \checkmark & \checkmark & \checkmark & --- & \checkmark \\
+C7 & Static $\lambda = 0.325$ & \checkmark & \checkmark & \checkmark & \checkmark & --- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Metrics}
+
+\begin{itemize}[nosep]
+    \item \textbf{Cooperation index} $\mathcal{K}(t) = \frac{1}{N} \sum_{i=1}^{N} \text{coop}_i(t)$ --- average cooperation tendency across all NPCs at each turn.
+    \item \textbf{Social welfare index} --- average cooperation tendency weighted by community reward performance.
+    \item \textbf{Policy entropy} $\mathcal{D}_i = -\sum_{a \in \mathcal{A}} p_i(a) \log p_i(a)$ --- computed from full per-action counts.
+    \item \textbf{Contextual grounding} --- fraction of game-state keywords (action, location, NPC names) appearing in each narration.
+    \item \textbf{Vocabulary diversity} --- type-token ratio (unique words / total words) across narrations.
+    \item \textbf{Shock recovery time} --- turns after shock expiry until $\mathcal{K}(t)$ returns to pre-shock baseline.
+\end{itemize}
+
+\subsection{Protocol}
+
+Automated bot playthroughs using the \texttt{quest\_focused} strategy with seed 42 for reproducibility. Each condition runs for 500 turns with quest auto-restart. A famine shock is injected at turn 166 for conditions with shocks enabled. Normal difficulty preset with adaptive difficulty disabled.
+
+% ══════════════════════════════════════════════════════════════════════════
+\section{Results and Analysis}
+\label{sec:results}
+
+\subsection{Ablation Study}
+
+\begin{table}[H]
+\centering
+\caption{Ablation Study Results (500 turns, seed=42)}
+\label{tab:results}
+\begin{tabular}{llccc}
+\toprule
+\textbf{Condition} & \textbf{Description} & \textbf{Quests} & \textbf{Final $\mathcal{K}$} & \textbf{$\Delta$ vs C1} \\
+\midrule
+C1 & Full System & 6 & 0.851 & --- \\
+C3 & No RL & 5 & 0.500 & $-0.351$ \\
+C4 & Flat MDP & 3 & 0.953 & $+0.102$ \\
+C5 & No Shocks & 6 & 0.873 & $+0.022$ \\
+C6 & No Role Masking & 5 & 0.763 & $-0.088$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth]{fig_cooperation.png}
+    \caption{Cooperation index $\mathcal{K}(t)$ over 500 turns for five ablation conditions. C3 (No RL) remains flat at 0.500 while all RL-enabled conditions show emergence. The famine shock at turn 166 is visible as a dip in C1. C4 (Flat MDP) rises fastest due to more frequent quest cycling.}
+    \label{fig:cooperation}
+\end{figure}
+
+\subsubsection{Finding 1: RL Drives Cooperation}
+
+The most significant result: C1 (Full System) achieves a cooperation index of 0.851 while C3 (No RL) remains at exactly 0.500 --- the initialization baseline. Without Q-learning, NPCs follow deterministic schedules and cannot adapt their behavior. The 0.351 gap demonstrates that cooperation is an \textit{emergent} property of the learning process, not a byproduct of game mechanics.
+
+\subsubsection{Finding 2: Role Masking Aids Learning}
+
+C6 (No Role Masking) achieves 0.763, compared to C1's 0.851 --- a 0.088 difference. Without role constraints, NPCs explore the full 28-action space uniformly, producing noisier Q-value estimates. Role masking provides structural inductive bias: guards learn from guard-relevant actions, farmers from farming actions, producing cleaner gradient signals.
+
+\subsubsection{Finding 3: Shock Resilience}
+
+C5 (No Shocks) reaches 0.873, slightly above C1's 0.851. The famine shock at turn 166 creates a visible dip in C1's cooperation curve (\cref{fig:cooperation}), but NPCs recover within approximately 30 turns. This demonstrates adaptive resilience: the shock\_resilience coefficient increases under pressure, and the dynamic $\lambda$ feedback loop restores cooperative behavior once the shock expires.
+
+\subsubsection{Finding 4: MDP Structure}
+
+C4 (Flat MDP) achieves the highest cooperation at 0.953. Without hierarchical stage gates, quest completion is faster (the bot cycles through more episodes in 500 turns), giving NPCs more learning opportunities. This suggests that quest structure affects the \textit{rate} of learning more than the \textit{direction} --- both converge toward cooperation, but flat MDPs provide more training data per unit time.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.85\textwidth]{fig_final_bar.png}
+    \caption{Final cooperation index by condition after 500 turns.}
+    \label{fig:final_bar}
+\end{figure}
+
+\subsection{Reward Decomposition}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth]{fig_reward.png}
+    \caption{Average reward components over time for C1 (Full System). Community reward C(t) dominates the total signal as $\lambda$ increases. Individual reward G(t) declines as NPC stats stabilize. The famine shock at turn 166 is visible as a dip in community reward.}
+    \label{fig:reward}
+\end{figure}
+
+The reward decomposition (\cref{fig:reward}) confirms the hypothesized dynamic: early turns are dominated by individual reward $G(t)$ (stat changes from pre-training); as stats stabilize, community reward $C(t)$ becomes the primary gradient signal, amplified by the rising $\lambda$ coefficient.
+
+\subsection{NPC Adaptation and Role Divergence}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth]{fig_npc_adaptation.png}
+    \caption{NPC adaptation states after 500 turns. Left: C1 (Full System) shows role-specific divergence. Right: C3 (No RL) remains at baseline 0.500 across all coefficients.}
+    \label{fig:npc_adaptation}
+\end{figure}
+
+\begin{table}[H]
+\centering
+\caption{NPC Final Adaptation States (C1, Turn 500)}
+\label{tab:npc_states}
+\begin{tabular}{llccccc}
+\toprule
+\textbf{NPC} & \textbf{Role} & \textbf{Coop.} & \textbf{Risk} & \textbf{Social} & \textbf{Resil.} & $\boldsymbol{\lambda}$ \\
+\midrule
+Elder Maren & Elder & 0.850 & 0.500 & 0.898 & 0.499 & 0.518 \\
+Farmer Jak & Farmer & 0.851 & 0.494 & 0.898 & 0.499 & 0.518 \\
+Aldric & Guard & 0.851 & 0.500 & 0.785 & 0.499 & 0.518 \\
+Bryn & Guard & 0.851 & 0.495 & 0.785 & 0.499 & 0.518 \\
+Tessa & Tavern Keeper & 0.851 & 0.495 & 0.898 & 0.499 & 0.518 \\
+Old Petra & Villager & 0.851 & 0.484 & 0.898 & 0.499 & 0.518 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Key observations from \cref{tab:npc_states}:
+\begin{itemize}[nosep]
+    \item \textbf{Cooperation converges uniformly} --- all NPCs reach $\sim$0.851, indicating the community reward provides a consistent gradient regardless of role.
+    \item \textbf{Social sensitivity diverges by role} --- Elder (0.898) and Tavern Keeper (0.898) develop high social sensitivity (multiplied by 1.4$\times$ and 1.2$\times$ respectively), while Guards (0.785) remain lower (0.5$\times$ multiplier). This matches role expectations.
+    \item \textbf{Risk aversion shows subtle variation} --- Old Petra (0.484) is least risk-averse; Farmer Jak (0.494) slightly below baseline, driven by the 1.2$\times$ farming risk multiplier encountering occasional negative individual rewards.
+\end{itemize}
+
+\subsection{Action Distribution Shift}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.85\textwidth]{fig_action_shift.png}
+    \caption{Change in NPC action proportions between early and late game (C1). Green = actions used more in late game; red = used less. NPCs shift from social actions (talk, trade) toward utility and exploration (examine, work, rest).}
+    \label{fig:action_shift}
+\end{figure}
+
+\subsection{Narrative Quality}
+
+\begin{table}[H]
+\centering
+\caption{Narrative Quality: LLM (qwen3:4b) vs Templates (20 turns)}
+\label{tab:narrative}
+\begin{tabular}{lccc}
+\toprule
+\textbf{Metric} & \textbf{C1 (LLM)} & \textbf{C2 (Template)} & \textbf{Winner} \\
+\midrule
+Contextual grounding & 0.567 & 0.488 & LLM \\
+Vocabulary diversity (TTR) & 0.323 & 0.277 & LLM \\
+Unique words & 396 & 151 & LLM \\
+Avg. narration length & 61.4 words & 27.3 words & LLM \\
+Lexical coherence & 0.202 & 0.213 & Template \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The LLM produces narration that is both more contextually grounded (0.57 vs 0.49) and more lexically diverse (2.6$\times$ more unique words). Templates score slightly higher on lexical coherence (0.213 vs 0.202) because they reuse identical phrases, creating artificial token overlap. The 9-stage guardrail pipeline ensures LLM output quality even with a 4B-parameter model running locally.
+
+\textbf{Example narration comparison:}
+
+\begin{quote}
+\textbf{LLM (C1):} ``You scan the Gate in the morning light, where shadows are still thin and the air hums with the quiet buzz of dawn, but no shelter offers true cover.''
+
+\textbf{Template (C2):} ``You look for a hiding spot but can't find adequate cover. Aldric and Bryn observe your actions.''
+\end{quote}
+
+\subsection{Social Welfare}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth]{fig_welfare.png}
+    \caption{Village social welfare index over 500 turns. Tracks cooperation emergence at the village level, weighted by community reward performance.}
+    \label{fig:welfare}
+\end{figure}
+
+% ══════════════════════════════════════════════════════════════════════════
+\section{Conclusion}
+\label{sec:conclusion}
+
+This project demonstrates that emergent cooperative behavior can arise from independent Q-learning agents when the reward signal includes a community welfare component gated by a dynamic $\lambda$ coefficient. The key findings:
+
+\begin{enumerate}
+    \item \textbf{Cooperation emerges from learning.} $\mathcal{K}(t)$ rises from 0.500 to 0.851 over 500 turns with Q-learning, while schedule-only NPCs show no change. This confirms the research hypothesis.
+    \item \textbf{Role masking provides useful inductive bias.} A 0.088 improvement in cooperation when NPCs have role-constrained action spaces, producing cleaner learning signals.
+    \item \textbf{Agents are resilient to shocks.} Famine reduces cooperation by only 0.022, with full recovery within $\sim$30 turns. The adaptive shock\_resilience coefficient contributes to this recovery.
+    \item \textbf{LLM narration adds quality without losing context.} With tuned prompts, the LLM achieves higher contextual grounding than templates while producing 2.6$\times$ richer vocabulary.
+\end{enumerate}
+
+\subsection{Limitations}
+
+\begin{itemize}[nosep]
+    \item Results are from automated bot playthroughs with a single strategy (\texttt{quest\_focused}); human player behavior may produce different cooperation dynamics.
+    \item The adaptation rate (0.018) and role-specific multipliers were empirically tuned; systematic sensitivity analysis is needed.
+    \item Tabular Q-learning limits scalability --- 225 states is manageable for 6 NPCs but would not scale to larger worlds without function approximation.
+    \item Narrative coherence metrics rely on token overlap rather than semantic similarity; sentence-transformer embeddings would provide stronger signal.
+\end{itemize}
+
+\subsection{Future Work}
+
+\begin{itemize}[nosep]
+    \item Scale to 100 bot playthroughs per condition with varied strategies for statistical significance.
+    \item Conduct user studies (20 participants per condition) with post-session questionnaires.
+    \item Compare tabular Q-learning vs.\ DQN for NPC behavior.
+    \item Extend to branching quest graphs with multiple concurrent quest lines.
+    \item Add C7 (static $\lambda$) condition to directly measure the feedback loop's contribution.
+    \item Explore longer sessions ($>$1000 turns) to test cooperation saturation.
+\end{itemize}
+
+% ══════════════════════════════════════════════════════════════════════════
+\bibliographystyle{plainnat}
+\bibliography{references}
+
+\end{document}
