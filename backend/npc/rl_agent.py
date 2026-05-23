@@ -163,19 +163,24 @@ def compute_individual_reward(npc: NPC, old_stats: dict, new_stats: dict) -> flo
     return reward
 
 
-def compute_community_reward(community_state: dict | None) -> float:
-    """Compute village-level reward from aggregated state.
+def compute_community_reward(
+    community_state: dict | None,
+    prev_community_state: dict | None = None,
+) -> float:
+    """Compute village-level reward from aggregated state (P1+P4 upgrade).
 
-    If community_state is None, returns 0.0 (community reward disabled).
+    Uses a hybrid formula:
+    - **Absolute component** (60%): non-linear baseline of current village welfare
+    - **Delta component** (40%): change since last turn — provides gradient signal
 
-    Community reward aggregates:
-    - Average reputation (higher = better)
-    - Total health (higher = better)
-    - Average mood (derived from happiness stats)
+    Non-linear shaping (P4):
+    - Reputation uses sigmoid → diminishing returns at high rep, amplified at low
+    - Health uses sub-linear (power 0.7) → crisis hits harder
+    - Mood uses sigmoid → S-curve centered at 5
 
     Args:
-        community_state: Dict with keys: avg_reputation, total_health,
-                        total_stamina, avg_mood. Can be None.
+        community_state: Dict with keys: avg_reputation, total_health, avg_mood.
+        prev_community_state: Previous turn's community state (for delta). Can be None.
 
     Returns:
         Scalar community reward.
@@ -183,21 +188,46 @@ def compute_community_reward(community_state: dict | None) -> float:
     if community_state is None:
         return 0.0
 
-    reward = 0.0
+    import math
 
-    # Reputation component (range ~-100 to +100, normalize to ±1 scale)
+    def _sigmoid(x: float, center: float = 0.0, scale: float = 1.0) -> float:
+        """Sigmoid function mapped to [0, 1]."""
+        return 1.0 / (1.0 + math.exp(-scale * (x - center)))
+
+    # ── Absolute component (non-linear, P4) ───────────────────────────
     avg_rep = community_state.get("avg_reputation", 0)
-    reward += (avg_rep / 100.0) * 0.5  # weight 0.5
-
-    # Health component (aggregate; higher is better)
     total_hp = community_state.get("total_health", 0)
-    # With 6 NPCs at ~30 HP each, typical = 180, normalize to 0-1
-    hp_score = min(total_hp / 200.0, 1.0)
-    reward += hp_score * 0.3  # weight 0.3
-
-    # Mood component (average mood sentiment)
     avg_mood = community_state.get("avg_mood", 0)
-    reward += (avg_mood / 10.0) * 0.2  # weight 0.2
+
+    # Reputation: sigmoid centered at 25, scale 0.08 → range ~0.1 to 0.9
+    rep_score = _sigmoid(avg_rep, center=25.0, scale=0.08) * 0.5
+
+    # Health: sub-linear (power 0.7) → crisis sensitivity
+    hp_norm = min(total_hp / 200.0, 1.0)
+    hp_score = (hp_norm ** 0.7) * 0.3
+
+    # Mood: sigmoid centered at 5, scale 0.6
+    mood_score = _sigmoid(avg_mood, center=5.0, scale=0.6) * 0.2
+
+    absolute_reward = rep_score + hp_score + mood_score
+
+    # ── Delta component (P1) ──────────────────────────────────────────
+    delta_reward = 0.0
+    if prev_community_state is not None:
+        prev_rep = prev_community_state.get("avg_reputation", 0)
+        prev_hp = prev_community_state.get("total_health", 0)
+        prev_mood = prev_community_state.get("avg_mood", 0)
+
+        # Deltas: positive = improvement, negative = decline
+        delta_rep = (avg_rep - prev_rep) / 20.0     # Normalize: ±5 rep → ±0.25
+        delta_hp = (total_hp - prev_hp) / 50.0      # Normalize: ±25 HP → ±0.5
+        delta_mood = (avg_mood - prev_mood) / 3.0   # Normalize: ±1.5 mood → ±0.5
+
+        # Weighted delta: reputation changes matter most
+        delta_reward = delta_rep * 0.5 + delta_hp * 0.3 + delta_mood * 0.2
+
+    # ── Combine: 60% absolute + 40% delta ─────────────────────────────
+    reward = 0.6 * absolute_reward + 0.4 * delta_reward
 
     return reward
 
@@ -207,6 +237,7 @@ def compute_reward(
     old_stats: dict,
     new_stats: dict,
     community_state: dict | None = None,
+    prev_community_state: dict | None = None,
 ) -> dict:
     """Compute decomposed reward signal with penalty, individual, and community terms.
 
@@ -215,6 +246,7 @@ def compute_reward(
         old_stats: Stats dict before the action.
         new_stats: Stats dict after the action.
         community_state: Optional village-level state for community reward.
+        prev_community_state: Previous turn's community state (for delta reward).
 
     Returns:
         Dict with keys: penalty, individual, community, total.
@@ -222,7 +254,7 @@ def compute_reward(
     """
     penalty = compute_penalty_reward(npc, old_stats, new_stats)
     individual = compute_individual_reward(npc, old_stats, new_stats)
-    community = compute_community_reward(community_state)
+    community = compute_community_reward(community_state, prev_community_state)
 
     # Combine: total = penalty + individual + lambda_coeff * community
     total = penalty + individual + npc.lambda_coeff * community

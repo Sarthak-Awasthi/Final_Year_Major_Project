@@ -44,3 +44,7 @@ backend/data/logs/*.log
 
 # spaCy model cache
 en_core_web_md*
+
+logs
+
+docs.archive

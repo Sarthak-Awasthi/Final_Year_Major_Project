@@ -137,6 +137,7 @@ class GameEngine:
         self.random_events = RandomEventSystem()
         self.llm = LLMService()  # gracefully unavailable if no model
         self.shock_manager = ShockManager()
+        self._prev_community_state: dict | None = None  # P1: Track previous turn's community state for delta reward
 
         # Quest
         quest_path = QUEST_DIR / "main_quest.json"
@@ -415,12 +416,34 @@ class GameEngine:
         expired_shocks = []
         if SHOCK_ENABLED:
             expired_shocks = self.shock_manager.tick(self.turn)
-            # Apply shock stat drain to NPCs
-            stat_drain = self.shock_manager.get_stat_drain()
-            if stat_drain != 0.0:
+
+            # P0 Fix: Apply ALL shock effects to NPC stats each turn
+            if self.shock_manager.has_active_shocks:
+                stat_drain = self.shock_manager.get_stat_drain()
+                trust_mod = self.shock_manager.get_trust_modifier()
+
                 for npc in self.npc_registry.values():
-                    if not npc.is_incapacitated():
+                    if npc.is_incapacitated():
+                        continue
+
+                    # Happiness drain (famine, plague, raids lower morale)
+                    if stat_drain != 0.0:
                         npc.stats["happiness"] = max(0, min(10, npc.stats["happiness"] - stat_drain))
+
+                    # Health drain (plague, harsh_winter damage HP directly)
+                    if stat_drain > 0.3:
+                        hp_loss = int(stat_drain * 2)  # Scale: drain 0.6 → 1 HP/turn
+                        npc.modify_hp(-hp_loss)
+                        npc.stats["health"] = max(0, min(10, npc.stats["health"] - stat_drain * 0.5))
+
+                    # Trust/reputation modifier (bandit raids erode trust)
+                    if trust_mod != 0.0:
+                        for uid in self.npc_registry:
+                            if uid != npc.npc_uid:
+                                old_rel = npc.npc_relationships.get(uid, 0)
+                                npc.npc_relationships[uid] = max(-100, min(100, old_rel + trust_mod))
+                        # Also affect player reputation toward this NPC
+                        self.player.modify_reputation(npc.npc_uid, int(trust_mod))
 
         # ── 6. Advance time ───────────────────────────────────────────
         new_time = self.world.advance_turn()
@@ -2683,9 +2706,9 @@ class GameEngine:
 
             # 5. Compute reward and update Q-table
             next_state = npc.discretize_state(self.world.time_of_day)
-            # Compute community state for reward (currently with lambda=0.0 for backward compat)
+            # P1: Compute community state with delta from previous turn
             community_state = self.compute_community_state()
-            reward_dict = compute_reward(npc, old_stats, npc.stats, community_state)
+            reward_dict = compute_reward(npc, old_stats, npc.stats, community_state, self._prev_community_state)
 
             # STEP 5: Apply shock reward modifier to community component
             if SHOCK_ENABLED and self.shock_manager.has_active_shocks:
@@ -2743,6 +2766,9 @@ class GameEngine:
             npc_result["importance"] = npc_importance
             results.append(npc_result)
 
+        # P1: Update prev community state for next turn's delta computation
+        self._prev_community_state = self.compute_community_state()
+
         return results
 
     def _resolve_npc_action(
@@ -2791,6 +2817,8 @@ class GameEngine:
                     mood = npc.stats.get("happiness", 5)
                     if mood >= 7:
                         self.player.modify_reputation(npc.npc_uid, 1)
+                    # P3: Social interactions boost mood
+                    npc.stats["happiness"] = min(10, npc.stats["happiness"] + 0.3)
                     return {
                         "success": True,
                         "narration": narration,
@@ -2920,6 +2948,8 @@ class GameEngine:
                 hp_gain = 5 if self.world.is_indoor(npc.location) else 2
                 npc.modify_hp(hp_gain)
                 npc.stats["health"] = min(10, npc.stats["health"] + 0.5)
+                # P3: Resting restores mood
+                npc.stats["happiness"] = min(10, npc.stats["happiness"] + 0.4)
                 return {
                     "success": True,
                     "narration": f"{npc.name} takes a moment to rest.",
@@ -2930,7 +2960,11 @@ class GameEngine:
             case "work":
                 income_gain = random.uniform(0.3, 1.0)
                 npc.stats["income"] = min(10, npc.stats["income"] + income_gain)
-                npc.stats["happiness"] = max(0, npc.stats["happiness"] - 0.2)
+                # P3: Working is tiring (slight mood loss) but satisfying (small boost if income high)
+                if npc.stats.get("income", 0) > 7:
+                    npc.stats["happiness"] = min(10, npc.stats["happiness"] + 0.1)  # Satisfaction
+                else:
+                    npc.stats["happiness"] = max(0, npc.stats["happiness"] - 0.15)  # Toil
                 return {
                     "success": True,
                     "narration": f"{npc.name} busies themselves with work.",

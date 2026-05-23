@@ -26,7 +26,7 @@ This is a **single-player, single-session MVP** research game combining a hierar
 | Backend / Engine | **Python 3.12 / FastAPI** | Async support required; all LLM calls use `asyncio.to_thread()` |
 | Frontend | **HTML + CSS + Vanilla JS + Cytoscape.js** | No frameworks (React, Vue, etc.). Modern minimal dark theme. |
 | NLP | **spaCy** (`en_core_web_md`) | Tokenization, lemmatization, word vectors, NER |
-| RL Engine | **NumPy-based tabular Q-learning** | No deep RL libraries. 180 states × 27 actions = 4,860 Q-table entries per NPC. |
+| RL Engine | **NumPy-based tabular Q-learning** | No deep RL libraries. 225 states × 27 actions = 6,075 Q-table entries per NPC. |
 | LLM Runtime | **httpx HTTP adapter** | Calls external LLM providers (Ollama, llama.cpp server, OpenAI-compatible) |
 | LLM Model | **qwen3:4b** (via provider) | Configurable via `LLM_MODEL_NAME` env var |
 | Persistence | **JSON files** | No database |
@@ -209,16 +209,16 @@ EventLogEntry = {
 
 ### NPC Q-Learning
 
-- State: `(location × time_slot × energy_level × mood_level)` = ~180 states
+- State: `(location × time_slot × energy_level × mood_level × social_context)` = ~225 states
 - Actions: 27 universal actions
-- Q-table: 180 × 27 = 4,860 entries
+- Q-table: 225 × 27 = 6,075 entries
 - α = 0.1, γ = 0.9
 - ε: 0.5 during pre-training → 0.15 at live play start (turn 20) → decay to 0.05
 - **Cold-start**: first 20 turns use fallback schedule; ε-greedy disabled
 - **Pre-training**: 100 episodes × 50 turns per NPC, no player present, lightweight mode (narration/logging disabled)
 - **Action masking**: hard-fail preconditions → Q-value = -∞ during selection (Q-table retains learned values)
 - **Movement resolution**: Q-table selects `move_to`; destination chosen by secondary heuristic (schedule → goal → weighted random by personality)
-- **Reward**: R = w_h·Δhappiness + w_i·Δincome + w_hp·Δhealth + w_r·Δreputation (weights must sum to 1.0 per archetype)
+- **Reward**: R = P + G + λ·C where P = penalty, G = Σ w_k·Δstat_k (individual), C = hybrid community reward (see README.md), λ = dynamic (0.05–0.60) driven by cooperation_tendency
 
 ### Per-NPC Reputation
 
@@ -421,15 +421,15 @@ MVP/
 
 ## Current Implementation Status
 
-Phases 1–4 of the RL Playground transition are complete (see Plan.md §6 and STATUS.md):
+Phases 1–6 of the RL Playground transition are complete (see Plan.md §6):
 - ✅ Phase 1: Contract stabilization + LLM HTTP migration
 - ✅ Phase 2: Dual reward (penalty + individual + community)
-- ✅ Phase 3: Adaptive personality dynamics
+- ✅ Phase 3: Adaptive personality dynamics + cooperation feedback loop
 - ✅ Phase 4: Role-specific policy masks
-- ❌ Phase 5: Dynamic shock engine (next)
-- ❌ Phase 6: Analytics & research curves
+- ✅ Phase 5: Dynamic shock engine (with stat drains + trust modifiers)
+- ✅ Phase 6: Analytics & research curves + in-game shock trigger UI
 
-Key RL features now live: `adaptation_state` on NPCs, `ROLE_ACTION_MASKS` in config, reward tracing, role telemetry.
+Key RL features now live: dynamic `lambda_coeff` (cooperation feedback loop), `adaptation_state` on NPCs, hybrid delta+absolute community reward, `ROLE_ACTION_MASKS`, reward tracing, role telemetry, shock stat drains, in-game shock trigger panel.
 
 ---
 

@@ -1935,8 +1935,11 @@ async function refreshDebugOverlay() {
     content.innerHTML = '<div class="empty-state">Loading...</div>';
 
     try {
-        const metrics = await apiGet('/metrics/summary');
-        const llmStatus = await apiGet('/llm/status');
+        const [metrics, llmStatus, shockData] = await Promise.all([
+            apiGet('/metrics/summary'),
+            apiGet('/llm/status'),
+            apiGet('/shocks/active').catch(() => ({ active_shocks: [], reward_modifier: 1.0, adaptation_pressure: 0.0 })),
+        ]);
 
         let html = '<div class="debug-section"><h4>Game Metrics</h4>';
         html += `<div class="debug-stat">Turn: ${metrics.turn ?? '—'}</div>`;
@@ -1956,6 +1959,95 @@ async function refreshDebugOverlay() {
         html += `<div class="debug-stat">Calls/min: ${llmStatus.calls_this_minute ?? 0}/${llmStatus.max_calls ?? 20}</div>`;
         html += '</div>';
 
+        // ── System Shocks Section ──────────────────────────────────────
+        const activeShocks = shockData.active_shocks || [];
+        const rewardMod = shockData.reward_modifier ?? 1.0;
+        const adaptPressure = shockData.adaptation_pressure ?? 0.0;
+
+        html += '<div class="debug-section"><h4>⚡ System Shocks</h4>';
+
+        // Active shocks display
+        if (activeShocks.length > 0) {
+            html += '<div style="margin-bottom: 10px;">';
+            for (const s of activeShocks) {
+                const pct = s.intensity != null ? Math.round(s.intensity * 100) : '?';
+                const elapsed = s.turns_elapsed ?? '?';
+                const dur = s.duration ?? '?';
+                const remaining = (typeof dur === 'number' && typeof elapsed === 'number') ? dur - elapsed : '?';
+                const shockIcons = { famine: '🌾', bandit_raid: '⚔️', plague: '☠️', trade_boom: '📈', harsh_winter: '❄️' };
+                const icon = shockIcons[s.shock_type] || '⚡';
+                html += `<div style="
+                    display: flex; align-items: center; gap: 8px;
+                    padding: 6px 10px; margin-bottom: 4px;
+                    background: var(--surface-2); border-radius: var(--radius-sm);
+                    border-left: 3px solid ${s.shock_type === 'trade_boom' ? 'var(--green)' : 'var(--red)'};
+                ">
+                    <span>${icon}</span>
+                    <span style="flex:1; font-weight: 500;">${s.shock_type.replace(/_/g, ' ')}</span>
+                    <span style="font-size: 0.75rem; opacity: 0.7;">Intensity: ${pct}%</span>
+                    <span style="font-size: 0.75rem; opacity: 0.7;">Remaining: ${remaining} turns</span>
+                </div>`;
+            }
+            html += `<div class="debug-stat" style="margin-top:6px;">
+                Reward modifier: <strong>${rewardMod.toFixed(3)}</strong> &nbsp;|&nbsp;
+                Adaptation pressure: <strong>${adaptPressure.toFixed(3)}</strong>
+            </div>`;
+            html += '</div>';
+        } else {
+            html += '<div class="debug-stat" style="opacity:0.6;">No active shocks — trigger one below to test agent behavior.</div>';
+        }
+
+        // Shock trigger buttons
+        const shockTypes = [
+            { id: 'famine',       icon: '🌾', label: 'Famine',       desc: 'Crops fail, food scarce',       color: '#E67E22' },
+            { id: 'bandit_raid',  icon: '⚔️', label: 'Bandit Raid',  desc: 'Income drops, fear rises',      color: '#E74C3C' },
+            { id: 'plague',       icon: '☠️', label: 'Plague',        desc: 'Health drains steadily',        color: '#9B59B6' },
+            { id: 'trade_boom',   icon: '📈', label: 'Trade Boom',   desc: 'Positive: income & mood up',    color: '#2ECC71' },
+            { id: 'harsh_winter', icon: '❄️', label: 'Harsh Winter', desc: 'Everything slowly declines',    color: '#3498DB' },
+        ];
+
+        // Check which shocks are already active to disable their buttons
+        const activeTypes = new Set(activeShocks.map(s => s.shock_type));
+
+        html += `<div style="display: flex; gap: 4px; margin-bottom: 8px; align-items: center;">
+            <label style="font-size: 0.75rem; opacity: 0.7;">Custom duration:</label>
+            <input type="number" id="shock-duration-input" min="3" max="50" value=""
+                placeholder="default"
+                style="width: 72px; padding: 3px 6px; border-radius: var(--radius-sm);
+                       background: var(--surface-2); border: 1px solid var(--border);
+                       color: var(--text-primary); font-size: 0.8rem;" />
+            <span style="font-size: 0.7rem; opacity: 0.5;">turns (leave empty for default)</span>
+        </div>`;
+
+        html += '<div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 6px;">';
+        for (const s of shockTypes) {
+            const isActive = activeTypes.has(s.id);
+            html += `<button
+                class="shock-trigger-btn"
+                data-shock-type="${s.id}"
+                ${isActive ? 'disabled' : ''}
+                onclick="triggerShock('${s.id}')"
+                style="
+                    display: flex; flex-direction: column; align-items: center; gap: 2px;
+                    padding: 8px 6px; border-radius: var(--radius-sm);
+                    background: ${isActive ? 'var(--surface-2)' : `color-mix(in srgb, ${s.color} 12%, var(--surface-2))`};
+                    border: 1px solid ${isActive ? 'var(--border)' : `color-mix(in srgb, ${s.color} 30%, var(--border))`};
+                    color: ${isActive ? 'var(--text-secondary)' : 'var(--text-primary)'};
+                    cursor: ${isActive ? 'not-allowed' : 'pointer'};
+                    transition: all 0.15s ease;
+                    opacity: ${isActive ? '0.5' : '1'};
+                    font-family: inherit;
+                "
+                title="${isActive ? 'Already active' : s.desc}"
+            >
+                <span style="font-size: 1.2rem;">${s.icon}</span>
+                <span style="font-size: 0.78rem; font-weight: 600;">${s.label}</span>
+                <span style="font-size: 0.65rem; opacity: 0.6;">${isActive ? 'ACTIVE' : s.desc}</span>
+            </button>`;
+        }
+        html += '</div>';
+        html += '</div>';
+
         // NPC thought bubbles (Q-value insights)
         if (gameState?.npcs_here?.length) {
             html += '<div class="debug-section"><h4>NPC Thoughts (at location)</h4>';
@@ -1972,6 +2064,28 @@ async function refreshDebugOverlay() {
         content.innerHTML = html;
     } catch (e) {
         content.innerHTML = `<div class="empty-state">Error loading debug data: ${escapeHtml(e.message)}</div>`;
+    }
+}
+
+async function triggerShock(shockType) {
+    try {
+        const durationInput = document.querySelector('#shock-duration-input');
+        const customDuration = durationInput && durationInput.value ? parseInt(durationInput.value, 10) : null;
+
+        const body = { shock_type: shockType, source: 'researcher' };
+        if (customDuration && customDuration >= 3) {
+            body.duration = customDuration;
+        }
+
+        const result = await apiPost('/shocks/trigger', body);
+        showToast(`⚡ Shock triggered: ${shockType.replace(/_/g, ' ')}`, 'warning');
+
+        // Refresh the debug panel and shock indicator
+        refreshDebugOverlay();
+        fetchActiveShocks();
+    } catch (e) {
+        const msg = e?.message || 'Failed to trigger shock';
+        showToast(`Shock failed: ${msg}`, 'error');
     }
 }
 

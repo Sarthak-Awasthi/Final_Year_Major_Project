@@ -109,7 +109,9 @@ class NPC:
         # --- Reward tracing (for metrics/analysis) ---
         self.reward_trace: list[dict] = []  # List of {turn, penalty, individual, community, total}
         self.max_reward_trace_len: int = 100  # Keep only last 100 turns
-        self.lambda_coeff: float = 0.0  # Community reward coefficient (0.0 = disabled by default)
+        self.lambda_coeff: float = 0.15  # Community reward coefficient; starts low (individual dominates)
+        self._lambda_min: float = 0.05   # Floor: always some community awareness
+        self._lambda_max: float = 0.6    # Ceiling: never fully altruistic
 
         # --- Adaptation state (STEP 3: Adaptive Personality Dynamics) ---
         self.adaptation_state: dict[str, float] = {
@@ -316,28 +318,29 @@ class NPC:
         community = reward_dict.get("community", 0.0)
         penalty = reward_dict.get("penalty", 0.0)
 
-        # Adaptation update rates (tuned for slow, stable drift)
-        adapt_rate = 0.02
+        # Adaptation update rates (tuned for visible but stable drift)
+        adapt_rate = 0.04
 
         # Cooperation: increase when community reward is positive
-        if community > 0.5:
+        # Threshold lowered to 0.2 — normal community rewards range 0.3–0.5
+        if community > 0.2:
             self.adaptation_state["cooperation_tendency"] = min(
                 1.0,
-                self.adaptation_state["cooperation_tendency"] + adapt_rate * (community / 1.5)
+                self.adaptation_state["cooperation_tendency"] + adapt_rate * (community / 1.0)
             )
-        elif community < -0.5:
+        elif community < -0.2:
             self.adaptation_state["cooperation_tendency"] = max(
                 0.0,
                 self.adaptation_state["cooperation_tendency"] - adapt_rate * 0.5
             )
 
         # Risk aversion: increase when individual reward is low or penalties are high
-        if individual < -0.5 or penalty < -2.0:
+        if individual < -0.3 or penalty < -1.0:
             self.adaptation_state["risk_aversion"] = min(
                 1.0,
-                self.adaptation_state["risk_aversion"] + adapt_rate * (abs(individual) / 2.0)
+                self.adaptation_state["risk_aversion"] + adapt_rate * (abs(individual) / 1.5)
             )
-        elif individual > 1.5:
+        elif individual > 0.5:
             self.adaptation_state["risk_aversion"] = max(
                 0.0,
                 self.adaptation_state["risk_aversion"] - adapt_rate * 0.5
@@ -356,8 +359,8 @@ class NPC:
                 self.adaptation_state["shock_resilience"] - adapt_rate * 0.3
             )
 
-        # Social sensitivity: drift toward middle (neutral sentiment by default)
-        drift_toward_neutral = 0.01
+        # Social sensitivity: gentle drift toward middle (must not overpower adaptation)
+        drift_toward_neutral = 0.003
         for key in ["cooperation_tendency", "risk_aversion", "social_sensitivity"]:
             self.adaptation_state[key] = (
                 self.adaptation_state[key] * (1.0 - drift_toward_neutral) +
@@ -367,6 +370,13 @@ class NPC:
         # Clamp all values to [0.0, 1.0]
         for key in self.adaptation_state:
             self.adaptation_state[key] = max(0.0, min(1.0, self.adaptation_state[key]))
+
+        # P2: Cooperation feedback loop — cooperation_tendency drives lambda_coeff
+        # Higher cooperation → higher lambda → more weight on community reward
+        # This creates a virtuous cycle: positive community → more cooperation → more community weight
+        coop = self.adaptation_state["cooperation_tendency"]
+        # Linear interpolation: coop=0 → lambda_min, coop=1 → lambda_max
+        self.lambda_coeff = self._lambda_min + coop * (self._lambda_max - self._lambda_min)
 
     def add_adaptation_sample(self, turn: int) -> None:
         """Store adaptation state snapshot for this turn.
@@ -382,6 +392,7 @@ class NPC:
             "risk_aversion": self.adaptation_state["risk_aversion"],
             "social_sensitivity": self.adaptation_state["social_sensitivity"],
             "shock_resilience": self.adaptation_state["shock_resilience"],
+            "lambda_coeff": round(self.lambda_coeff, 4),
         })
         if len(self.adaptation_trace) > self.max_adaptation_trace_len:
             self.adaptation_trace = self.adaptation_trace[-self.max_adaptation_trace_len:]

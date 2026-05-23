@@ -1,10 +1,12 @@
-# MVP Plan v3 - RL Playground Transition Plan
+# Implementation Plan — RL Playground Transition
 
-> Updated: 2026-04-22
-> 
-> This document replaces the previous MVP plan with an implementation-first roadmap for evolving the current game into an RL Playground where player actions reshape village dynamics.
-> 
-> **LLM Runtime Decision (Updated):** remove direct `llama-cpp-python` integration. All LLM access will be done via API calls to a provider endpoint (self-hosted `llama.cpp` server, Ollama, or other compatible providers) through a single backend adapter layer.
+> Updated: 2026-04-23 | **Status: Phases 1–6 Complete** | 91 tests passing
+>
+> This document is the canonical architecture spec and implementation roadmap.
+> For formula rationale with academic references, see [README.md](README.md#reward-model--formula-rationale).
+> For launch commands and configuration, see [LAUNCH_GUIDE.md](LAUNCH_GUIDE.md).
+>
+> **LLM Runtime:** All LLM access via API calls to provider endpoints (Ollama, llama.cpp server, or OpenAI-compatible) through a single backend adapter layer.
 
 ---
 
@@ -101,18 +103,33 @@ Each turn should explicitly execute:
 6. Q-update + adaptation update.
 7. Metrics logging and snapshot emission.
 
-## 4.2 Reward Model (Dual Reward)
+## 4.2 Reward Model (Dual Reward with Dynamic λ)
 
 For NPC `i` at turn `t`:
 
-- `R_i(t) = P_i(t) + G_i(t) + lambda_i(t) * C(t)`
+```
+R_i(t) = P_i(t) + G_i(t) + λ_i(t) × C(t)
+```
 
 Where:
 
-- `P_i(t)`: penalties (invalid actions, harmful instability, severe social damage, etc.).
-- `G_i(t)`: individual utility delta (wealth/health/reputation/role target).
-- `C(t)`: community welfare reward from village aggregates.
-- `lambda_i(t)`: role/personality-specific community weight (static baseline + adaptive component).
+- `P_i(t)`: penalties (HP < 20% → −10.0).
+- `G_i(t)`: individual utility delta: `Σ w_k × Δstat_k`.
+- `C(t)`: **hybrid community reward** (60% non-linear absolute + 40% delta-based).
+- `λ_i(t)`: **dynamic** prosociality coefficient: `λ = 0.05 + cooperation_tendency × 0.55`.
+
+Community reward formula (non-linear, anti-plateau):
+
+```
+C_absolute = sigmoid(avg_rep, 25, 0.08) × 0.5 + (hp_norm^0.7) × 0.3 + sigmoid(avg_mood, 5, 0.6) × 0.2
+C_delta    = Δrep/20 × 0.5 + Δhp/50 × 0.3 + Δmood/3 × 0.2
+C(t)       = 0.6 × C_absolute + 0.4 × C_delta
+```
+
+Cooperation feedback loop:
+
+- Community > 0.2 → cooperation_tendency ↑ → λ ↑ → agent weights community more (virtuous cycle).
+- Community < −0.2 → cooperation_tendency ↓ → λ ↓ → agent becomes selfish (vicious cycle).
 
 Community welfare base vector:
 
@@ -223,7 +240,7 @@ Deprecate and remove local-runtime-only settings tied to in-process model loadin
 
 ## 6) Implementation Phases
 
-## Phase 1 - Contract and Runtime Stabilization
+## Phase 1 — Contract and Runtime Stabilization ✅
 
 ### Goals
 
@@ -259,7 +276,7 @@ Deprecate and remove local-runtime-only settings tied to in-process model loadin
 
 ---
 
-## Phase 2 - Dual Reward Foundation
+## Phase 2 — Dual Reward Foundation ✅
 
 ### Goals
 
@@ -285,7 +302,7 @@ Deprecate and remove local-runtime-only settings tied to in-process model loadin
 
 ---
 
-## Phase 3 - Adaptive Personality Dynamics
+## Phase 3 — Adaptive Personality Dynamics ✅
 
 ### Goals
 
@@ -310,7 +327,7 @@ Deprecate and remove local-runtime-only settings tied to in-process model loadin
 
 ---
 
-## Phase 4 - Role-Specific Policy Masks (Backward Compatible)
+## Phase 4 — Role-Specific Policy Masks ✅
 
 ### Goals
 
@@ -335,7 +352,7 @@ Deprecate and remove local-runtime-only settings tied to in-process model loadin
 
 ---
 
-## Phase 5 - Dynamic Shock Engine
+## Phase 5 — Dynamic Shock Engine ✅
 
 ### Goals
 
@@ -360,7 +377,7 @@ Deprecate and remove local-runtime-only settings tied to in-process model loadin
 
 ---
 
-## Phase 6 - Analytics, Curves, and Research Outputs
+## Phase 6 — Analytics, Curves, and Research Outputs ✅
 
 ### Goals
 
@@ -449,12 +466,12 @@ LLM status endpoint behavior:
 
 ## 10) Milestone Summary
 
-- **M1:** Stable contracts + deterministic baseline + API-based LLM adapter.
-- **M2:** Dual reward live and exported.
-- **M3:** Adaptive personality live and observable.
-- **M4:** Role masks live (backward compatible).
-- **M5:** Shock engine live with measurable adaptation.
-- **M6:** Full research analytics and progression curves.
+- **M1:** ✅ Stable contracts + deterministic baseline + API-based LLM adapter.
+- **M2:** ✅ Dual reward live and exported.
+- **M3:** ✅ Adaptive personality live and observable.
+- **M4:** ✅ Role masks live (backward compatible).
+- **M5:** ✅ Shock engine live with measurable adaptation.
+- **M6:** ✅ Full research analytics and progression curves.
 
 ---
 

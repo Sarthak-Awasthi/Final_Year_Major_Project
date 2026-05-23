@@ -161,10 +161,10 @@ NPC_ACTION_SPACE_SIZE: int = len(UNIVERSAL_ACTIONS)
 # Soft-mask weights: role-aligned actions get +bonus, role-misaligned get -penalty
 ROLE_MASK_BONUS: float = 0.5        # Q-value bonus for role-aligned actions
 ROLE_MASK_PENALTY: float = -0.3     # Q-value penalty for role-misaligned actions
-ROLE_MASK_ENABLED: bool = False     # Set to True to enable role-specific masks
+ROLE_MASK_ENABLED: bool = _env_bool("ROLE_MASK_ENABLED", True)  # Env-configurable; enable role-specific masks
 
 # ─── STEP 5: Dynamic Shock Engine ────────────────────────────────────────────
-SHOCK_ENABLED: bool = True          # Toggle shock engine
+SHOCK_ENABLED: bool = _env_bool("SHOCK_ENABLED", True)  # Env-configurable; toggle shock engine
 SHOCK_MAX_ACTIVE: int = 3           # Maximum concurrent shocks
 
 SHOCK_CATALOG: dict[str, dict] = {
