@@ -1,0 +1,58 @@
+\section{Background \& Related Work}
+\label{sec:related_work}
+
+This section is mainly for our own reference --- keeping track of the papers and concepts that our system is based on, so we can cite them properly later and remember why we made certain design choices.
+
+\subsection{MDPs and Hierarchical RL}
+
+Our quest system is essentially an MDP \cite{bellman1957dynamic, puterman1994mdp}. The hierarchical part (stages containing checkpoints) comes from the \textbf{Options framework} by Sutton, Precup \& Singh \cite{sutton1999options} --- the idea that you can decompose a big MDP into temporally-extended ``options'' (our stages) each containing their own sub-MDP (our checkpoints). Barto and Mahadevan \cite{barto2003hierarchical} and Dietterich \cite{dietterich2000maxq} cover more hierarchical RL approaches.
+
+The main difference in our case: the macro-level isn't learned --- it's hand-authored (a fixed 7-stage linear quest). Only the micro-level (within each stage) has real player choice. So it's more like a structured planner than a learned hierarchy.
+
+\subsection{Q-Learning}
+
+Our NPC agents use standard tabular Q-learning \cite{watkins1989learning, watkins1992qlearning} --- the textbook version from Sutton \& Barto \cite{sutton2018rl}, Chapter 6. We picked tabular over deep RL deliberately because it's fully inspectable --- you can literally look at the Q-table and see what the NPC has learned. No black box.
+
+The tricky part is that we have \textbf{6 agents in the same environment}, which makes it multi-agent RL. Bowling \& Veloso \cite{bowling2002multiagent} showed that Q-learning doesn't converge in general multi-agent settings. We're okay with this --- the non-stationarity produces interesting emergent NPC behavior, and convergence isn't our goal.
+
+For the \textbf{multi-objective reward} (weighting happiness/income/health/reputation per archetype), the relevant survey is Roijers et al.\ \cite{roijers2013morl}. We use linear scalarization, which is the simplest approach.
+
+\textbf{Action masking} (hiding invalid actions during selection but keeping Q-values intact) follows Huang \& Onta\~{n}\'{o}n \cite{huang2020action}. The \textbf{cold-start schedule} (first 20 turns use pre-defined behaviors) is inspired by learning from demonstrations \cite{hester2018dqfd, schaal1997demonstration}.
+
+\subsection{Mixed-Motive MARL and Cooperation}
+
+Our decomposed reward model (penalty + individual + $\lambda \cdot$ community) draws from the mixed-motive MARL literature:
+
+\textbf{Lowe et al.} \cite{lowe2017maddpg} (MADDPG) introduced multi-agent actor-critic with centralized training and decentralized execution. While we use tabular Q-learning rather than deep policy gradients, the principle of mixing individual and team rewards applies directly to our setup.
+
+\textbf{Rashid et al.} \cite{rashid2018qmix} (QMIX) showed that factored value functions (individual Q-values combined into a team Q-value) can learn cooperative policies. Our approach is simpler --- we use additive reward decomposition rather than value factorization --- but the motivation is the same: enable cooperation without requiring explicit coordination.
+
+\textbf{Leibo et al.} \cite{leibo2017social} demonstrated that cooperation is an emergent property of the environment structure and reward design, not a hard-coded behavior. This is exactly the principle behind our dynamic $\lambda$ approach: we don't tell NPCs to cooperate, we design the reward structure so that cooperation emerges naturally when it produces higher long-run return.
+
+\subsection{Non-Stationary Environments and System Shocks}
+
+Our shock engine creates controlled non-stationary perturbations that stress-test agent adaptation. This relates to several research threads:
+
+\textbf{Curriculum learning} \cite{bengio2009curriculum} proposes training agents on increasingly complex tasks. Our shocks serve a similar purpose: early play is stable (agents learn baseline policies), then shocks introduce complexity that requires adaptation.
+
+The idea of environmental perturbations as a test of agent robustness connects to the \textbf{robustness literature} in RL, where agents must generalize to distributional shifts in the environment dynamics. Our shocks are explicit, bounded perturbations rather than adversarial noise, making them more interpretable for research.
+
+\subsection{LLMs in Games}
+
+Park et al.\ \cite{park2023generative} (the ``generative agents'' paper) is the most relevant prior work --- they built LLM-powered NPCs that simulate human behavior. The key difference: their NPCs are entirely LLM-driven. Ours use Q-learning for decisions and only use the LLM for text generation.
+
+For quest generation, V\"{a}rtinen et al.\ \cite{vartinen2022quests} showed GPT can generate RPG quests. Ammanabrolu et al.\ \cite{ammanabrolu2020story} worked on expanding plot events into natural language.
+
+Riedl \& Bulitko \cite{riedl2013interactive} is a good overview of AI-driven interactive narrative in general.
+
+Our ``always optional'' LLM design aligns with Horvitz \cite{horvitz1999mixed} on mixed-initiative systems --- graceful degradation when the AI component fails.
+
+\subsection{Reward Shaping}
+
+Our nudging system (guiding players back to the main quest path) uses potential-based reward shaping from Ng, Harada \& Russell \cite{ng1999reward}. The important result from their paper: potential-based shaping preserves policy invariance, meaning our nudging doesn't distort the optimal quest path.
+
+The non-linear reward shaping in our community reward (sigmoid reputation, sub-linear health) also draws from this framework --- the monotonic transformations preserve the relative ordering of policies.
+
+\subsection{Pre-Training}
+
+We pre-train NPCs in a simplified simulator before the game starts --- inspired by sim-to-real transfer in robotics \cite{tobin2017sim2real}. Same idea: train cheaply in simulation, then deploy in the real environment.

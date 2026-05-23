@@ -1,0 +1,59 @@
+\section{Introduction --- What This Project Is About}
+\label{sec:introduction}
+
+\subsection{The Problem}
+
+If you let an LLM run a game entirely on its own, it hallucinates. An NPC might keep talking after it's been knocked out, items appear from nowhere, quest states contradict themselves. We've all seen this --- the model writes convincing text but has no actual ``memory'' of the world state.
+
+On the other hand, traditional game state machines (if action X $\to$ go to state Y) are perfectly consistent but extremely rigid. The player can only do what the designer anticipated. Anything else gets a ``you can't do that'' response.
+
+A third challenge: we want NPCs that \emph{learn}, not just follow scripts --- and specifically, we want to study whether their policies shift from selfish individual optimization toward cooperative behavior over time. This requires a proper RL framework, not just LLM prompting.
+
+\subsection{Our Approach}
+
+We're building a \textbf{multi-agent RL research playground} disguised as a playable RPG. The idea is:
+
+\begin{itemize}
+    \item A \textbf{hierarchical MDP} handles the quest structure. It's the source of truth for ``where the player is in the story.'' 7 quest stages, each broken into checkpoints.
+    \item \textbf{6 NPC Q-learning agents} decide what NPCs do each turn. Each has its own Q-table, adaptive personality coefficients, role-specific action masking, and a decomposed reward signal (penalty $+$ individual $+ \lambda \cdot$ community).
+    \item A \textbf{dynamic cooperation feedback loop}: positive community outcomes $\to$ cooperation tendency rises $\to$ $\lambda$ increases $\to$ agent weights community reward more $\to$ more cooperative actions. Under system shocks, the reverse occurs.
+    \item A \textbf{system shock engine} injects non-stationary perturbations (famine, plague, raids) that stress-test agent adaptation and create the dynamics needed for research.
+    \item An \textbf{optional provider-backed LLM} (Ollama, llama.cpp, OpenAI-compatible endpoints) fills in the gaps --- better narration, in-character dialogue, parsing complex player text input, generating new checkpoints when the player goes off-script.
+\end{itemize}
+
+The key design rule: the LLM is \emph{always optional}. Every single code path that calls the LLM has a template fallback that works without it. This means we can turn the LLM off and the game still runs perfectly --- important for ablation experiments.
+
+\subsection{Research Hypothesis}
+
+Early turns should favor short-term individual gains. As agents learn, their policies should shift toward stronger community contribution due to higher long-run combined reward --- especially under system shocks that make cooperation critical for survival.
+
+\subsection{What We've Built So Far}
+
+The whole thing is implemented and playable:
+\begin{itemize}
+    \item Python 3.12 / FastAPI backend (${\sim}$17,700 lines)
+    \item Vanilla JS + Chart.js + Cytoscape.js frontend (${\sim}$6,300 lines)
+    \item 7-stage quest with 16 checkpoints + dynamic checkpoint generation
+    \item \textbf{28} universal actions (navigation, exploration, social, combat, stealth, utility)
+    \item 6 NPCs with tabular Q-learning, pre-training, adaptive personalities, and role-specific action masking
+    \item Decomposed reward model: penalty + individual + $\lambda \cdot$ community (with dynamic $\lambda$)
+    \item 5-type system shock engine (famine, bandit raid, plague, trade boom, harsh winter)
+    \item LLM integration with guardrails for 4 use cases (provider-based: Ollama/OpenAI-compatible)
+    \item Research analytics dashboard with Chart.js (cooperation curves, reward decomposition, shock response, experiment bundle export)
+    \item Save/load, combat, per-NPC reputation/gossip, difficulty scaling, random events
+    \item Playthrough logging, replay tool, and playtest bot for automated runs
+    \item 91 tests across 5 suites (core gameplay, shock engine, adaptation \& masking, analytics, integration)
+    \item \texttt{uv} for dependency management (\texttt{pyproject.toml} + \texttt{uv.lock})
+\end{itemize}
+
+\subsection{What This Document Covers}
+
+The rest of this doc goes through:
+\begin{itemize}
+    \item Section~\ref{sec:related_work}: Background reading and how our stuff relates to it
+    \item Section~\ref{sec:problem_formulation}: The math --- MDP formalization, Q-learning setup, reward decomposition, adaptive dynamics
+    \item Section~\ref{sec:architecture}: How the system is structured
+    \item Section~\ref{sec:implementation}: What's actually implemented, with specifics
+    \item Section~\ref{sec:experimental_design}: What experiments we're planning
+    \item Section~\ref{sec:conclusion}: Where things stand and what's next
+\end{itemize}

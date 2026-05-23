@@ -1,3 +1,6 @@
+# Jupyter
+.ipynb_checkpoints/
+
 # Python
 __pycache__/
 *.py[cod]
@@ -7,6 +10,7 @@ __pycache__/
 dist/
 build/
 .eggs/
+.pytest_cache/
 
 # Virtual environments
 venv/
@@ -20,6 +24,9 @@ env/
 *.swo
 *~
 
+# Environment
+.env
+
 # OS
 .DS_Store
 Thumbs.db
@@ -28,23 +35,24 @@ Thumbs.db
 models/*.gguf
 models/*.bin
 
-# Save files (generated at runtime)
+# Runtime data (regenerated on each run)
 backend/data/saves/*.json
 backend/data/saves/*.backup
 !backend/data/saves/.gitkeep
-
-# Metrics (generated at runtime)
 backend/data/metrics/*.json
 !backend/data/metrics/.gitkeep
-
-# Logs (generated at runtime)
 backend/data/logs/*.jsonl
+backend/data/logs/*.json
 backend/data/logs/*.log
 !backend/data/logs/.gitkeep
+backend/data/experiments/
+
+# Demo and analysis outputs
+demo_output/
+graphify-out/
 
 # spaCy model cache
 en_core_web_md*
 
-logs
-
-docs.archive
+# Archives
+*.zip

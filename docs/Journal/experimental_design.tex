@@ -1,0 +1,187 @@
+\section{What We Want to Test}
+\label{sec:experimental_design}
+
+Since our system has independently toggleable subsystems (MDP, Q-learning, LLM, shocks, role masking, adaptive personalities), we can do clean ablation --- turn things on/off and see what difference each part makes.
+
+\subsection{Test Conditions}
+
+\begin{table}[ht]
+\centering
+\caption{Ablation conditions.}
+\label{tab:conditions}
+\begin{tabular}{@{}lccccc@{}}
+\toprule
+Condition & MDP & Q-Learning & LLM & Shocks & Role Mask \\
+\midrule
+\textbf{C1}: Everything on & \checkmark & \checkmark & \checkmark & \checkmark & \checkmark \\
+\textbf{C2}: No LLM & \checkmark & \checkmark & --- & \checkmark & \checkmark \\
+\textbf{C3}: No RL (schedules only) & \checkmark & --- & \checkmark & \checkmark & --- \\
+\textbf{C4}: Flat MDP (no hierarchy) & --- & \checkmark & \checkmark & \checkmark & \checkmark \\
+\textbf{C5}: No shocks & \checkmark & \checkmark & \checkmark & --- & \checkmark \\
+\textbf{C6}: No role masking & \checkmark & \checkmark & \checkmark & \checkmark & --- \\
+\textbf{C7}: Static $\lambda$ & \checkmark & \checkmark & \checkmark & \checkmark & \checkmark \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+C2 uses template fallbacks everywhere. C3 keeps NPCs on their pre-defined schedules the whole session. C4 flattens everything into one big state machine. C5 disables the shock engine (\texttt{SHOCK\_ENABLED=false}). C6 disables role-specific Q-value adjustment (\texttt{ROLE\_MASK\_ENABLED=false}). C7 fixes $\lambda = 0.325$ (midpoint) to isolate the effect of dynamic cooperation feedback.
+
+\subsection{What to Measure}
+
+We've identified metrics that should capture the interesting differences, organized by category:
+
+\subsubsection{Core Metrics}
+
+\begin{itemize}
+    \item \textbf{Quest completion rate} --- what fraction of playthroughs reach $S_{\text{success}}$ within 200 turns?
+    $$\cG = \frac{|\text{episodes reaching } S_{\text{success}}|}{|\text{total episodes}|}$$
+
+    \item \textbf{Narrative coherence} --- how smoothly does the narration flow? Computed via token-overlap Jaccard similarity (spaCy vectors when available) between consecutive narration segments:
+    $$\cC = \frac{1}{T-1} \sum_{t=1}^{T-1} \text{sim}(\mathbf{v}_{n_t}, \mathbf{v}_{n_{t+1}})$$
+
+    \item \textbf{NPC behavioral diversity} --- entropy of each NPC's full per-action distribution. Higher = more varied behavior:
+    $$\cD_i = H_i = -\sum_{a \in \cA} p_i(a) \log p_i(a)$$
+    Computed from per-action counts over the NPC's action history (not a 2-bin approximation).
+
+    \item \textbf{Dynamic checkpoint usage} --- how often do players go off-script?
+    $$\cU = \frac{|\text{dynamic CPs generated}|}{T}$$
+
+    \item \textbf{Deviation recovery rate} --- when players deviate, how often do they naturally come back to the main path (vs.\ being force-converged)? Tracked via the event log.
+    $$\cR = \frac{|\text{natural convergences}|}{|\text{total deviations}|}$$
+\end{itemize}
+
+\subsubsection{Cooperation \& Adaptation Metrics (New)}
+
+\begin{itemize}
+    \item \textbf{Cooperation index over time} --- the key metric for our research hypothesis. Average \texttt{cooperation\_tendency} across all NPCs at each turn, computed from adaptation traces:
+    $$\cK(t) = \frac{1}{N} \sum_{i=1}^{N} \text{coop}_i(t)$$
+    We expect $\cK$ to increase over time as agents discover that community reward improves their total return.
+
+    \item \textbf{Reward decomposition} --- per-NPC time-series of penalty, individual, community, and total reward. Should show individual reward dominating early, with community reward's share growing as $\lambda$ increases.
+
+    \item \textbf{Social welfare index} --- village-level welfare (average cooperation tendency weighted by community reward performance), plotted over turns.
+
+    \item \textbf{Action distribution shift} --- early-window vs.\ late-window comparison of NPC action frequencies. Should show a shift from exploitative actions (combat, stealth) toward cooperative ones (social, trade, work) as cooperation tendency rises.
+
+    \item \textbf{Role coherence} --- fraction of role-aligned actions per NPC, from role telemetry traces. Tests whether role masking successfully biases behavior.
+\end{itemize}
+
+\subsubsection{Shock Response Metrics (New)}
+
+\begin{itemize}
+    \item \textbf{Shock response curves} --- for each shock event, measure average cooperation and reward in three windows: pre-shock, during-shock, post-shock. Should show cooperation dipping during negative shocks and recovering afterward.
+
+    \item \textbf{Shock recovery time} --- number of turns after shock expiry until $\cK(t)$ returns to the pre-shock baseline.
+
+    \item \textbf{Shock resilience correlation} --- does higher \texttt{shock\_resilience} predict faster recovery?
+\end{itemize}
+
+\subsection{Measurement Tools}
+
+All metrics are computed by the \textbf{analytics module} (\texttt{backend/engine/analytics.py}) and served via the \texttt{/api/metrics/timeseries} and \texttt{/api/metrics/experiment} endpoints. The frontend \textbf{analytics dashboard} (toggled with \texttt{A} key) visualizes cooperation curves, reward decomposition, social welfare, action distributions, and shock timelines in real time using Chart.js.
+
+The \textbf{experiment bundle export} produces a JSON file containing all time-series, indices, distributions, shock analysis, and metadata needed for offline research analysis.
+
+\subsection{How We'd Run It}
+
+The full plan is:
+\begin{itemize}
+    \item \textbf{Bot runs (initial round complete):} We have completed an initial single-seed ablation (seed=42, 500 turns, \texttt{quest\_focused} strategy) for conditions C1, C3--C6 (see Section~\ref{sec:preliminary_results}). The next step is 100 automated playthroughs per condition with varied seeds and personality profiles (cautious, aggressive, exploratory, random) for statistical significance.
+    \item \textbf{Narrative quality (initial round complete):} A 20-turn C1 vs.\ C2 comparison using \texttt{qwen3:4b} has been completed (see Section~\ref{sec:preliminary_results}).
+    \item \textbf{Human playtesting (planned):} 20 people per condition playing one session each, with a post-session questionnaire.
+\end{itemize}
+
+All experiments would use the Normal difficulty preset (default AP costs, damage, etc.) with adaptive difficulty turned off so it doesn't confound things.
+
+When the quest completes before the turn limit, the quest state resets (player returns to stage 1) while preserving all NPC Q-tables and adaptation states. This allows multi-episode learning within a single session.
+
+\subsection{What We Expect to See}
+
+Some informal predictions (not formal hypotheses --- we haven't run the full experiment yet):
+\begin{itemize}
+    \item \textbf{Cooperation should emerge over time} (C1): $\cK$ should increase as agents discover community reward improves their total return, especially after the first 20--30 turns when cold-start schedules end.
+    \item The LLM should improve narrative coherence (C1 vs.\ C2), since it adds atmospheric prose between template segments.
+    \item Q-learning NPCs should behave more diversely than schedule-only NPCs (C1 vs.\ C3), because they develop policy from experience.
+    \item Quest completion should be similar across C1/C2/C3, since the MDP drives quest progress regardless of LLM or RL.
+    \item The hierarchical MDP should handle deviations better than the flat version (C1 vs.\ C4), because it has more granular convergence targets.
+    \item \textbf{Shocks should temporarily disrupt cooperation} (C1 vs.\ C5): $\cK$ should dip during negative shocks and recover afterward. Without shocks, cooperation should rise more smoothly but less interestingly.
+    \item \textbf{Role masking should improve role coherence} (C1 vs.\ C6): NPCs with role masking should show higher role-aligned action fractions.
+    \item \textbf{Dynamic $\lambda$ should amplify cooperation} (C1 vs.\ C7): static $\lambda$ should produce weaker cooperation trends because the feedback loop is broken.
+\end{itemize}
+
+\subsection{Preliminary Results}
+\label{sec:preliminary_results}
+
+We ran an initial round of automated experiments using the playtest bot (\texttt{quest\_focused} strategy, \texttt{MASTER\_SEED=42}, 500 turns per condition, quest auto-restart on completion). These results are from bot playthroughs, not human participants.
+
+\subsubsection{Ablation Study (500 Turns)}
+
+\begin{table}[ht]
+\centering
+\caption{Ablation study results (seed=42, 500 turns, quest auto-restart).}
+\label{tab:ablation_results}
+\begin{tabular}{@{}lccc@{}}
+\toprule
+Condition & Turns & Quests Completed & Final Cooperation $\cK$ \\
+\midrule
+\textbf{C1}: Full System          & 500 & 6 & 0.8509 \\
+\textbf{C3}: No RL (Schedules Only) & 500 & 5 & 0.5000 \\
+\textbf{C4}: Flat MDP              & 500 & 3 & 0.9530 \\
+\textbf{C5}: No Shocks             & 500 & 6 & 0.8732 \\
+\textbf{C6}: No Role Masking       & 500 & 5 & 0.7628 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Key findings from the ablation:
+\begin{itemize}
+    \item \textbf{RL drives cooperation:} C1 ($\cK = 0.851$) vs.\ C3 ($\cK = 0.500$) --- Q-learning NPCs cooperate $+0.351$ more than schedule-only NPCs, confirming that learned policy is necessary for emergent cooperation.
+    \item \textbf{Flat MDP achieves higher cooperation than hierarchical:} C4 ($\cK = 0.953$) exceeds C1 by $+0.102$. Faster quest cycling in the flat structure produces more learning episodes within 500 turns, though C4 completes fewer quests overall (3 vs.\ 6).
+    \item \textbf{Shocks reduce final cooperation by $0.022$:} C5 ($\cK = 0.873$) vs.\ C1 ($\cK = 0.851$). The full-system condition shows a dip-and-recover pattern around shock events, indicating adaptive resilience rather than permanent degradation.
+    \item \textbf{Role masking improves cooperation by $+0.088$:} C1 ($\cK = 0.851$) vs.\ C6 ($\cK = 0.763$). Structured role-specific action biases create a cleaner learning signal for Q-learning agents.
+\end{itemize}
+
+\subsubsection{NPC Final Adaptation States (C1, Turn 500)}
+
+\begin{table}[ht]
+\centering
+\caption{Per-NPC adaptation state at turn 500 under the full system (C1).}
+\label{tab:npc_final_states}
+\begin{tabular}{@{}llccccc@{}}
+\toprule
+NPC & Role & Coop. & Risk Av. & Social Sens. & Resil. & $\lambda$ \\
+\midrule
+Elder Maren & elder         & 0.850 & 0.500 & 0.898 & 0.499 & 0.518 \\
+Farmer Jak  & farmer        & 0.851 & 0.494 & 0.898 & 0.499 & 0.518 \\
+Aldric      & guard         & 0.851 & 0.500 & 0.785 & 0.499 & 0.518 \\
+Bryn        & guard         & 0.851 & 0.495 & 0.785 & 0.499 & 0.518 \\
+Tessa       & tavern\_keeper & 0.851 & 0.495 & 0.898 & 0.499 & 0.518 \\
+Old Petra   & villager      & 0.851 & 0.484 & 0.898 & 0.499 & 0.518 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Notable patterns: cooperation converges tightly ($\cK \approx 0.851$ for all NPCs), while social sensitivity diverges by role --- guards settle at $0.785$ (lower, consistent with their role multiplier of $0.5$) while elders, farmers, tavern keepers, and villagers reach $0.898$. Risk aversion and shock resilience remain near $0.5$, suggesting these traits are less responsive to the reward signal over 500 turns.
+
+\subsubsection{Narrative Quality (C1 vs.\ C2, 20 Turns)}
+
+A separate 20-turn comparison using \texttt{qwen3:4b} (via LM Studio) evaluated narrative quality between the full LLM-augmented system (C1) and the template-only fallback (C2).
+
+\begin{table}[ht]
+\centering
+\caption{Narrative quality metrics: LLM (C1) vs.\ template fallback (C2). 20 turns, \texttt{qwen3:4b} via LM Studio.}
+\label{tab:narrative_quality}
+\begin{tabular}{@{}lcc@{}}
+\toprule
+Metric & C1 (LLM) & C2 (Template) \\
+\midrule
+Contextual grounding    & 0.5667 & 0.4883 \\
+Vocabulary diversity (TTR) & 0.3225 & 0.2766 \\
+Unique words            & 396    & 151    \\
+Avg.\ narration length  & 61.4 words & 27.3 words \\
+Lexical coherence       & 0.2017 & 0.2127 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+LLM narration is more contextually grounded ($0.567$ vs.\ $0.488$), uses $2.6\times$ more unique words ($396$ vs.\ $151$), and produces $2.2\times$ longer descriptions ($61.4$ vs.\ $27.3$ words), while maintaining similar lexical coherence ($0.202$ vs.\ $0.213$). The slight coherence advantage for templates is expected: templates reuse fixed vocabulary, which mechanically inflates token-overlap similarity.

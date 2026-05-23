@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 
+import backend.config as _cfg
 from backend.config import (
     DYNAMIC_CP_LOOP_THRESHOLD,
     NUDGE_FORCE_CONVERGENCE_THRESHOLD,
@@ -191,30 +192,33 @@ class QuestManager:
             Completion dict (with all skipped CPs marked) or ``None``.
         """
         completed_set = set(self.completed_checkpoints)
-        # Only scan within the current stage — never cross stage boundaries.
-        stage = self.mdp.stages.get(self.current_stage)
-        if stage is None:
-            return None
-        for cp_id, cp in stage.checkpoints.items():
-            if cp.is_dynamic:
+        if _cfg.HIERARCHICAL_MDP:
+            stages_to_scan = [self.mdp.stages.get(self.current_stage)]
+        else:
+            stages_to_scan = list(self.mdp.stages.values())
+        for stage in stages_to_scan:
+            if stage is None:
                 continue
-            if cp_id in completed_set:
-                continue
-            if cp_id == self.current_checkpoint:
-                continue
-            result = self._check_checkpoint_completion(
-                cp_id, action_id, target, context
-            )
-            if result is not None:
-                logger.info(
-                    "Forward-scan match: action '%s' satisfies "
-                    "future checkpoint %s (current: %s, stage %d)",
-                    action_id,
-                    cp_id,
-                    self.current_checkpoint,
-                    self.current_stage,
+            for cp_id, cp in stage.checkpoints.items():
+                if cp.is_dynamic:
+                    continue
+                if cp_id in completed_set:
+                    continue
+                if cp_id == self.current_checkpoint:
+                    continue
+                result = self._check_checkpoint_completion(
+                    cp_id, action_id, target, context
                 )
-                return result
+                if result is not None:
+                    logger.info(
+                        "Forward-scan match: action '%s' satisfies "
+                        "future checkpoint %s (current: %s, stage %d)",
+                        action_id,
+                        cp_id,
+                        self.current_checkpoint,
+                        self.current_stage,
+                    )
+                    return result
         return None
 
     @staticmethod
@@ -322,7 +326,9 @@ class QuestManager:
         logger.info("Advanced checkpoint: %s → %s", old_cp, next_cp_id)
 
     def advance_stage(self, next_stage: int) -> None:
-        """Transition to a new quest stage."""
+        """Transition to a new quest stage (no-op in flat MDP mode)."""
+        if not _cfg.HIERARCHICAL_MDP:
+            return
         old_stage = self.current_stage
         self.current_stage = next_stage
         logger.info("Stage transition: %d → %d", old_stage, next_stage)

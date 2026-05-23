@@ -1,0 +1,280 @@
+\section{What We Actually Built}
+\label{sec:implementation}
+
+This section covers the concrete implementation --- tech choices, how the code is organized, and specific details about the key subsystems.
+
+\subsection{Tech Stack}
+
+\begin{table}[ht]
+\centering
+\caption{What we're using.}
+\label{tab:stack}
+\begin{tabular}{@{}llp{7cm}@{}}
+\toprule
+Layer & Technology & Why \\
+\midrule
+Backend & Python 3.12+ / FastAPI & Async support, Pydantic validation \\
+Frontend & HTML + CSS + Vanilla JS & No frameworks, keeps it simple \\
+MDP Graph & Cytoscape.js & Interactive node graph in the browser \\
+Analytics & Chart.js & Cooperation curves, reward charts, action distributions \\
+NLP & spaCy (\texttt{en\_core\_web\_md}) & Word vectors for input parsing \\
+RL & NumPy & Tabular Q-tables, vectorized math \\
+LLM Runtime & Provider HTTP adapter & Calls Ollama/llama.cpp/OpenAI-compatible endpoints \\
+LLM Model & Provider-configured (\texttt{LLM\_MODEL\_NAME}) & Default: \texttt{google/gemma-3-1b-it:free} via OpenRouter, env-configurable \\
+Storage & JSON files & No database to set up \\
+Communication & REST + WebSocket & REST for actions; WS for live updates \\
+Package Mgmt & \texttt{uv} & \texttt{pyproject.toml} + \texttt{uv.lock}, no \texttt{requirements.txt} \\
+Testing & pytest + pytest-asyncio & 91 tests across 5 suites \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The whole thing is about 17,700 lines of Python and 6,300 lines of frontend code (HTML/CSS/JS).
+
+\subsection{Quest / MDP Implementation}
+
+The quest structure lives in a JSON file (\texttt{main\_quest.json}) that gets parsed into a typed object hierarchy: \texttt{Stage} $\to$ \texttt{Checkpoint} $\to$ transitions. Here's a sample of some transitions to give you the idea:
+
+\begin{table}[ht]
+\centering
+\caption{Some checkpoint transitions (there are 50+ total).}
+\label{tab:transitions}
+\begin{tabular}{@{}lllll@{}}
+\toprule
+From & Action & To & Effects & Conditions \\
+\midrule
+1\_1 & \texttt{greet} & 1\_2 & rep: guards +2 each & --- \\
+1\_1 & \texttt{sneak} & 1\_2 & rep: guards $-5$ each & $p = 0.6$ \\
+3\_2 & \texttt{talk} & 4\_1 & rep: elder +10 & --- \\
+5\_1 & \texttt{search} & 5\_2 & gives: jade\_amulet & --- \\
+6\_2 & \texttt{give\_item} & 7\_1 & rep: elder +15, removes: jade\_amulet & --- \\
+7\_2 & \texttt{talk} & $S_{\text{success}}$ & rep: elder +10, gives: iron\_shield & --- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The \texttt{QuestManager} does the matching at runtime --- it checks exact match, compound keys (like \texttt{move\_to\_fields}), and preconditions.
+
+\subsubsection{Dynamic Checkpoint Generation}
+
+When no transition matches, here's what happens:
+
+\begin{algorithm}[H]
+\caption{Dynamic Checkpoint Generation}
+\begin{algorithmic}[1]
+\STATE \textbf{Input:} action $a$, current checkpoint $s$, player context $c$
+\STATE Record the deviation
+\IF{LLM available and not rate-limited}
+    \STATE Build a prompt from $s$, $a$, $c$
+    \FOR{up to 3 attempts}
+        \STATE Call the LLM ($T = 0.85$, timeout $= 10$s)
+        \STATE Validate the response (schema + clamping)
+        \IF{valid}
+            \RETURN Insert it as a dynamic checkpoint
+        \ENDIF
+    \ENDFOR
+\ENDIF
+\STATE Fall back: classify action as combat/explore/social/stealth
+\RETURN Use the corresponding template
+\end{algorithmic}
+\end{algorithm}
+
+If the same action generates a dynamic checkpoint 3 times at the same stage, we force convergence back to the main path (loop detection).
+
+\subsubsection{MDP Graph in the Browser}
+
+\texttt{QuestMDP.to\_graph\_data()} exports the quest graph as Cytoscape.js JSON. The node colors tell you what's going on:
+\begin{itemize}
+    \item \textbf{Amber} (pulsing) = current checkpoint
+    \item \textbf{Green} = completed
+    \item \textbf{Blue} = static (authored) checkpoint
+    \item \textbf{Orange} = dynamic (generated) checkpoint
+    \item \textbf{Red} = terminal states
+\end{itemize}
+
+The graph updates in real time via WebSocket after each turn.
+
+\subsection{NPC Q-Learning Implementation}
+
+\subsubsection{Pre-Training}
+
+Before the game starts, \texttt{GameEngine.\_pretrain\_npcs()} runs 100 episodes $\times$ 50 turns per NPC:
+\begin{itemize}
+    \item No player, no narration, no logging (lightweight)
+    \item Simplified effects: \texttt{rest} $\to$ +5 HP, +0.5 health; \texttt{work} $\to$ +income, $-0.2$ happiness; social $\to$ +0.2 happiness, +0.1 reputation
+    \item $\varepsilon = 0.5$ throughout
+    \item Afterward: Q-table kept, NPC stats reset, $\varepsilon$ drops to 0.15
+\end{itemize}
+
+Each NPC gets a deterministic seed derived from its registry index: \texttt{(MASTER\_SEED + npc\_index * 13) \% $2^{31}$}, so pre-training is reproducible across runs regardless of Python hash randomization.
+
+\subsubsection{Live NPC Turns}
+
+Each turn, every active NPC does:
+\begin{enumerate}
+    \item Check if recovering from incapacitation
+    \item Indoor HP regen (+2/turn if indoors)
+    \item If turn $\leq 20$: use the archetype's behavior schedule (cold-start)
+    \item Otherwise: encode state $\to$ mask invalid actions $\to$ apply role-specific soft masking $\to$ $\varepsilon$-greedy select
+    \item Execute the chosen action
+    \item If \texttt{move\_to}: pick destination by schedule $\to$ goal $\to$ weighted random
+    \item Compute community state (avg reputation, total health, avg mood)
+    \item Compute decomposed reward: $R = P + G + \lambda \cdot C$
+    \item Update adaptation state (cooperation, risk aversion, shock resilience)
+    \item Update lambda coefficient from cooperation\_tendency
+    \item Update Q-table with total reward
+    \item Track role telemetry (aligned/misaligned action counts)
+    \item Decay $\varepsilon$: $\max(0.05, \varepsilon \times 0.995)$
+    \item Handle NPC-NPC interactions and gossip
+\end{enumerate}
+
+Adaptation evolves at a base rate of 0.018 per turn with a drift-toward-neutral rate of 0.004. The \texttt{social\_sensitivity} coefficient is capped to $[0.1, 0.9]$. Adaptation rates are further modulated by role-specific multipliers: risk aversion multipliers are guard=1.5, farmer=1.2, elder=0.6, tavern\_keeper=0.8, villager=1.0; social sensitivity multipliers are elder=1.4, tavern\_keeper=1.2, villager=1.0, farmer=0.7, guard=0.5. Trace buffers (\texttt{max\_adaptation\_trace\_len}, \texttt{max\_reward\_trace\_len}, \texttt{max\_role\_telemetry\_trace\_len}) are all set to 1000 entries.
+
+\subsubsection{The Six NPCs}
+
+\begin{table}[ht]
+\centering
+\caption{Our NPC roster.}
+\label{tab:npcs}
+\begin{tabular}{@{}llllc@{}}
+\toprule
+Name & UID & Archetype & Home & Quest Critical? \\
+\midrule
+Elder Maren & \texttt{elder\_m8b2} & Elder & Elder's House & Yes \\
+Farmer Jak & \texttt{farmer\_j4a1} & Farmer & Fields & Yes \\
+Tessa & \texttt{tavkeeper\_t9c3} & Tavern Keeper & Tavern & No \\
+Aldric & \texttt{guard\_a3f1} & Guard & Gate & Yes \\
+Bryn & \texttt{guard\_b7e2} & Guard & Gate & No \\
+Old Petra & \texttt{villager\_c1d4} & Villager & Village Center & No \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Each keeps: health/happiness/income/reputation (all 0--10), conversation history (max 10), equipment, a $225 \times 28$ Q-table stored as a sparse dict for JSON serialization, adaptation state (4 coefficients), reward trace (last 1000 turns), and role telemetry counters. After 500 turns under the full system (C1), all NPCs converge to cooperation $\cK \approx 0.851$ and $\lambda \approx 0.518$, with social sensitivity diverging by role (guards: $0.785$, others: $0.898$); see Table~\ref{tab:npc_final_states} for the complete adaptation snapshot.
+
+\subsection{LLM Integration}
+
+\subsubsection{Configuration}
+
+\begin{table}[ht]
+\centering
+\caption{LLM settings.}
+\label{tab:llm}
+\begin{tabular}{@{}ll@{}}
+\toprule
+Parameter & Value \\
+\midrule
+Runtime & Provider HTTP adapter (Ollama, llama.cpp, OpenAI-compatible) \\
+Model & Provider-configured (\texttt{LLM\_MODEL\_NAME}, default: \texttt{google/gemma-3-1b-it:free} via OpenRouter) \\
+API Base & \texttt{LLM\_API\_BASE\_URL} (default: \texttt{https://openrouter.ai/api}) \\
+Context window & 4,096 tokens \\
+Max prompt & 2,500 tokens (leaves $\geq 1,500$ for output) \\
+Timeout & 10s per call \\
+Retries & Up to 2 \\
+Rate limit & 2s minimum gap, 20 calls/min max \\
+Enabled & \texttt{LLM\_ENABLED} env var (default: true) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+All LLM calls from async endpoints are wrapped in \texttt{asyncio.to\_thread()} so they don't block the event loop. The provider adapter auto-detects Ollama vs.\ OpenAI-compatible endpoints and formats requests accordingly.
+
+\subsubsection{The 9-Stage Guardrail Pipeline}
+
+Every LLM output goes through this before it touches game state:
+
+\begin{enumerate}
+    \item Strip \texttt{<think>}...\texttt{</think>} blocks (reasoning models leave these)
+    \item Strip untagged reasoning preambles
+    \item Parse JSON (handle markdown wrappers, trailing commas)
+    \item Schema validation (required fields, types)
+    \item Enum validation (actions, emotions against our catalogs)
+    \item Value clamping: health $\in [-50, +50]$, stamina $\in [-20, +20]$, rep $\in [-30, +30]$, mood $\in [-3, +3]$
+    \item Action reference validation against the 28-action catalog
+    \item Content filter (strip HTML, catch system prompt leakage)
+    \item Length enforcement (500 chars dialogue, 1,200 chars narration)
+\end{enumerate}
+
+\subsubsection{Token Budget}
+
+When prompts get too long (over ${\sim}$2,500 tokens, estimated at 4 chars/token), we truncate in this order: (1) conversation history to last 3 exchanges, (2) event log to last 3 events, (3) drop inventory details, (4) hard character-level truncation as last resort.
+
+\subsection{System Shock Engine}
+
+The \texttt{ShockManager} handles the lifecycle of environmental perturbations:
+
+\subsubsection{Shock Lifecycle}
+
+\begin{enumerate}
+    \item \textbf{Activation:} Triggered by random events, player actions, or the debug panel. Each shock has a type (from the 5-type catalog), scope (village-wide or location-specific), source, and duration.
+    \item \textbf{Propagation:} Each turn, active shocks apply \texttt{resource\_drain} to NPC stats (HP, health, happiness) and \texttt{trust\_modifier} to reputation. HP drain scales with intensity: drain $> 0.3$ triggers direct HP loss.
+    \item \textbf{Decay:} Linear profile: intensity decreases each turn as $1 - \text{elapsed}/\text{duration}$. Sudden profile: full intensity until expiry.
+    \item \textbf{Expiry:} Shock is removed from active list and archived to history.
+\end{enumerate}
+
+Constraints: max 3 concurrent shocks; same-type stacking prevented; history capped at 50 entries.
+
+\subsubsection{Effect Aggregation}
+
+Multiple active shocks combine multiplicatively for reward scaling and additively for stat drain and trust modifiers. The \texttt{get\_adaptation\_pressure()} method computes aggregate intensity across all active shocks, used to update NPC \texttt{shock\_resilience}.
+
+\subsection{Research Analytics}
+
+The analytics module (\texttt{backend/engine/analytics.py}) computes research metrics from the NPC registry and event log:
+
+\begin{itemize}
+    \item \textbf{Reward time-series:} Per-NPC reward curves (individual, community, penalty, total) over turns.
+    \item \textbf{Community reward series:} Village-averaged community and total reward per turn.
+    \item \textbf{Social welfare index:} Average cooperation\_tendency across all NPCs per turn.
+    \item \textbf{Cooperation index:} Global and per-role cooperation, from the latest adaptation snapshot.
+    \item \textbf{Policy entropy:} Per-NPC entropy from full per-action counts ($H = -\sum_{a} p_i(a) \log p_i(a)$).
+    \item \textbf{Action distribution shift:} Early-vs-late window comparison of NPC action frequencies.
+    \item \textbf{Shock response curves:} Average cooperation and reward before/during/after each shock.
+    \item \textbf{Experiment bundle:} JSON export of all the above plus metadata, for offline analysis.
+\end{itemize}
+
+The frontend dashboard (\texttt{frontend/js/analytics.js}) renders these via Chart.js: cooperation curves, welfare index, NPC reward lines, community reward, action distribution bar chart, and a shock timeline with response summary table. Toggled with the \texttt{A} key.
+
+\subsection{Save/Load}
+
+Everything goes into a single JSON file:
+\begin{itemize}
+    \item \textbf{Auto-save:} Every 5 turns + before combat + on shutdown. 3 rotating auto-save files.
+    \item \textbf{Manual save:} Up to 3 slots.
+    \item \textbf{Contents:} Player state, NPC registry (with Q-tables, adaptation state, lambda coefficients), event log, quest state, active events, dynamic checkpoints, difficulty config, metrics, \textbf{shock manager state} (active shocks + history).
+    \item \textbf{Backups:} \texttt{.backup} copy of last good save. Auto-restores on corruption.
+\end{itemize}
+
+\subsection{Testing}
+
+91 tests across 5 suites, run via \texttt{uv run pytest backend/tests/ -v}:
+
+\begin{table}[ht]
+\centering
+\caption{Test suites.}
+\label{tab:tests}
+\begin{tabular}{@{}llc@{}}
+\toprule
+Suite & Coverage & Tests \\
+\midrule
+Core gameplay & Engine, combat, saves, quest, world & 34 \\
+Shock engine & Lifecycle, effects, integration, serialization & 23 \\
+Adaptation \& masking & Cooperation, role telemetry, metrics & 34 \\
+Analytics & Time-series, indices, experiment bundle & varies \\
+Integration smoke & End-to-end session lifecycle & varies \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Seed reproducibility is tested explicitly: same seed produces identical pre-training Q-tables and game state.
+
+\subsection{Research Tools}
+
+We built three research utilities:
+\begin{enumerate}
+    \item \textbf{Playthrough logger:} Per-turn JSON snapshots --- world state, inputs, results, quest changes, metrics, RL telemetry (reward decomposition, adaptation state, shock state).
+    \item \textbf{Replay tool:} Re-runs saved sessions from log files.
+    \item \textbf{Playtest bot:} Automated player agent for batch testing across many playthroughs.
+\end{enumerate}
+
+Events are scored on importance 1--5 (5 = quest-critical, 1 = trivial NPC routines). The log keeps everything importance $\geq 2$ forever, with a 500-entry rotating cap for the rest.

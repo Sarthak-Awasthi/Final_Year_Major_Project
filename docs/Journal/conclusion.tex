@@ -1,0 +1,94 @@
+\section{Current Status \& Next Steps}
+\label{sec:conclusion}
+
+\subsection{Where Things Stand}
+
+The prototype is fully working, and we have completed an initial round of automated experiments (Section~\ref{sec:preliminary_results}). Here's a rundown of what's done:
+
+\begin{itemize}
+    \item Complete 7-stage quest with 16 static checkpoints + dynamic checkpoint generation
+    \item 6 NPC Q-learning agents with pre-training, cold-start fallback, and live learning
+    \item \textbf{Decomposed reward model:} penalty + individual + $\lambda \cdot$ community, with non-linear community reward (sigmoid reputation, sub-linear health, sigmoid mood)
+    \item \textbf{Adaptive NPC personalities:} cooperation\_tendency, risk\_aversion, social\_sensitivity, shock\_resilience --- all evolving per turn based on reward feedback
+    \item \textbf{Dynamic $\lambda$ feedback loop:} cooperation drives $\lambda$, which drives community reward weighting, creating virtuous/vicious cycles
+    \item \textbf{Role-specific action masking:} soft Q-value adjustment per archetype, with configurable bonus/penalty
+    \item \textbf{System shock engine:} 5 shock types with lifecycle management (activation $\to$ decay $\to$ expiry), stat drain, trust modifiers, reward scaling
+    \item Provider-based LLM integration (4 use cases, 9-stage guardrails, template fallbacks) --- supports Ollama, llama.cpp, OpenAI-compatible endpoints
+    \item \textbf{Research analytics dashboard:} Chart.js-powered cooperation curves, reward decomposition, social welfare, action distributions, shock timeline, experiment bundle export
+    \item Real-time MDP graph in the browser via Cytoscape.js
+    \item Save/load with auto-save, backups, corruption recovery, shock state serialization
+    \item 28 universal actions (including \texttt{present\_item})
+    \item Combat, per-NPC reputation, gossip propagation, stamina, difficulty presets, random events
+    \item Dual input (button palette + free-text NLP parsing with optional LLM refinement)
+    \item Research tools: playthrough logger (with RL telemetry), replay, playtest bot
+    \item \textbf{91 tests} across 5 suites (core gameplay, shock engine, adaptation \& masking, analytics, integration)
+    \item \texttt{uv} package management with \texttt{pyproject.toml}
+\end{itemize}
+
+\subsection{Key Design Decisions (Why We Did It This Way)}
+
+A few of the non-obvious choices worth remembering:
+
+\begin{itemize}
+    \item \textbf{MDP owns the state, LLM just generates text.} The LLM never modifies game state directly --- everything goes through validation and the game engine. This prevents hallucination-induced state corruption.
+
+    \item \textbf{All 28 actions always available.} We never grey out or block actions. If an action doesn't make sense in context, it produces a narrated failure instead. This keeps the action space observable for research.
+
+    \item \textbf{LLM is always optional.} Every code path that calls the LLM has a template fallback. You can run the entire game with no model loaded. This makes ablation testing clean.
+
+    \item \textbf{Tabular Q-learning on purpose.} We chose tabular over deep RL because you can literally open the Q-table and read what the NPC has learned. Full interpretability. With 225 states $\times$ 28 actions = 6,300 Q-values per NPC, the table is small enough to inspect directly.
+
+    \item \textbf{Everything seeded.} All randomness comes from \texttt{MASTER\_SEED}. Same seed = same game. NPC pre-training seeds are derived deterministically from registry index, not \texttt{hash()}, ensuring cross-run reproducibility. Verified by explicit seed reproducibility tests.
+
+    \item \textbf{Decomposed reward for ablation.} The penalty/individual/community split was chosen specifically so each component can be independently measured and turned off. The additive structure with dynamic $\lambda$ means we can study how the balance between selfish and prosocial utility shifts over time.
+
+    \item \textbf{Non-linear community reward.} Sigmoid and sub-linear shaping prevent reward saturation at high welfare levels while amplifying sensitivity during crises --- the exact regime where cooperation should matter most.
+
+    \item \textbf{Dynamic $\lambda$ over static.} A static $\lambda$ forces a fixed cooperation level. Dynamic $\lambda$ creates emergent feedback loops: positive community outcomes $\to$ cooperation rises $\to$ $\lambda$ increases $\to$ more prosocial behavior. This is the mechanism that produces the dynamics our research hypothesis predicts.
+
+    \item \textbf{Shock engine for non-stationarity.} Rather than just relying on multi-agent interaction for non-stationarity, we added explicit environmental shocks that create controlled perturbations. This lets us study adaptation and recovery in a repeatable way.
+\end{itemize}
+
+\subsection{Known Limitations}
+
+Things we're aware of but haven't fully addressed:
+
+\begin{itemize}
+    \item \textbf{Small scale:} 5 locations, 6 NPCs, 1 linear quest. We don't know if the architecture scales to bigger worlds or branching quest graphs.
+    \item \textbf{Multi-agent convergence:} 6 Q-learners in a shared non-stationary environment --- no convergence guarantees \cite{bowling2002multiagent}. We see interesting emergent behavior but can't prove it's stable.
+    \item \textbf{LLM quality:} Local models produce noticeably weaker text than cloud models. The guardrails have to work harder. Provider-based adapter helps (can point to better models), but quality varies.
+    \item \textbf{No player modeling:} We don't track or predict the player's strategy. Adding inverse RL or belief tracking could help with adaptation.
+    \item \textbf{Single session only:} One player at a time, no concurrent sessions.
+    \item \textbf{Adaptation rate tuning:} The adaptation rate has been tuned from 0.04 to 0.018, with systematic role-specific multipliers (e.g., guard risk aversion $\times 1.5$, elder social sensitivity $\times 1.4$). Sensitivity to the base rate remains an open question for longer sessions.
+    \item \textbf{Policy entropy:} Per-action counts are now tracked, providing full action distribution entropy ($H = -\sum_a p_i(a) \log p_i(a)$) rather than the previous 2-bin approximation.
+\end{itemize}
+
+\subsection{Key Experimental Findings}
+
+The initial automated experiments (500-turn bot playthroughs, seed=42, quest auto-restart) have produced several quantitative findings that support the system's core design hypotheses:
+
+\begin{itemize}
+    \item \textbf{Cooperation emerges through RL:} The cooperation index $\cK$ rises from the baseline $0.500$ to $0.851$ over 500 turns with Q-learning (C1), while schedule-only NPCs (C3) remain at $0.500$ throughout. This confirms that learned policy --- not pre-authored schedules --- is responsible for emergent prosocial behavior.
+
+    \item \textbf{Role masking contributes $+0.088$ to cooperation:} Disabling role-specific action masking (C6) reduces final cooperation from $0.851$ to $0.763$. The structured bias creates a cleaner learning signal for Q-learning agents.
+
+    \item \textbf{System shocks reduce cooperation by $0.022$ but NPCs recover:} The full system (C1, $\cK = 0.851$) shows a dip-and-recover pattern around shock events compared to the no-shock condition (C5, $\cK = 0.873$). This demonstrates adaptive resilience --- shocks perturb but do not permanently degrade cooperation.
+
+    \item \textbf{LLM narration is more contextually grounded ($0.567$ vs.\ $0.488$) and uses $2.6\times$ richer vocabulary} than templates, while maintaining similar lexical coherence. Even a small local model (\texttt{qwen3:4b}) produces meaningfully better narrative output than the template fallback.
+\end{itemize}
+
+\subsection{What's Next}
+
+With the initial automated experiments completed, the remaining future work focuses on scaling and validation:
+
+\begin{itemize}
+    \item \textbf{Scale the experiments:} Initial single-seed ablation is complete (Section~\ref{sec:preliminary_results}); next step is 100 bot playthroughs per condition with varied seeds for statistical significance
+    \item Branching quest graphs with multiple concurrent quest lines to extend session duration beyond 200 turns
+    \item Comparing tabular Q-learning vs.\ DQN for NPC behavior (trade interpretability for performance?)
+    \item Player intent tracking via belief states (POMDP-style)
+    \item Scaling to more NPCs with parameter sharing
+    \item \textbf{User studies:} The bot experiments confirm the mechanisms work; human playtesting with post-session questionnaires is the next validation step
+    \item Longer sessions ($>$500 turns) to investigate whether cooperation saturates or continues to evolve --- preliminary results show $\cK$ at $0.851$ after 500 turns, suggesting further room to grow
+    \item More shock types and multi-shock interaction effects
+    \item \textbf{Dynamic $\lambda$ ablation (C7):} Not yet run; needed to isolate the effect of the cooperation feedback loop
+\end{itemize}

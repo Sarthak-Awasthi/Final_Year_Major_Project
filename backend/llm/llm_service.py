@@ -14,12 +14,12 @@ from typing import Any
 
 import httpx
 
+import backend.config as _cfg
 from backend.config import (
     LLM_API_BASE_URL,
     LLM_API_KEY,
     LLM_CHAT_ENDPOINT,
     LLM_DEFAULT_TEMPERATURE,
-    LLM_ENABLED,
     LLM_HEALTH_ENDPOINT,
     LLM_MAX_CALLS_PER_MINUTE,
     LLM_MODEL_NAME,
@@ -58,13 +58,15 @@ class LLMService:
         self._model_name: str = model_name or LLM_MODEL_NAME
         self._api_key: str = LLM_API_KEY
         self._available: bool = False
-        self._enabled: bool = LLM_ENABLED
+        self._enabled: bool = _cfg.LLM_ENABLED
 
         if self._provider == "ollama":
             self._health_endpoint = LLM_HEALTH_ENDPOINT or "/api/tags"
             self._chat_endpoint = LLM_CHAT_ENDPOINT or "/api/chat"
+        elif self._provider == "openrouter":
+            self._health_endpoint = LLM_HEALTH_ENDPOINT or "/v1/models"
+            self._chat_endpoint = LLM_CHAT_ENDPOINT or "/v1/chat/completions"
         else:
-            # Default to OpenAI-compatible endpoints.
             self._health_endpoint = LLM_HEALTH_ENDPOINT or "/v1/models"
             self._chat_endpoint = LLM_CHAT_ENDPOINT or "/v1/chat/completions"
 
@@ -80,7 +82,7 @@ class LLMService:
     @property
     def available(self) -> bool:
         """Whether provider connectivity checks pass and LLM is enabled."""
-        return self._enabled and self._available
+        return _cfg.LLM_ENABLED and self._available
 
     # ── Public API ────────────────────────────────────────────────────────
 
@@ -102,7 +104,7 @@ class LLMService:
         Returns:
             Generated text, or ``None`` on failure / unavailability.
         """
-        if not self._enabled:
+        if not _cfg.LLM_ENABLED:
             return None
 
         if not self.available:
@@ -235,6 +237,9 @@ class LLMService:
         headers = {"Content-Type": "application/json"}
         if self._api_key:
             headers["Authorization"] = f"Bearer {self._api_key}"
+        if self._provider == "openrouter":
+            headers["HTTP-Referer"] = "https://github.com/cooperative-npc-research"
+            headers["X-Title"] = "Cooperative NPC Research Game"
 
         if self._provider == "ollama":
             payload: dict[str, Any] = {
@@ -245,6 +250,7 @@ class LLMService:
                     "temperature": temperature,
                     "num_predict": max_tokens,
                 },
+                "think": False,
             }
             if stop:
                 payload["options"]["stop"] = stop
@@ -283,9 +289,12 @@ class LLMService:
         # Ollama /api/chat
         message = data.get("message")
         if isinstance(message, dict):
-            content = message.get("content")
-            if isinstance(content, str):
+            content = message.get("content", "")
+            if isinstance(content, str) and content.strip():
                 return content
+            thinking = message.get("thinking", "")
+            if isinstance(thinking, str) and thinking.strip() and not content.strip():
+                return thinking
 
         # OpenAI-compatible format
         choices = data.get("choices")
@@ -356,6 +365,9 @@ class LLMService:
         headers: dict[str, str] = {}
         if self._api_key:
             headers["Authorization"] = f"Bearer {self._api_key}"
+        if self._provider == "openrouter":
+            headers["HTTP-Referer"] = "https://github.com/cooperative-npc-research"
+            headers["X-Title"] = "Cooperative NPC Research Game"
 
         try:
             with httpx.Client(timeout=min(LLM_TIMEOUT_SECONDS, 5)) as client:

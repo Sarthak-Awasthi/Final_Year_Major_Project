@@ -17,11 +17,9 @@ from backend.config import (
     LOCATION_IDS,
     MASTER_SEED,
     NPC_ACTION_SPACE_SIZE,
-    NPC_COLD_START_TURNS,
     NPC_EPSILON_DECAY_RATE,
     NPC_EPSILON_MIN,
     NPC_EPSILON_PRETRAIN,
-    NPC_INVALID_LOCATION_PENALTY,
     NPC_PRETRAIN_EPISODES,
     NPC_PRETRAIN_TURNS,
     NPC_Q_LEARNING_ALPHA,
@@ -167,23 +165,19 @@ def compute_community_reward(
     community_state: dict | None,
     prev_community_state: dict | None = None,
 ) -> float:
-    """Compute village-level reward from aggregated state (P1+P4 upgrade).
+    """Compute village-level reward from aggregated state.
 
-    Uses a hybrid formula:
-    - **Absolute component** (60%): non-linear baseline of current village welfare
-    - **Delta component** (40%): change since last turn — provides gradient signal
-
-    Non-linear shaping (P4):
-    - Reputation uses sigmoid → diminishing returns at high rep, amplified at low
-    - Health uses sub-linear (power 0.7) → crisis hits harder
-    - Mood uses sigmoid → S-curve centered at 5
+    Uses a centered formula that can go negative:
+    - **Absolute component** (30%): baseline welfare centered around a neutral
+      threshold so healthy-but-static villages score near zero, not always positive
+    - **Delta component** (70%): change since last turn — the primary gradient signal
 
     Args:
         community_state: Dict with keys: avg_reputation, total_health, avg_mood.
         prev_community_state: Previous turn's community state (for delta). Can be None.
 
     Returns:
-        Scalar community reward.
+        Scalar community reward (can be negative).
     """
     if community_state is None:
         return 0.0
@@ -191,43 +185,34 @@ def compute_community_reward(
     import math
 
     def _sigmoid(x: float, center: float = 0.0, scale: float = 1.0) -> float:
-        """Sigmoid function mapped to [0, 1]."""
         return 1.0 / (1.0 + math.exp(-scale * (x - center)))
 
-    # ── Absolute component (non-linear, P4) ───────────────────────────
     avg_rep = community_state.get("avg_reputation", 0)
     total_hp = community_state.get("total_health", 0)
     avg_mood = community_state.get("avg_mood", 0)
 
-    # Reputation: sigmoid centered at 25, scale 0.08 → range ~0.1 to 0.9
-    rep_score = _sigmoid(avg_rep, center=25.0, scale=0.08) * 0.5
-
-    # Health: sub-linear (power 0.7) → crisis sensitivity
+    # Centered absolute: subtract a baseline so stable villages produce a small
+    # positive signal (~0.05) rather than the previous ~0.30 floor
+    rep_score = (_sigmoid(avg_rep, center=15.0, scale=0.06) - 0.45) * 0.5
     hp_norm = min(total_hp / 200.0, 1.0)
-    hp_score = (hp_norm ** 0.7) * 0.3
-
-    # Mood: sigmoid centered at 5, scale 0.6
-    mood_score = _sigmoid(avg_mood, center=5.0, scale=0.6) * 0.2
+    hp_score = (hp_norm ** 0.7 - 0.6) * 0.3
+    mood_score = (_sigmoid(avg_mood, center=5.0, scale=0.6) - 0.45) * 0.2
 
     absolute_reward = rep_score + hp_score + mood_score
 
-    # ── Delta component (P1) ──────────────────────────────────────────
     delta_reward = 0.0
     if prev_community_state is not None:
         prev_rep = prev_community_state.get("avg_reputation", 0)
         prev_hp = prev_community_state.get("total_health", 0)
         prev_mood = prev_community_state.get("avg_mood", 0)
 
-        # Deltas: positive = improvement, negative = decline
-        delta_rep = (avg_rep - prev_rep) / 20.0     # Normalize: ±5 rep → ±0.25
-        delta_hp = (total_hp - prev_hp) / 50.0      # Normalize: ±25 HP → ±0.5
-        delta_mood = (avg_mood - prev_mood) / 3.0   # Normalize: ±1.5 mood → ±0.5
+        delta_rep = (avg_rep - prev_rep) / 20.0
+        delta_hp = (total_hp - prev_hp) / 50.0
+        delta_mood = (avg_mood - prev_mood) / 3.0
 
-        # Weighted delta: reputation changes matter most
         delta_reward = delta_rep * 0.5 + delta_hp * 0.3 + delta_mood * 0.2
 
-    # ── Combine: 60% absolute + 40% delta ─────────────────────────────
-    reward = 0.6 * absolute_reward + 0.4 * delta_reward
+    reward = 0.5 * absolute_reward + 0.5 * delta_reward
 
     return reward
 

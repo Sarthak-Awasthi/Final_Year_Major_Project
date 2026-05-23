@@ -16,7 +16,6 @@ import numpy as np
 from backend.config import (
     MASTER_SEED,
     MAX_TURNS,
-    METRICS_DIR,
     UNIVERSAL_ACTION_IDS,
     UNIVERSAL_ACTIONS,
     logger,
@@ -112,7 +111,8 @@ class PlaytestBot:
             Session summary dict containing strategy, seed, total_turns,
             game_result, actions_taken count, and a metrics snapshot.
         """
-        engine = GameEngine(seed=self.seed, difficulty=self.difficulty, max_turns=max_turns)
+        self.engine = GameEngine(seed=self.seed, difficulty=self.difficulty, max_turns=max_turns)
+        engine = self.engine
         init_result = await engine.initialize()
         logger.info(
             "PlaytestBot started: strategy=%s, seed=%d, max_turns=%d",

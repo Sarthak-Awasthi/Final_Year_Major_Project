@@ -11,6 +11,10 @@ import logging
 import os
 import pathlib
 
+from dotenv import load_dotenv
+
+load_dotenv()
+
 # ─── Paths ────────────────────────────────────────────────────────────────────
 BASE_DIR = pathlib.Path(__file__).resolve().parent
 DATA_DIR = BASE_DIR / "data"
@@ -163,6 +167,11 @@ ROLE_MASK_BONUS: float = 0.5        # Q-value bonus for role-aligned actions
 ROLE_MASK_PENALTY: float = -0.3     # Q-value penalty for role-misaligned actions
 ROLE_MASK_ENABLED: bool = _env_bool("ROLE_MASK_ENABLED", True)  # Env-configurable; enable role-specific masks
 
+# ─── EXPERIMENT: Ablation toggles ───────────────────────────────────────────
+RL_ENABLED: bool = _env_bool("RL_ENABLED", True)        # False = schedule-only NPCs (C3)
+DYNAMIC_LAMBDA: bool = _env_bool("DYNAMIC_LAMBDA", True) # False = static λ=0.3 (C7)
+HIERARCHICAL_MDP: bool = _env_bool("HIERARCHICAL_MDP", True)  # False = flat single-stage (C4)
+
 # ─── STEP 5: Dynamic Shock Engine ────────────────────────────────────────────
 SHOCK_ENABLED: bool = _env_bool("SHOCK_ENABLED", True)  # Env-configurable; toggle shock engine
 SHOCK_MAX_ACTIVE: int = 3           # Maximum concurrent shocks
@@ -256,15 +265,22 @@ ROLE_ACTION_MASKS: dict[str, list[str]] = {
 
 # ─── LLM ─────────────────────────────────────────────────────────────────────
 LLM_ENABLED: bool = _env_bool("LLM_ENABLED", True)
-LLM_PROVIDER: str = os.getenv("LLM_PROVIDER", "ollama")
-LLM_API_BASE_URL: str = os.getenv("LLM_API_BASE_URL", "http://127.0.0.1:11434")
-LLM_API_KEY: str = os.getenv("LLM_API_KEY", "")
-LLM_MODEL_NAME: str = os.getenv("LLM_MODEL_NAME", "qwen3:4b")
+_openrouter_key = os.getenv("LLM_API_KEY", "") or os.getenv("OPENROUTER_API_KEY", "")
+LLM_PROVIDER: str = os.getenv("LLM_PROVIDER", "openrouter" if _openrouter_key else "ollama")
+LLM_API_BASE_URL: str = os.getenv(
+    "LLM_API_BASE_URL",
+    "https://openrouter.ai/api" if LLM_PROVIDER == "openrouter" else "http://127.0.0.1:11434",
+)
+LLM_API_KEY: str = _openrouter_key
+LLM_MODEL_NAME: str = os.getenv(
+    "LLM_MODEL_NAME",
+    "meta-llama/llama-3.2-3b-instruct:free" if LLM_PROVIDER == "openrouter" else "qwen3:4b",
+)
 LLM_HEALTH_ENDPOINT: str = os.getenv("LLM_HEALTH_ENDPOINT", "")
 LLM_CHAT_ENDPOINT: str = os.getenv("LLM_CHAT_ENDPOINT", "")
 LLM_MAX_PROMPT_TOKENS: int = 2500
 LLM_DEFAULT_TEMPERATURE: float = 0.7
-LLM_TIMEOUT_SECONDS: int = 10
+LLM_TIMEOUT_SECONDS: int = 30
 LLM_MAX_RETRIES: int = 2
 LLM_MIN_INTERVAL_MS: int = 2000
 LLM_MAX_CALLS_PER_MINUTE: int = 20

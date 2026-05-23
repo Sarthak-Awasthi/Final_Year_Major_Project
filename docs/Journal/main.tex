@@ -1,0 +1,358 @@
+\documentclass{article}
+% If you are missing arxiv.sty, comment the next line and uncomment \usepackage[margin=1in]{geometry}
+\usepackage{arxiv} 
+%\usepackage[margin=1in]{geometry}
+
+% to compile a preprint version, e.g., for submission to arXiv, add add the
+% [preprint] option:
+%     \usepackage[preprint]{neurips_2022}
+
+
+% to compile a camera-ready version, add the [final] option, e.g.:
+%     \usepackage[final]{neurips_2022}
+
+
+% to avoid loading the natbib package, add option nonatbib:
+%    \usepackage[nonatbib]{neurips_2022}
+\usepackage{mathtools}
+\usepackage[utf8]{inputenc} % allow utf-8 input
+\usepackage[T1]{fontenc}    % use 8-bit T1 fonts
+\usepackage{hyperref}       % hyperlinks
+\usepackage{url}            % simple URL typesetting
+\usepackage{booktabs}       % professional-quality tables
+\usepackage{amsfonts}       % blackboard math symbols
+\usepackage{nicefrac}       % compact symbols for 1/2, etc.
+\usepackage{microtype}      % microtypography
+\usepackage{xcolor}         % colors
+
+
+\usepackage{bm}
+\usepackage{bbm}
+\usepackage{comment}         
+\usepackage{multicol}
+\usepackage{multirow}
+\usepackage{caption}
+\usepackage{braket}
+\usepackage{enumitem}
+
+%Misc Shorthands
+\mathchardef\mhyphen="2D
+\DeclareMathOperator*{\argsup}{argsup}
+\DeclareMathOperator*{\arginf}{arginf}
+\newcommand{\ra}{\rightarrow}
+\newcommand{\grad}{\nabla}
+\newcommand{\bx}{\mathbf{x}}
+\newcommand{\thetahat}{\widehat{\theta}}
+\newcommand{\nuhat}{\widehat{\nu}}
+\newcommand{\black}{\color{black}}
+\newcommand{\Kinf}{\cK_{\text{inf}}}
+\newcommand{\Tgoesto}{\underset{T\rightarrow \infty}{\rightarrow}}
+\newcommand{\St}{\cS^*_m} % for S target 
+\newcommand{\Ste}{\cS^*_{m,\epsilon}} % for S target epsilon
+
+%JK defined
+\newcommand{\eps}{\epsilon}
+\newcommand{\dKL}{d_{\mathrm{KL}}}
+\newcommand{\Perr}{P_\mathrm{err}}
+\newcommand{\btheta}{\bm{\theta}}
+\newcommand{\htheta}{\widehat{\theta}}
+\newcommand{\hbtheta}{\widehat{\btheta}}
+\newcommand{\Prob}{\mathbb{P}}
+%\newcommand{\bmu}{\bm{\mu}}
+
+
+\newcommand\Fs {\mathscr{F}}
+\newcommand\Ls {\mathscr{L}}
+\newcommand\Ss {\mathscr{S}}
+\newcommand\Sc {\mathcal{S}}
+\newcommand\Nc {\mathcal{N}}
+\newcommand\bbH{\mathbb{H}}
+\newcommand{\floor}[1]{\left\lfloor #1 \right\rfloor}
+
+\newcommand\Norm {\mathcal{N}}
+\newcommand\E {\mathbb{E}}
+\newcommand\Expect{\E}
+\renewcommand\Re{\R}
+%\newcommand\L {L}
+\newcommand\bs {\boldsymbol}
+\newcommand\bPsi {\bs{\Psi}}
+\newcommand\X {\mathcal{X}}
+\newcommand\bxi {\bs{\xi}}
+\newcommand\z {\mathtt z}
+%\newcommand\r {\mathtt r}
+%\newcommand\tilde {\widetilde}
+%\newcommand\bar {\overline}
+%\newcommand\a {\mathfrak a}
+%\newcommand\c {\mathfrak c}
+%\newcommand\b {\mathtt b}
+\newcommand\Var {\ensuremath{\operatorname{\mathrm{Var}}}}
+\newcommand\Cov {\ensuremath{\operatorname{\mathrm{Cov}}}}
+\newcommand\sign {\ensuremath{\operatorname{\mathrm{sign}}}}
+\newcommand\sam {\ensuremath{\operatorname{\mathrm{sam}}}}
+\newcommand\zu {\mathfrak{z}}
+\newcommand*{\defeq}{\stackrel{\textup{def}}{=}}
+\newcommand*{\eqdef}{\stackrel{\textup{def}}{=}}
+
+\newcommand\range {\ensuremath{\operatorname{\mathrm{range}}}}
+\newcommand\mynull {\ensuremath{\operatorname{\mathrm{null}}}}
+\newcommand\rank {\ensuremath{\operatorname{\mathrm{rank}}}}
+\newcommand\krank {\ensuremath{\operatorname{\mathrm{krank}}}}
+\newcommand\spark {\ensuremath{\operatorname{\mathrm{spark}}}}
+\newcommand\conv {\ensuremath{\operatorname{\mathrm{conv}}}}
+\newcommand\poly {\ensuremath{\operatorname{\mathrm{poly}}}}
+\newcommand\nnz {\ensuremath{\operatorname{\mathrm{nnz}}}}
+\newcommand\tr {\ensuremath{\operatorname{\mathrm{tr}}}}
+\newcommand\diag {\ensuremath{\operatorname{\mathrm{diag}}}}
+\newcommand\ind {\mathbbm{1}}
+\renewcommand\Re{\mathbb{R}}
+%\newcommand\L {L}
+
+\usepackage{amsmath,amssymb,amsthm}
+
+\theoremstyle{plain}
+\newtheorem{axiom}{Axiom}
+\newtheorem{claim}[axiom]{Claim}
+\newtheorem{theorem}{Theorem}[section]
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem*{fact}{Fact}
+\newtheorem{corollary}[theorem]{Corollary}
+\newtheorem{proposition}[theorem]{Proposition}
+
+\newtheorem{definition}[theorem]{Definition}
+\newtheorem{assumption}[theorem]{Assumption}
+\newtheorem*{example}{Example}
+\newtheorem*{remark}{Remark}
+
+
+\usepackage{color}
+\newcommand{\rc}{\color{red}}
+\newcommand{\bc}{\color{blue}}
+\usepackage{graphicx}
+\newcommand{\indep}{\rotatebox[origin=c]{90}{$\models$}}
+
+%Calligraphic Shorthands
+\newcommand{\cA}{\mathcal{A}}
+\newcommand{\cB}{\mathcal{B}}
+\newcommand{\cC}{\mathcal{C}}
+\newcommand{\cD}{\mathcal{D}}
+\newcommand{\cE}{\mathcal{E}}
+\newcommand{\cF}{\mathcal{F}}
+\newcommand{\cG}{\mathcal{G}}
+\newcommand{\cH}{\mathcal{H}}
+\newcommand{\cI}{\mathcal{I}}
+\newcommand{\cJ}{\mathcal{J}}
+\newcommand{\cK}{\mathcal{K}}
+\newcommand{\cL}{\mathcal{L}}
+\newcommand{\cM}{\mathcal{M}}
+\newcommand{\cN}{\mathcal{N}}
+\newcommand{\cO}{\mathcal{O}}
+\newcommand{\cP}{\mathcal{P}}
+\newcommand{\cQ}{\mathcal{Q}}
+\newcommand{\cR}{\mathcal{R}}
+\newcommand{\cS}{\mathcal{S}}
+\newcommand{\cT}{\mathcal{T}}
+\newcommand{\cU}{\mathcal{U}}
+\newcommand{\cV}{\mathcal{V}}
+\newcommand{\cW}{\mathcal{W}}
+\newcommand{\cX}{\mathcal{X}}
+\newcommand{\cY}{\mathcal{Y}}
+\newcommand{\cZ}{\mathcal{Z}}
+
+%Blackboard Bold Shorthands
+\newcommand{\bE}{\mathbb{E}}
+\newcommand{\bP}{\mathbb{P}}
+\newcommand{\N}{\mathbb{N}}
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\C}{\mathbb{C}}
+\newcommand{\Z}{\mathbb{Z}}
+
+\newcommand{\Nbb}{\mathbb{N}}
+\newcommand{\Ecal}{\mathcal{E}}
+\newcommand{\Mcal}{\mathcal{M}}
+\newcommand{\KL}{\mathrm{KL}}
+\newcommand{\kl}{\mathrm{kl}}
+\newcommand{\Alt}{\mathrm{Alt}}
+\newcommand{\Local}{\mathrm{Local}}
+
+\DeclareMathOperator*{\argmax}{arg\,max}
+\DeclareMathOperator*{\argmin}{arg\,min}
+
+\newcommand{\annot}[2]{\underbrace{#1}_{\text{#2}}}
+
+%Probability Shorthands
+\newcommand{\norm}[2]{\mathcal{N}\left(#1,#2\right)}
+\newcommand{\bet}[2]{\text{Beta}\left(#1,#2 \right)}
+\newcommand{\muhat}{\widehat{\mu}}
+\newcommand{\bmu}{\bm{\mu}}
+\newcommand{\K}{\mathrm{KL}}
+\newcommand{\Kb}{\mathrm{K}}
+\usepackage{times}
+
+\DeclareMathOperator*{\plim}{plim}
+\newcommand{\iid}{ \stackrel{\mathrm{i.i.d}}{\sim} }
+\newcommand{\btau}{\mathbf{\tau}}
+\newcommand{\bX}{\mathbf{X}}
+\newcommand{\bpi}{\pmb{\pi}}
+\newcommand{\bh}{\mathbf{\pi}}
+\newcommand{\bA}{\mathbf{A}}
+\newcommand{\bB}{\mathbf{B}}
+\newcommand{\smallo}{{\scriptscriptstyle\mathcal{O}}} %
+\newcommand{\bo}{\mathbf{0}}
+\newcommand{\by}{\mathbf{y}}
+\newcommand{\bG}{\mathbb{G}}
+\def\Holder{{H\"{o}lder}}
+\newcommand{\bu}{\mathbf{u}}
+\def\Cramer{Cram\'{e}r}
+\newcommand{\bU}{\mathbf{U}}
+\newcommand{\nhs}{n^{\mathrm{hst}}}
+\newcommand{\fix}{\mathrm{fix}}
+\newcommand{\nev}{n^{\mathrm{evl}}}
+\newcommand{\EB}{\mathrm{EB}}
+\newcommand{\para}{\mathrm{para}}
+\newcommand{\bN}{\mathcal{N}}
+\newcommand{\oO}{\mathcal{O}}
+\newcommand{\ch}{\mathcal{H}}
+\newcommand{\bigO}{\mathcal{O}} %
+\newcommand{\cj}{\mathcal{J}}
+\newcommand{\bv}{\mathbf{v}}
+\newcommand{\bw}{\mathbf{w}}
+\newcommand{\CR}{\mathrm{CR}}
+\newcommand{\noo}{\mathrm{no}}
+\newcommand{\te}{\mathrm{te}}
+\newcommand{\VC}{\mathrm{VC}}
+\newcommand{\case}{\mathrm{case}}
+\newcommand{\buu}{\mathbf{u}}
+\renewcommand{\P}{\mathbb{P}}
+\newcommand{\hP}{\mathbb{P}_n}
+\newcommand{\hG}{\mathbb{G}}
+\newcommand{\Op}{\mathrm{O}_{p}}
+\newcommand{\op}{\mathrm{o}_{p}}
+\newcommand{\Pa}{\mathrm{Pa}}
+\newcommand{\pa}{\mathrm{\pa}}
+\newcommand{\mI}{\mathcal{I}}
+\newcommand{\calh}{\mathcal{H}}
+\newcommand{\rI}{\mathrm{I}}
+\newcommand{\var}{\mathrm{var}}
+\newcommand{\cov}{\mathrm{cov}}
+\newcommand{\rE}{\mathrm{E}}
+\newcommand{\thpol}{\pi^{\theta}}
+\newcommand{\thhatpol}{\pi^{\widehat{\theta}}}
+\newcommand{\rvar}{\mathrm{var}}
+\newcommand{\Asmse}{\mathrm{Asmse}}
+\newcommand{\dml}{\mathrm{dml}}
+\newcommand{\dm}{\mathrm{dm}}
+\newcommand{\rD}{\mathrm{d}}
+\newcommand{\rd}{\mathrm{d}}
+\newcommand{\bbN}{\mathbb{N}}
+\newcommand{\prns}[1]{\left(#1\right)}
+\newcommand{\braces}[1]{\left\{#1\right\}}
+\newcommand{\bracks}[1]{\left[#1\right]}
+\newcommand{\sumT}{\sum_{t=0}^T}
+\newcommand{\abs}[1]{\left|#1\right|}
+\newcommand{\Rl}{\mathbb{R}}
+\newcommand{\epol}{\pi^\mathrm{e}}
+\newcommand{\bpol}{\pi^\mathrm{b}}
+\newcommand{\pre}{\mathrm{pre}}
+\newcommand{\tmle}{\mathrm{tmle}}
+\newcommand{\ipw}{\mathrm{ipw}}
+\newcommand{\prepi}[1]{d_0 \times #1}
+\newcommand{\ini}{p_{\mathrm{ini}}}
+\newcommand{\opera}{p_{\mathrm{op}}}
+\newcommand{\inipi}[1]{p_{\mathrm{ini}, #1}}
+\newcommand{\magd}[1]{\left\|#1\right\|}
+\newcommand{\Rfrak}{\mathfrak{R}}
+\newcommand{\Fcal}{\mathcal{F}}
+\newcommand{\Scal}{\mathcal{S}}
+\newcommand{\Acal}{\mathcal{A}}
+\newcommand{\Xcal}{\mathcal{X}}
+\newcommand{\Wcal}{\mathcal{W}}
+\newcommand{\RR}{\mathbb{R}}
+\newcommand{\Qcal}{\mathcal{Q}}
+\newcommand{\Vcal}{\mathcal{V}}
+\newcommand{\Gcal}{\mathcal{G}}
+\newcommand{\Rcal}{\mathcal{R}}
+\newcommand{\Zcal}{\mathcal{Z}}
+\newcommand{\bzero}{\mathbf{0}}
+\newcommand{\Lcal}{\mathcal{L}}
+\newcommand{\Lw}{L_{\mathrm{w}}}
+\newcommand{\Lwn}{L_{\mathrm{w},n}}
+\newcommand{\Lq}{L_{\mathrm{q}}}
+\newcommand{\Lqn}{L_{\mathrm{q},n}}
+\newcommand{\hatw}{\widehat{w}}
+\newcommand{\hatwn}{\widehat{w}_n}
+\newcommand{\hatq}{\widehat{q}}
+\newcommand{\hatqn}{\widehat{q}_n}
+\newcommand{\oder}{\mathrm{o}}
+\newcommand{\vecsigma}{\vec{\sigma}}
+\newcommand{\vecmu}{\vec{\mu}}
+\newcommand{\AltDelta}{\Alt_\Delta}
+\newcommand{\tildesigma}{\sqrt{\widetilde{V}^a}}
+\newcommand{\ep}{\hfill $\Box$}
+\newcommand{\bepsilon}{{\mbox{\boldmath$\epsilon$}}}
+\newcommand{\RN}[1]{%
+  \textup{\uppercase\expandafter{\romannumeral#1}}%
+}
+\newcommand{\SDelta}{\mathcal{S}(\Delta)}
+\newcommand*\interior[1]{#1^{\mathsf{o}}}
+\newcommand{\dvert}{\mathrm{d}}
+
+\usepackage{xcolor}
+\newcount\Comments  % 0 suppresses notes to selves in text
+\Comments=1 % TODO: change to 0 for final version
+\newcommand{\kibitz}[2]{\ifnum\Comments=1\textcolor{#1}{#2}\fi}
+
+
+\newcommand{\mkato}[1]{\kibitz{red}{#1}}
+
+
+\usepackage{algorithm}
+\usepackage{algorithmic}
+
+\def\Cramer{Cram\'{e}r}
+\def\Holder{{H\"{o}lder}}
+
+\newcommand{\email}[1]{\href{mailto:#1}{#1}}
+\newcommand{\AM}[1]{{\leavevmode\color{blue}[Arpan: #1]}}
+
+\usepackage{authblk}
+\allowdisplaybreaks
+
+% =================================================================
+% TITLE AND AUTHORS
+% =================================================================
+
+\title{Project Documentation: Adaptive Narrative Game with Hierarchical MDP, Multi-Agent Q-Learning, Cooperation Dynamics, and System Shocks \\ \large (Working Document — Updated \today)}
+
+\renewcommand{\shorttitle}{\small MDP+RL+Cooperation+Shocks Game — Working Doc}
+
+\author[1]{Student Name 1}
+\author[1]{Student Name 2}
+
+\affil[1]{Department of Computer Science, University Name
+
+Emails:
+\href{mailto:email1@univ.edu}{email1@univ.edu},
+\href{mailto:email2@univ.edu}{email2@univ.edu}
+}
+% -------------------------------------------------------------------------
+\begin{document}
+\maketitle
+
+\input{abstract.tex}
+\input{introduction.tex}
+\input{related_work.tex}
+\input{problem_formulation.tex}
+\input{system_architecture.tex}
+\input{implementation.tex}
+\input{experimental_design.tex}
+\input{conclusion.tex}
+
+\bibliographystyle{plain}
+\bibliography{references}
+
+\end{document}
+
+%%% Local Variables:
+%%% mode: latex
+%%% TeX-master: t
+%%% End:

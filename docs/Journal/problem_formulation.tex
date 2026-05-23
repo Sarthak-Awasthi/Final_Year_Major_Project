@@ -1,0 +1,312 @@
+\section{How Our System Works (Formally)}
+\label{sec:problem_formulation}
+
+This section covers the math behind our subsystems. We're keeping the formal notation here because it's useful for the paper later, but the explanations are meant to be readable.
+
+\subsection{Quick MDP Refresher}
+
+An MDP is the tuple $\langle \cS, \cA, T, R, \gamma \rangle$ --- states, actions, transition probabilities, rewards, and a discount factor \cite{bellman1957dynamic, puterman1994mdp}. The key property is that ``only the current state matters'' --- the next state depends only on where you are now and what you do, not on how you got there.
+
+\subsection{Our Quest as a Two-Level MDP}
+
+We split the quest into two layers, following the Options framework \cite{sutton1999options}:
+
+\subsubsection{Top Level: Stages}
+
+The macro MDP is just a linear chain of 7 quest stages plus two end states:
+$$S_1 \to S_2 \to S_3 \to S_4 \to S_5 \to S_6 \to S_7 \to S_{\text{success}}$$
+with $\gamma = 1.0$ (undiscounted --- we care about all stages equally). $S_{\text{fail}}$ is reachable from any stage if the player dies or if the quest becomes uncompletable.
+
+A stage completes when the player finishes the last checkpoint inside it, which triggers a transition to the first checkpoint in the next stage.
+
+\subsubsection{Bottom Level: Checkpoints}
+
+Inside each stage $k$, there's a micro MDP:
+$$\cM_{\text{micro}}^{(k)} = \langle \cS_{\text{micro}}^{(k)}, \cA, T_{\text{micro}}^{(k)}, R_{\text{micro}}^{(k)}, \gamma = 0.95 \rangle$$
+
+$\cA$ is the universal action set (all 28 actions, always available). Static checkpoint IDs look like \texttt{1\_1}, \texttt{3\_2}, etc. We have 16 static checkpoints total across the 7 stages.
+
+\subsubsection{How Transitions Work}
+
+For any (checkpoint, action) pair, three things can happen:
+\begin{itemize}
+    \item The action matches a transition $\to$ you advance to the next checkpoint (deterministic in most cases)
+    \item The action has a probability gate $\to$ e.g., \texttt{sneak} at \texttt{1\_1} succeeds with $p = 0.6$
+    \item The action doesn't match anything $\to$ self-loop (quest state unchanged, but gameplay effects like combat still happen)
+\end{itemize}
+
+Some transitions have preconditions (e.g., you need \texttt{travel\_papers} in inventory). The effective state is really $s = (\text{checkpoint}, \text{inventory}, \text{location})$ --- but crucially, no transition depends on history. That's what makes it Markov.
+
+\subsubsection{Dynamic Checkpoints (Growing State Space)}
+
+Here's where our system deviates from textbook MDPs. When a player does something that doesn't match any transition at the current checkpoint, we \emph{generate a new checkpoint on the fly}:
+$$\cS \leftarrow \cS \cup \{s_{\text{dynamic}}\}, \quad \text{ID format: } \texttt{k\_Dj}$$
+
+The LLM generates these (with template fallback). This means our state space \emph{grows} during gameplay, which isn't standard.
+
+\subsubsection{Nudging (Reward Shaping)}
+
+To guide players back to the main path without forcing them, we use potential-based reward shaping \cite{ng1999reward}:
+$$R_{\text{nudge}} = \lambda \cdot (d_{\text{before}} - d_{\text{after}})$$
+where $\lambda = 0.3$ and $d$ is BFS distance to the nearest static checkpoint. Ng et al.\ showed this preserves policy invariance, so nudging doesn't mess up the optimal path.
+
+Escalation: 1--2 deviations $\to$ subtle narrative hints; 3--4 $\to$ explicit hints; $\geq 5$ $\to$ forced convergence.
+
+\subsection{NPC Q-Learning}
+
+\subsubsection{The Update Rule}
+
+Standard off-policy Q-learning \cite{watkins1989learning}:
+$$Q(s, a) \leftarrow Q(s, a) + \alpha \left[ r + \gamma \max_{a'} Q(s', a') - Q(s, a) \right]$$
+
+\subsubsection{State Space}
+
+Each NPC's state is a 4-tuple that we flatten to an integer index:
+
+\begin{table}[ht]
+\centering
+\caption{NPC state dimensions.}
+\label{tab:npc_state}
+\begin{tabular}{@{}llc@{}}
+\toprule
+Dimension & Values & Count \\
+\midrule
+Location & gate, village\_center, elders\_house, fields, tavern & 5 \\
+Time & morning, midday, afternoon, evening, night & 5 \\
+Energy & low ($<33\%$ HP), medium (33--66\%), high ($>66\%$) & 3 \\
+Mood & unhappy ($<4$), content (4--7), cheerful ($>7$) & 3 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Total: $5 \times 5 \times 3 \times 3 = 225$ states. The flat index is computed as:
+$$\text{idx} = l \cdot 45 + t \cdot 9 + e \cdot 3 + m$$
+
+\subsubsection{Action Space}
+
+Same 28 actions as the player (Table~\ref{tab:actions}). So each NPC's Q-table is a $225 \times 28 = 6{,}300$ entry matrix, initialized to zeros.
+
+\begin{table}[ht]
+\centering
+\caption{The 28 universal actions.}
+\label{tab:actions}
+\begin{tabular}{@{}lll@{}}
+\toprule
+Category & Actions & AP Cost \\
+\midrule
+Navigation & \texttt{move\_to} & 3 \\
+Exploration & \texttt{look}, \texttt{search}, \texttt{examine} & 1, 5, 2 \\
+Social & \texttt{talk}, \texttt{greet}, \texttt{ask\_info}, \texttt{persuade}, \texttt{trade}, & 1--2 \\
+ & \texttt{give\_item}, \texttt{present\_item}, \texttt{deceive}, \texttt{intimidate} & \\
+Combat & \texttt{attack}, \texttt{defend}, \texttt{flee} & 10, 5, 5 \\
+Stealth & \texttt{sneak}, \texttt{hide}, \texttt{steal} & 5, 3, 5 \\
+Utility & \texttt{pick\_up}, \texttt{use\_item}, \texttt{eat}, \texttt{rest}, \texttt{wait}, & 0--5 \\
+ & \texttt{drop\_item}, \texttt{status}, \texttt{equip}, \texttt{work} & \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsubsection{Action Masking}
+
+Two layers of masking are applied during action selection:
+
+\textbf{Hard masking:} When an action is invalid (e.g., \texttt{attack} with nobody around), we set $Q(s,a) = -\infty$ during action selection so the NPC can't pick it. But we \emph{don't} erase the learned Q-value --- it's preserved for when the action becomes valid again. Random exploration also only samples from valid actions.
+
+\textbf{Soft masking (role-specific):} Each archetype has a preferred action set (e.g., guards prefer \texttt{defend}, \texttt{attack}, \texttt{intimidate}; farmers prefer \texttt{work}, \texttt{trade}, \texttt{give\_item}). During exploitation, role-aligned actions receive a Q-value bonus ($+0.5$) and role-misaligned actions receive a penalty ($-0.3$). This creates a policy bias toward role-appropriate behavior without hard-blocking any action. Configurable via \texttt{ROLE\_MASK\_ENABLED}.
+
+\subsubsection{Hyperparameters}
+
+\begin{table}[ht]
+\centering
+\caption{Q-learning settings.}
+\label{tab:qparams}
+\begin{tabular}{@{}ll@{}}
+\toprule
+Parameter & Value \\
+\midrule
+$\alpha$ (learning rate) & 0.1 \\
+$\gamma$ (discount) & 0.9 \\
+$\varepsilon$ during pre-training & 0.5 \\
+$\varepsilon$ at live-play start & 0.15 \\
+$\varepsilon$ floor & 0.05 \\
+$\varepsilon$ decay & $\times 0.995$ per turn \\
+Pre-training & 100 episodes $\times$ 50 turns per NPC \\
+Cold-start & first 20 turns (schedule fallback) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsubsection{Non-Stationarity}
+
+Having 6 agents learning simultaneously in one environment alongside a human player means the environment is non-stationary for every agent (since other agents' policies keep changing). Standard Q-learning doesn't converge in this setting \cite{bowling2002multiagent}. We're fine with that --- the non-stationarity is actually interesting because it produces emergent behaviors like spatial clustering and social grouping. The system shock engine adds an additional layer of non-stationarity that we use to study agent adaptation.
+
+\subsection{Decomposed Reward Model}
+
+Each NPC receives a reward signal decomposed into three components:
+$$R_i(t) = P_i(t) + G_i(t) + \lambda_i(t) \cdot C(t)$$
+
+\begin{table}[ht]
+\centering
+\caption{Reward components.}
+\label{tab:reward_components}
+\begin{tabular}{@{}lll@{}}
+\toprule
+Symbol & Term & Description \\
+\midrule
+$P_i(t)$ & Penalty & Large negative for catastrophic states (HP $< 20\%$: $-10$) \\
+$G_i(t)$ & Individual & $\sum w_k \cdot (\text{stat}_k(t) - \text{stat}_k(t-1))$ \\
+$C(t)$ & Community & Village-level welfare signal (non-linear, see below) \\
+$\lambda_i(t)$ & Lambda & Dynamic prosociality coefficient: $\lambda_{\min} + \text{coop} \cdot (\lambda_{\max} - \lambda_{\min})$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+This is a standard \emph{mixed-motive reward decomposition} from cooperative MARL \cite{lowe2017maddpg, rashid2018qmix}. The individual term captures selfish utility (did my stats improve?), while the community term captures prosocial utility (is the village better off?). The additive structure allows each component to be independently measured, debugged, and ablated.
+
+\subsubsection{Individual Reward}
+
+Delta-based, weighted by archetype:
+$$G_i(t) = \sum_{k} w_k \cdot \left( \text{stat}_k^{\text{new}} - \text{stat}_k^{\text{old}} \right)$$
+
+The weights differ by archetype (and must sum to 1.0):
+
+\begin{table}[ht]
+\centering
+\caption{Reward weights per archetype.}
+\label{tab:weights}
+\begin{tabular}{@{}lcccc@{}}
+\toprule
+Archetype & Happiness & Income & Health & Reputation \\
+\midrule
+Elder & 0.3 & 0.1 & 0.2 & 0.4 \\
+Farmer & 0.2 & 0.4 & 0.2 & 0.2 \\
+Guard & 0.1 & 0.2 & 0.3 & 0.4 \\
+Tavern Keeper & 0.2 & 0.4 & 0.1 & 0.3 \\
+Villager & 0.4 & 0.2 & 0.2 & 0.2 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+So a guard cares most about health and reputation, while a farmer is primarily motivated by income.
+
+\subsubsection{Community Reward (Hybrid Absolute + Delta)}
+
+The community reward uses a non-linear hybrid formula:
+$$C(t) = 0.5 \cdot C_{\text{abs}}(t) + 0.5 \cdot C_{\Delta}(t)$$
+
+\textbf{Absolute component} (centered, non-linear):
+\begin{align}
+    C_{\text{abs}} &= (\sigma(\bar{r}, 15, 0.06) - 0.45) \times 0.5 + (h_{\text{norm}}^{0.7} - 0.6) \times 0.3 + (\sigma(\bar{m}, 5, 0.6) - 0.45) \times 0.2
+\end{align}
+where $\sigma(x, c, s) = 1/(1 + e^{-s(x - c)})$ is the sigmoid function, $\bar{r}$ is average reputation, $h_{\text{norm}} = \min(H_{\text{total}}/200, 1)$ is normalized total health, and $\bar{m}$ is average mood. The centered formulation allows $C_{\text{abs}}$ to go negative when village welfare drops below a neutral threshold, enabling cooperation \emph{decrease} under adverse conditions.
+
+\textbf{Delta component}:
+$$C_{\Delta} = \frac{\Delta \bar{r}}{20} \times 0.5 + \frac{\Delta H}{50} \times 0.3 + \frac{\Delta \bar{m}}{3} \times 0.2$$
+
+\textbf{Why hybrid:} A purely absolute formula saturates (health at 90\% = constant 0.27), causing reward plateaus. A purely delta formula is noisy and has zero baseline. The 50/50 hybrid provides a balanced combination of stable baseline and gradient signal that responds to improvement or decline each turn.
+
+\textbf{Why non-linear:} Reputation sigmoid gives diminishing returns at high rep and amplified sensitivity near crisis; health sub-linear ($x^{0.7}$) makes crisis hits harder (losing HP 50$\to$30 more impactful than 180$\to$160); mood sigmoid gives symmetric sensitivity centered at the default.
+
+\subsubsection{Dynamic \texorpdfstring{$\lambda$}{Lambda} (Cooperation Feedback Loop)}
+
+The prosociality coefficient $\lambda_i$ is not static --- it's driven by each NPC's \texttt{cooperation\_tendency}:
+$$\lambda_i = \lambda_{\min} + \text{coop}_i \cdot (\lambda_{\max} - \lambda_{\min}) = 0.05 + \text{coop}_i \times 0.55$$
+
+\begin{table}[ht]
+\centering
+\caption{Effect of cooperation\_tendency on $\lambda$.}
+\label{tab:lambda}
+\begin{tabular}{@{}ccl@{}}
+\toprule
+cooperation\_tendency & $\lambda$ & Behavior \\
+\midrule
+0.0 (selfish) & 0.05 & Nearly ignores community welfare \\
+0.5 (default start) & 0.325 & Balanced individual/community \\
+1.0 (fully cooperative) & 0.60 & Community reward dominates decisions \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+This creates an emergent feedback loop: positive community outcomes $\to$ cooperation rises $\to$ $\lambda$ increases $\to$ agent weights community more $\to$ more cooperative actions $\to$ community improves further (virtuous cycle). Under shocks, the reverse occurs (vicious cycle). This is the mechanism that produces the cooperation dynamics our research hypothesis is about \cite{leibo2017social}.
+
+\subsection{Adaptive Personality Dynamics}
+
+Each NPC maintains four adaptation coefficients that evolve based on reward feedback and environmental pressure:
+
+\begin{table}[ht]
+\centering
+\caption{Adaptation state dimensions.}
+\label{tab:adaptation}
+\begin{tabular}{@{}llc@{}}
+\toprule
+Dimension & Drives & Range \\
+\midrule
+\texttt{cooperation\_tendency} & $\lambda$ (community reward weight) & 0.0--1.0 \\
+\texttt{risk\_aversion} & Tendency to avoid risky actions & 0.0--1.0 \\
+\texttt{social\_sensitivity} & Sensitivity to social feedback & 0.1--0.9 \\
+\texttt{shock\_resilience} & Ability to adapt under shocks & 0.0--1.0 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+All dimensions start at 0.5 and evolve at base rate 0.018 per turn. Update rules:
+\begin{itemize}
+    \item \textbf{Cooperation:} $C(t) > 0.02 \Rightarrow$ coop increases proportionally; $C(t) < -0.02 \Rightarrow$ coop decreases proportionally.
+    \item \textbf{Risk aversion:} $G(t) < -0.3$ or $P(t) < -1.0 \Rightarrow$ risk aversion increases; $G(t) > 0.5 \Rightarrow$ decreases.
+    \item \textbf{Shock resilience:} pressure $> 0.1 \Rightarrow$ resilience increases; no shocks $\Rightarrow$ slowly decays toward 0.5.
+    \item \textbf{Shock pressure on cooperation:} When shock pressure exceeds 0.1, $\text{coop}_i$ decreases proportionally to shock intensity, independent of the reward signal.
+    \item \textbf{Dynamic $\lambda$ gating:} $r_{\text{coop}} = r_{\text{base}} \times (0.5 + \lambda_i)$, creating a second-order feedback loop where higher cooperation accelerates further cooperation learning.
+    \item \textbf{Drift:} All coefficients have a gentle drift toward 0.5 (rate 0.004) to prevent saturation.
+\end{itemize}
+
+\textbf{Role-specific adaptation multipliers:} Adaptation rates are further modulated by archetype to reflect role-appropriate behavioral tendencies:
+
+\begin{table}[ht]
+\centering
+\caption{Role-specific adaptation rate multipliers.}
+\label{tab:role_multipliers}
+\begin{tabular}{@{}lccccc@{}}
+\toprule
+Dimension & Guard & Farmer & Elder & Tavern Keeper & Villager \\
+\midrule
+Risk aversion & 1.5 & 1.2 & 0.6 & 0.8 & 1.0 \\
+Social sensitivity & 0.5 & 0.7 & 1.4 & 1.2 & 1.0 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{The LLM's Role}
+
+The LLM isn't a decision-maker --- it's a text generator that we call when we need natural language. It does four things:
+
+\begin{enumerate}
+    \item \textbf{Input parsing} ($T = 0.3$--$0.5$) --- turn free-text like ``I want to sneak past the guard'' into a structured action
+    \item \textbf{NPC dialogue} ($T = 0.7$) --- generate in-character speech for NPCs based on their personality and reputation
+    \item \textbf{Checkpoint generation} ($T = 0.8$--$0.9$) --- create new quest checkpoints when the player goes off-script
+    \item \textbf{Narration} ($T = 0.7$) --- dress up template text with atmospheric detail
+\end{enumerate}
+
+Every LLM call follows: try (10s timeout) $\to$ validate output $\to$ retry up to 2 times $\to$ use template fallback. The game always works without the LLM loaded.
+
+\subsection{System Shocks}
+
+Shocks are explicit world modifiers with a defined lifecycle: activation $\to$ propagation $\to$ decay $\to$ expiry. They modify NPC rewards, adaptation pressure, and resource channels to create non-stationary environments requiring agent adaptation.
+
+\begin{table}[ht]
+\centering
+\caption{Shock catalog.}
+\label{tab:shocks}
+\begin{tabular}{@{}llll@{}}
+\toprule
+Shock & Duration & Key Effects & Purpose \\
+\midrule
+Famine & 15 turns & $-$health, $-$mood, $-$trust & Resource scarcity \\
+Bandit Raid & 8 turns & $-$income, $-$trust, $-$mood & Sudden external threat \\
+Plague & 12 turns & $-$health, $-$HP, $-$mood & Sustained welfare decline \\
+Trade Boom & 10 turns & $+$income, $+$mood, $+$trust & Positive shock recovery \\
+Harsh Winter & 20 turns & $-$health, $-$income, $-$mood & Long-duration stress \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Shocks modulate rewards via a \texttt{reward\_scale} modifier (e.g., famine halves community reward), apply per-turn \texttt{resource\_drain} to NPC stats (HP, health, happiness), and adjust \texttt{trust\_modifier} on reputation. Decay profiles are either \emph{linear} (gradual fade) or \emph{sudden} (full intensity until expiry). Maximum 3 concurrent shocks; same-type stacking is prevented.

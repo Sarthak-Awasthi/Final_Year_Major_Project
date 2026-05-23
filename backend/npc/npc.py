@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import numpy as np
 
+import backend.config as _cfg
 from backend.config import (
     LOCATION_IDS,
     MAX_CONVERSATION_HISTORY,
@@ -17,8 +18,6 @@ from backend.config import (
     NPC_NUM_MOOD_LEVELS,
     NPC_NUM_TIME_SLOTS,
     NPC_STATE_SPACE_SIZE,
-    REPUTATION_MAX,
-    REPUTATION_MIN,
     TIME_PERIODS,
     UNIVERSAL_ACTION_IDS,
     logger,
@@ -98,17 +97,18 @@ class NPC:
         }
 
         # --- STEP 4: Role telemetry (for role-masked action analysis) ---
+        self.action_counts: dict[str, int] = {}
         self.role_telemetry: dict[str, int] = {
             "actions_selected": 0,
             "role_aligned": 0,
             "role_misaligned": 0,
         }
         self.role_telemetry_trace: list[dict] = []  # Per-turn snapshots
-        self.max_role_telemetry_trace_len: int = 100
+        self.max_role_telemetry_trace_len: int = 1000
 
         # --- Reward tracing (for metrics/analysis) ---
         self.reward_trace: list[dict] = []  # List of {turn, penalty, individual, community, total}
-        self.max_reward_trace_len: int = 100  # Keep only last 100 turns
+        self.max_reward_trace_len: int = 1000
         self.lambda_coeff: float = 0.15  # Community reward coefficient; starts low (individual dominates)
         self._lambda_min: float = 0.05   # Floor: always some community awareness
         self._lambda_max: float = 0.6    # Ceiling: never fully altruistic
@@ -121,7 +121,7 @@ class NPC:
             "shock_resilience": 0.5,          # 0.0–1.0: ability to adapt to shocks
         }
         self.adaptation_trace: list[dict] = []  # Track adaptation over time
-        self.max_adaptation_trace_len: int = 100
+        self.max_adaptation_trace_len: int = 1000
 
     # ── Private helpers ───────────────────────────────────────────────────
 
@@ -303,80 +303,99 @@ class NPC:
     def update_adaptation(self, reward_dict: dict, shock_pressure: float = 0.0) -> None:
         """Update adaptation coefficients based on reward components.
 
-        Adaptation rules:
-        - High community reward → increase cooperation_tendency
-        - Low individual reward → increase risk_aversion
-        - Active shocks → adjust shock_resilience
-        - Social feedback → adjust social_sensitivity
-
         Args:
             reward_dict: Dict with keys: penalty, individual, community, total.
             shock_pressure: Aggregate shock intensity in [0.0, 1.0]. 0.0 = no shocks.
         """
-        # Extract reward components
         individual = reward_dict.get("individual", 0.0)
         community = reward_dict.get("community", 0.0)
         penalty = reward_dict.get("penalty", 0.0)
 
-        # Adaptation update rates (tuned for visible but stable drift)
-        adapt_rate = 0.04
+        base_rate = 0.018
+        drift_rate = 0.004
 
-        # Cooperation: increase when community reward is positive
-        # Threshold lowered to 0.2 — normal community rewards range 0.3–0.5
-        if community > 0.2:
-            self.adaptation_state["cooperation_tendency"] = min(
-                1.0,
-                self.adaptation_state["cooperation_tendency"] + adapt_rate * (community / 1.0)
-            )
-        elif community < -0.2:
+        # Fix #5: dynamic lambda gates the cooperation adaptation rate itself
+        # Higher lambda → cooperation signal weighted more → faster adaptation
+        if _cfg.DYNAMIC_LAMBDA:
+            coop_rate = base_rate * (0.5 + self.lambda_coeff)
+        else:
+            coop_rate = base_rate * 0.6
+
+        # Fix #3: shocks directly pressure cooperation down
+        if shock_pressure > 0.1:
             self.adaptation_state["cooperation_tendency"] = max(
                 0.0,
-                self.adaptation_state["cooperation_tendency"] - adapt_rate * 0.5
+                self.adaptation_state["cooperation_tendency"] - base_rate * shock_pressure * 1.5
             )
-
-        # Risk aversion: increase when individual reward is low or penalties are high
-        if individual < -0.3 or penalty < -1.0:
-            self.adaptation_state["risk_aversion"] = min(
-                1.0,
-                self.adaptation_state["risk_aversion"] + adapt_rate * (abs(individual) / 1.5)
-            )
-        elif individual > 0.5:
-            self.adaptation_state["risk_aversion"] = max(
-                0.0,
-                self.adaptation_state["risk_aversion"] - adapt_rate * 0.5
-            )
-
-        # Shock resilience: increase under sustained shock pressure
-        if shock_pressure > 0.1:
             self.adaptation_state["shock_resilience"] = min(
                 1.0,
-                self.adaptation_state["shock_resilience"] + adapt_rate * shock_pressure
+                self.adaptation_state["shock_resilience"] + base_rate * shock_pressure
             )
-        elif shock_pressure == 0.0 and self.adaptation_state["shock_resilience"] > 0.5:
-            # Slowly decay back toward baseline when no shocks
-            self.adaptation_state["shock_resilience"] = max(
-                0.5,
-                self.adaptation_state["shock_resilience"] - adapt_rate * 0.3
+        else:
+            if self.adaptation_state["shock_resilience"] > 0.5:
+                self.adaptation_state["shock_resilience"] -= base_rate * 0.3
+
+        # Cooperation: driven by community reward sign and magnitude
+        if community > 0.02:
+            self.adaptation_state["cooperation_tendency"] = min(
+                1.0,
+                self.adaptation_state["cooperation_tendency"] + coop_rate * min(community, 0.5)
+            )
+        elif community < -0.02:
+            self.adaptation_state["cooperation_tendency"] = max(
+                0.0,
+                self.adaptation_state["cooperation_tendency"] + coop_rate * max(community, -0.5)
             )
 
-        # Social sensitivity: gentle drift toward middle (must not overpower adaptation)
-        drift_toward_neutral = 0.003
-        for key in ["cooperation_tendency", "risk_aversion", "social_sensitivity"]:
+        # Fix #4: risk aversion driven by individual reward with role-specific sensitivity
+        role_risk_sensitivity = {
+            "guard": 1.5, "farmer": 1.2, "elder": 0.6,
+            "tavern_keeper": 0.8, "villager": 1.0,
+        }
+        risk_mult = role_risk_sensitivity.get(self.archetype, 1.0)
+        if individual < -0.1 or penalty < -1.0:
+            self.adaptation_state["risk_aversion"] = min(
+                1.0,
+                self.adaptation_state["risk_aversion"] + base_rate * risk_mult * min(abs(individual), 1.0)
+            )
+        elif individual > 0.2:
+            self.adaptation_state["risk_aversion"] = max(
+                0.0,
+                self.adaptation_state["risk_aversion"] - base_rate * 0.5
+            )
+
+        # Fix #4: social sensitivity driven by social action outcomes
+        role_social_sensitivity = {
+            "elder": 1.4, "tavern_keeper": 1.2, "villager": 1.0,
+            "farmer": 0.7, "guard": 0.5,
+        }
+        social_mult = role_social_sensitivity.get(self.archetype, 1.0)
+        if community > 0.05:
+            self.adaptation_state["social_sensitivity"] = min(
+                0.9,
+                self.adaptation_state["social_sensitivity"] + base_rate * social_mult * 0.15
+            )
+        elif community < -0.05:
+            self.adaptation_state["social_sensitivity"] = max(
+                0.1,
+                self.adaptation_state["social_sensitivity"] - base_rate * social_mult * 0.1
+            )
+
+        # Drift all coefficients toward 0.5 (homeostasis)
+        for key in self.adaptation_state:
             self.adaptation_state[key] = (
-                self.adaptation_state[key] * (1.0 - drift_toward_neutral) +
-                0.5 * drift_toward_neutral
+                self.adaptation_state[key] * (1.0 - drift_rate) +
+                0.5 * drift_rate
             )
 
-        # Clamp all values to [0.0, 1.0]
         for key in self.adaptation_state:
             self.adaptation_state[key] = max(0.0, min(1.0, self.adaptation_state[key]))
 
-        # P2: Cooperation feedback loop — cooperation_tendency drives lambda_coeff
-        # Higher cooperation → higher lambda → more weight on community reward
-        # This creates a virtuous cycle: positive community → more cooperation → more community weight
         coop = self.adaptation_state["cooperation_tendency"]
-        # Linear interpolation: coop=0 → lambda_min, coop=1 → lambda_max
-        self.lambda_coeff = self._lambda_min + coop * (self._lambda_max - self._lambda_min)
+        if _cfg.DYNAMIC_LAMBDA:
+            self.lambda_coeff = self._lambda_min + coop * (self._lambda_max - self._lambda_min)
+        else:
+            self.lambda_coeff = 0.325
 
     def add_adaptation_sample(self, turn: int) -> None:
         """Store adaptation state snapshot for this turn.
@@ -406,6 +425,7 @@ class NPC:
         from backend.config import ROLE_ACTION_MASKS
 
         self.role_telemetry["actions_selected"] += 1
+        self.action_counts[action_id] = self.action_counts.get(action_id, 0) + 1
 
         role_actions = ROLE_ACTION_MASKS.get(self.archetype, [])
         if action_id in role_actions:

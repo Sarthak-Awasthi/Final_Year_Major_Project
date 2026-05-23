@@ -19,7 +19,7 @@ import math
 from collections import Counter, defaultdict
 from typing import Any
 
-from backend.config import UNIVERSAL_ACTION_IDS, LLM_ENABLED, LLM_PROVIDER, SHOCK_ENABLED, logger
+from backend.config import LLM_ENABLED, LLM_PROVIDER, SHOCK_ENABLED, logger
 
 
 # ── Reward Time-Series ────────────────────────────────────────────────────────
@@ -177,37 +177,26 @@ def compute_cooperation_series(npc_registry: dict) -> dict[str, list]:
 
 
 def compute_policy_entropy(npc_registry: dict) -> dict[str, float]:
-    """Compute per-NPC policy entropy from role telemetry traces.
+    """Compute per-NPC policy entropy from per-action counts.
 
-    Entropy measures how uniformly an NPC distributes actions across
-    the action space. High entropy = exploratory, low = exploitative.
-
-    Uses the cumulative action counts from role_telemetry_trace
-    to estimate the distribution.
+    H = -Σ p(a) log2 p(a) over all actions taken.
+    High entropy = exploratory, low = exploitative.
 
     Returns:
         ``{npc_uid: entropy_value}``
     """
     entropies: dict[str, float] = {}
     for uid, npc in npc_registry.items():
-        total = npc.role_telemetry["actions_selected"]
+        total = sum(npc.action_counts.values()) if npc.action_counts else 0
         if total == 0:
             entropies[uid] = 0.0
             continue
 
-        # We only have aligned/misaligned counts, not per-action.
-        # Estimate entropy from the aligned/misaligned split as a
-        # lower bound on the full action distribution entropy.
-        aligned = npc.role_telemetry["role_aligned"]
-        misaligned = npc.role_telemetry["role_misaligned"]
-
-        probs = []
-        if aligned > 0:
-            probs.append(aligned / total)
-        if misaligned > 0:
-            probs.append(misaligned / total)
-
-        entropy = -sum(p * math.log2(p) for p in probs if p > 0)
+        entropy = 0.0
+        for count in npc.action_counts.values():
+            if count > 0:
+                p = count / total
+                entropy -= p * math.log2(p)
         entropies[uid] = round(entropy, 4)
 
     return entropies
@@ -377,6 +366,170 @@ def compute_shock_response(
     return responses
 
 
+# ── Narrative Coherence ───────────────────────────────────────────────────
+
+
+def compute_narrative_coherence(event_log_entries: list[dict]) -> dict[str, Any]:
+    """Compute average similarity between consecutive narration segments.
+
+    Uses spaCy vectors when available, falls back to token overlap ratio.
+
+    Returns:
+        ``{avg_coherence: float, num_segments: int, method: str}``
+    """
+    narrations = [
+        e.get("narration", "") or e.get("description", "")
+        for e in event_log_entries
+        if e.get("event_type") in ("player_action", "narration") and (e.get("narration") or e.get("description"))
+    ]
+
+    if len(narrations) < 2:
+        return {"avg_coherence": 0.0, "num_segments": len(narrations), "method": "none"}
+
+    try:
+        import spacy
+        nlp = spacy.blank("en")
+        nlp.add_pipe("sentencizer")
+        docs = [nlp(n[:500]) for n in narrations]
+        similarities = []
+        for i in range(len(docs) - 1):
+            if docs[i].vector_norm and docs[i + 1].vector_norm:
+                similarities.append(docs[i].similarity(docs[i + 1]))
+        if similarities:
+            return {
+                "avg_coherence": round(sum(similarities) / len(similarities), 4),
+                "num_segments": len(narrations),
+                "method": "spacy_vectors",
+            }
+    except Exception:
+        pass
+
+    # Fallback: token overlap ratio (Jaccard similarity)
+    similarities = []
+    for i in range(len(narrations) - 1):
+        tokens_a = set(narrations[i].lower().split())
+        tokens_b = set(narrations[i + 1].lower().split())
+        if tokens_a or tokens_b:
+            jaccard = len(tokens_a & tokens_b) / len(tokens_a | tokens_b) if (tokens_a | tokens_b) else 0
+            similarities.append(jaccard)
+
+    avg = round(sum(similarities) / len(similarities), 4) if similarities else 0.0
+    return {"avg_coherence": avg, "num_segments": len(narrations), "method": "token_overlap"}
+
+
+# ── Deviation Recovery ───────────────────────────────────────────────────
+
+
+def compute_deviation_recovery(event_log_entries: list[dict]) -> dict[str, Any]:
+    """Compute deviation recovery metrics from event log.
+
+    Returns:
+        ``{total_deviations: int, natural_convergences: int, forced_convergences: int,
+           recovery_rate: float, dynamic_checkpoints: int, checkpoint_usage_rate: float}``
+    """
+    total_deviations = 0
+    natural_convergences = 0
+    forced_convergences = 0
+    dynamic_cps = 0
+    total_turns = 0
+
+    for e in event_log_entries:
+        total_turns = max(total_turns, e.get("turn", 0))
+
+        event_type = e.get("event_type", "")
+        if event_type == "quest_deviation":
+            total_deviations += 1
+        elif event_type == "quest_convergence":
+            if e.get("outcome") == "forced" or e.get("effects", {}).get("forced", False):
+                forced_convergences += 1
+            else:
+                natural_convergences += 1
+        elif event_type == "dynamic_checkpoint":
+            dynamic_cps += 1
+
+    recovery_rate = (
+        round(natural_convergences / total_deviations, 4)
+        if total_deviations > 0 else 0.0
+    )
+    cp_usage_rate = (
+        round(dynamic_cps / max(total_turns, 1), 4)
+    )
+
+    return {
+        "total_deviations": total_deviations,
+        "natural_convergences": natural_convergences,
+        "forced_convergences": forced_convergences,
+        "recovery_rate": recovery_rate,
+        "dynamic_checkpoints": dynamic_cps,
+        "checkpoint_usage_rate": cp_usage_rate,
+    }
+
+
+# ── Shock Recovery Time ──────────────────────────────────────────────────
+
+
+def compute_shock_recovery_time(
+    npc_registry: dict,
+    shock_timeline: list[dict],
+) -> list[dict]:
+    """Compute recovery time for each shock — turns until K(t) returns to pre-shock level.
+
+    Also computes correlation between shock_resilience and recovery speed.
+
+    Returns:
+        List of dicts with shock metadata plus recovery_turns and resilience data.
+    """
+    if not shock_timeline:
+        return []
+
+    coop_series = compute_cooperation_series(npc_registry)
+    turns = coop_series.get("turns", [])
+    values = coop_series.get("global_cooperation", [])
+    if not turns:
+        return []
+
+    turn_to_coop = dict(zip(turns, values))
+    results = []
+
+    for shock in shock_timeline:
+        shock_start = shock.get("turn_started", 0)
+        shock_duration = shock.get("duration", 0)
+        shock_end = shock_start + shock_duration
+
+        # Pre-shock baseline: avg cooperation over 10 turns before shock
+        pre_values = [turn_to_coop[t] for t in turns if shock_start - 10 <= t < shock_start]
+        pre_baseline = sum(pre_values) / len(pre_values) if pre_values else 0.5
+
+        # Find recovery: first turn after shock_end where cooperation >= pre_baseline
+        recovery_turns = None
+        for t in turns:
+            if t >= shock_end:
+                if turn_to_coop.get(t, 0) >= pre_baseline:
+                    recovery_turns = t - shock_end
+                    break
+
+        # Avg shock_resilience across NPCs at time of shock
+        resilience_values = []
+        for npc in npc_registry.values():
+            for sample in npc.adaptation_trace:
+                if abs(sample["turn"] - shock_start) <= 2:
+                    resilience_values.append(sample.get("shock_resilience", 0.5))
+                    break
+
+        avg_resilience = round(sum(resilience_values) / len(resilience_values), 4) if resilience_values else 0.5
+
+        results.append({
+            "shock_type": shock.get("shock_type", ""),
+            "turn_started": shock_start,
+            "duration": shock_duration,
+            "pre_shock_cooperation": round(pre_baseline, 4),
+            "recovery_turns": recovery_turns,
+            "avg_resilience_at_shock": avg_resilience,
+        })
+
+    return results
+
+
 # ── Experiment Bundle ─────────────────────────────────────────────────────────
 
 
@@ -437,6 +590,11 @@ def build_experiment_bundle(
         # Shock analysis
         "shock_timeline": shock_timeline,
         "shock_responses": compute_shock_response(npc_registry, shock_timeline),
+        "shock_recovery": compute_shock_recovery_time(npc_registry, shock_timeline),
+
+        # Narrative & quest metrics
+        "narrative_coherence": compute_narrative_coherence(event_log_entries),
+        "deviation_recovery": compute_deviation_recovery(event_log_entries),
 
         # Adaptation state (current snapshot)
         "adaptation_snapshot": {

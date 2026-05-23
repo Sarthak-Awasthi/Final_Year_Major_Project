@@ -405,34 +405,31 @@ def build_narration_prompt(
     weather_str = weather if weather else "clear"
     witnesses_str = ", ".join(witnesses) if witnesses else "nobody"
 
-    prompt = f"""You are a narrator for a medieval village RPG. Enhance the following action narration with atmospheric details.
+    location_readable = location.replace("_", " ").title()
 
-## Action Details
-- Action: {action_id}
-- Actor: {actor_name}
-- Target: {target_str}
-- Outcome: {outcome_type}
-- Location: {location}
-- Time: {time_of_day}
-- Weather: {weather_str}
-- Tone: {emotion}
-- Manner: {social}
-- Witnesses: {witnesses_str}
+    prompt = f"""You are a narrator for a medieval village RPG set in the village of Thornhaven.
+
+## What Just Happened
+The player performed "{action_id}" at {location_readable} during the {time_of_day}. Target: {target_str}. Outcome: {outcome_type}. Weather: {weather_str}.
+{f'Nearby: {witnesses_str}.' if witnesses_str != 'nobody' else ''}
 
 ## Base Narration
 "{template_text}"
 
-## Instructions
-Enhance the narrative with atmospheric details, focusing on the setting's ambiance and the actor's emotional state. Keep the outcome, time of day, and weather consistent.
-IMPORTANT RULES:
-- Write EXACTLY 2-3 sentences. No more.
-- ALWAYS use second person: every sentence must start with "You". NEVER mention the player's name ("{actor_name}") anywhere in the text — not as a subject, not as an appositive, not in any form.
-- Do NOT write NPC dialogue or speech — dialogue is handled separately.
-- Do NOT add game mechanics, stat changes, or action headers.
-- Do NOT echo back these instructions or action details.
-- Do NOT insert horizontal rules, separators (--- or ===), or markdown formatting.
+## Your Task
+Rewrite the base narration into vivid prose. You MUST include these specific details:
+1. Name the location "{location_readable}" explicitly in the text
+2. Reference the action "{action_id.replace('_', ' ')}" and its outcome
+3. Mention the {time_of_day} time of day (light, shadows, atmosphere)
+{f'4. Name at least one witness: {witnesses_str}' if witnesses_str != 'nobody' else ''}
 
-Respond with ONLY the enhanced narration text (2-3 sentences, second person, no player name), nothing else."""
+RULES:
+- Write EXACTLY 2-3 sentences
+- Second person ("You ...") — never use the player's name "{actor_name}"
+- No NPC dialogue, no stat numbers, no markdown
+- No instructions or meta-commentary
+
+Respond with ONLY the narration text."""
 
     return truncate_to_budget(prompt)
 

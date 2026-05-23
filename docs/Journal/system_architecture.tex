@@ -1,0 +1,163 @@
+\section{System Design}
+\label{sec:architecture}
+
+This section describes how the system is actually put together --- what talks to what, how a player turn gets processed, and the key game mechanics.
+
+\subsection{High-Level Architecture}
+
+\begin{figure}[ht]
+\centering
+\begin{verbatim}
++-------------------------------------------------------+
+|                    Frontend                            |
+|  HTML/CSS/JS + Cytoscape.js MDP Graph                 |
+|  Chart.js Analytics Dashboard                         |
+|  REST <-> WebSocket <->                               |
++------------------+----------------+-------------------+
+                   |                |
++------------------v----------------v-------------------+
+|                  FastAPI Server                        |
+|  REST: /api/action, /api/save, /api/load, ...         |
+|  REST: /api/metrics/timeseries, /api/metrics/experiment|
+|  WebSocket: /ws (real-time state pushes)              |
++------------------+------------------------------------+
+                   |
++------------------v------------------------------------+
+|                 GameEngine                             |
+|  +----------+ +--------+ +--------+ +---------+      |
+|  | Quest/MDP| | NPC/RL | | Player | | World   |      |
+|  | System   | | System | | System | | System  |      |
+|  +----+-----+ +----+---+ +----+---+ +----+----+      |
+|       |             |          |          |            |
+|  +----v-------------v----------v----------v------+     |
+|  |          Shock Manager + Analytics            |     |
+|  +-----------------------------------------------+     |
+|       |                                               |
+|  +----v---------------------------------------------+ |
+|  |              LLM Service                         | |
+|  |     (optional -- always has fallback)            | |
+|  +--------------------------------------------------+ |
++-------------------------------------------------------+
+\end{verbatim}
+\caption{Architecture overview. The LLM sits at the bottom --- other modules call it, but it never imports game logic. The Shock Manager sits alongside the core systems, injecting non-stationarity. Analytics aggregates data from all systems.}
+\label{fig:arch}
+\end{figure}
+
+The frontend talks to FastAPI over REST (for player actions, save/load, analytics queries) and WebSocket (for real-time state updates like MDP graph changes). The \texttt{GameEngine} orchestrates everything.
+
+\subsection{What Happens Each Turn}
+
+Every player action kicks off a multi-step pipeline:
+
+\begin{enumerate}
+    \item Resolve the player's action (Precondition $\to$ Context $\to$ Outcome).
+    \item Log it to the event log.
+    \item Check quest progress:
+    \begin{itemize}
+        \item \emph{Match}: advance to next checkpoint.
+        \item \emph{Convergence}: return to main path from a dynamic checkpoint.
+        \item \emph{Forward match}: skip ahead (player jumped ahead in the quest).
+        \item \emph{No match}: deviation $\to$ generate a dynamic checkpoint.
+    \end{itemize}
+    \item Process NPC turns (each of the 6 active NPCs picks and executes 1 action).
+    \item Check for random events (storm, fog, merchant, etc.).
+    \item \textbf{Shock engine tick:} decay active shock intensities, expire finished shocks, apply stat drain (HP, happiness) and trust modifiers to all NPCs.
+    \item Advance time (every 4 turns = 1 time period; cycle: morning $\to$ midday $\to$ afternoon $\to$ evening $\to$ night).
+    \item Passive stamina regen (+5 AP/turn, capped at 50).
+    \item Reputation decay (every 20 turns, all scores nudge $\pm 1$ toward 0).
+    \item Passive perception check (40\% base, +20\% at social locations).
+    \item Check game-over conditions (death, quest complete/fail, turn 200 limit).
+    \item Auto-save if needed (every 5 turns + before combat).
+    \item \textbf{Playthrough \& RL telemetry logging:} world snapshot, reward decomposition, adaptation state, shock state --- all logged per turn for research analysis.
+\end{enumerate}
+
+NPC turns (step 4) include: compute community state $\to$ compute decomposed reward $\to$ update adaptation state $\to$ update Q-table $\to$ track role telemetry $\to$ decay $\varepsilon$.
+
+\subsection{Action Resolution}
+
+All 28 actions are \emph{always available} --- we never tell the player ``you can't do that here.'' Every action goes through:
+$$\text{Action} \xrightarrow{\text{Precondition}} \xrightarrow{\text{Context}} \xrightarrow{\text{Outcome}}$$
+
+\begin{itemize}
+    \item \textbf{Precondition:} Hard requirements (e.g., \texttt{attack} needs a target present). If unmet $\to$ narrate why it fails, cost 0 AP.
+    \item \textbf{Context:} Skill checks, probability rolls, reputation modifiers.
+    \item \textbf{Outcome:} Apply effects (HP, stamina, rep, items), generate narration.
+\end{itemize}
+
+This is a deliberate design choice --- we want to maximize the observable action space for behavioral research, and contextual failure narration is more interesting than a greyed-out button.
+
+\subsection{Two Ways to Give Input}
+
+Both produce the same \texttt{ParsedInput} structure:
+
+\begin{enumerate}
+    \item \textbf{Button palette:} Categorized action buttons. Click = 1:1 mapping to an action. Confidence $= 1.0$, defaults to neutral emotion/social.
+    \item \textbf{Free text:} Player types something like ``I try to sneak past.'' A 3-stage NLP pipeline parses it:
+    \begin{enumerate}[label=(\alph*)]
+        \item Keyword/synonym dictionary (fast, deterministic)
+        \item spaCy similarity as tiebreaker (threshold $\geq 0.4$)
+        \item LLM for the hard cases (optional, only when confidence $< 0.5$)
+    \end{enumerate}
+\end{enumerate}
+
+\subsection{Narration}
+
+Four layers, from simple to fancy:
+
+\begin{enumerate}
+    \item \textbf{Templates:} Pre-written for all 28 actions $\times$ outcome types. Always works.
+    \item \textbf{LLM enhancement:} If loaded, adds atmospheric detail ($T = 0.7$). Skipped for social/dialogue actions to avoid duplicating the NPC's response.
+    \item \textbf{Context modifiers:} Time of day, weather, NPC mood, witnesses.
+    \item \textbf{Passive perception:} Automatic ``you notice...'' rolls.
+\end{enumerate}
+
+NPCs at the player's location get full narration. Important events elsewhere get brief notifications. Routine distant NPC actions collapse into ``Meanwhile...'' summaries.
+
+\subsection{Reputation}
+
+Reputation is tracked \emph{per NPC}, not as a single global score. Each NPC has an independent opinion of the player ($-100$ to $+100$):
+
+\begin{table}[ht]
+\centering
+\caption{Reputation thresholds.}
+\label{tab:reputation}
+\begin{tabular}{@{}lc@{}}
+\toprule
+Disposition & Range \\
+\midrule
+Trusted & $\geq 50$ \\
+Friendly & $20$ to $49$ \\
+Neutral & $-19$ to $19$ \\
+Suspicious & $-49$ to $-20$ \\
+Hostile & $\leq -50$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The \texttt{global\_reputation} shown in the UI is just a weighted average --- it's read-only, never used for game logic.
+
+\textbf{Gossip:} Reputation changes spread through the NPC network --- 40\% chance per social interaction, 50\% decay per hop, max 3 hops, min delta 2. There's a cascade limit of 1 gossip event per NPC pair per turn to prevent infinite loops.
+
+\subsection{Combat}
+
+Probabilistic with bounded outcomes:
+\begin{align}
+    P(\text{hit}) &= \text{clamp}\left(\frac{\text{atk} + \text{weapon} + \text{stamina\_factor} \times 10}{(\text{def} + \text{armor}) \times 2 + 20},\; 0.1,\; 0.95\right) \\
+    \text{damage} &= \max\left(1,\; \text{base\_atk} + \text{weapon\_mod} - \text{base\_def} - \text{armor\_mod} + U(-3, 3)\right)
+\end{align}
+
+\texttt{defend} halves next incoming damage (5 AP). \texttt{flee} has 70\% success (modified by stamina); failure means a free hit at +20\% probability. NPCs are \emph{never permanently killed} --- quest-critical ones floor at 1 HP and go permanently hostile; non-critical ones are incapacitated for 20 turns then return hostile.
+
+\subsection{World Map}
+
+Five locations in a star layout:
+
+\begin{verbatim}
+         [Fields]
+            |
+[Gate] - [Village Center] - [Elder's House]
+            |
+         [Tavern]
+\end{verbatim}
+
+Village Center is the hub. You can only move between adjacent locations (strictly enforced). Elder's House and Tavern are indoor (NPC HP regen +2/turn, \texttt{rest} works). Gate, Village Center, Fields are outdoor.

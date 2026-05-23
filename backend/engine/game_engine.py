@@ -9,17 +9,16 @@ save/load, and NPC pre-training.
 from __future__ import annotations
 
 import asyncio
-import copy
 import json
 import random
 import shutil
-import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 
+import backend.config as _cfg
 from backend.config import (
     AUTO_SAVE_INTERVAL,
     GAME_VERSION,
@@ -261,6 +260,10 @@ class GameEngine:
     def _pretrain_npcs(self) -> None:
         """Pre-train all NPCs with 100 episodes. Lightweight mode."""
         if self._pretrained:
+            return
+        if not _cfg.RL_ENABLED:
+            self._pretrained = True
+            logger.info("RL disabled — skipping NPC pre-training")
             return
         world_data = {
             "locations": LOCATION_ADJACENCY,
@@ -2389,6 +2392,14 @@ class GameEngine:
             completion = self.quest_manager.check_convergence(
                 action_id, target_npc, context
             )
+            if completion is not None:
+                self.event_log.add_entry(
+                    turn=self.turn, time_of_day=self.world.time_of_day,
+                    event_type="quest_convergence", actor="player", action=action_id,
+                    target=None, location=self.player.location, outcome="natural",
+                    effects={"forced": False},
+                    witnesses=[], narration="", importance=3,
+                )
 
         # If still no match, scan ahead: the player may have performed
         # a quest-critical action that satisfies a future checkpoint
@@ -2491,6 +2502,13 @@ class GameEngine:
         # No completion — check for deviation
         if action_result["success"] and action_id not in ("look", "wait", "status", "rest", "examine"):
             deviation = self.quest_manager.handle_deviation(action_id, context)
+            self.event_log.add_entry(
+                turn=self.turn, time_of_day=self.world.time_of_day,
+                event_type="quest_deviation", actor="player", action=action_id,
+                target=None, location=self.player.location, outcome="deviation",
+                effects={"deviation_count": deviation["deviation_count"]},
+                witnesses=[], narration="", importance=2,
+            )
 
             if deviation["force_convergence"]:
                 # Force convergence: loop detection check
@@ -2510,6 +2528,13 @@ class GameEngine:
                         self.quest_manager.advance_checkpoint(convergence_cp)
                         self.player.quest_state["current_checkpoint"] = self.quest_manager.current_checkpoint
 
+                self.event_log.add_entry(
+                    turn=self.turn, time_of_day=self.world.time_of_day,
+                    event_type="quest_convergence", actor="player", action=action_id,
+                    target=None, location=self.player.location, outcome="forced",
+                    effects={"forced": True, "deviation_count": deviation["deviation_count"]},
+                    witnesses=[], narration="", importance=3,
+                )
                 return {
                     "type": "forced_convergence",
                     "hint": hint,
@@ -2684,13 +2709,11 @@ class GameEngine:
             if loc:
                 game_ctx["items_at_location"] = loc.items_on_ground
 
-            if self.turn <= NPC_COLD_START_TURNS:
-                # Cold start: use fallback schedule
+            if not _cfg.RL_ENABLED or self.turn <= NPC_COLD_START_TURNS:
                 scheduled = get_scheduled_action(npc, self.world.time_of_day)
                 action_id = scheduled["action"]
                 action_idx = UNIVERSAL_ACTION_IDS.index(action_id) if action_id in UNIVERSAL_ACTION_IDS else UNIVERSAL_ACTION_IDS.index("wait")
             else:
-                # Q-learning action selection
                 valid_actions = get_valid_actions(npc, game_ctx)
                 action_idx = select_action(npc, state, valid_actions)
                 action_id = UNIVERSAL_ACTION_IDS[action_idx]
@@ -2719,22 +2742,17 @@ class GameEngine:
                     + npc.lambda_coeff * reward_dict["community"]
                 )
 
-            # Store reward for analytics
             npc.add_reward_sample(self.turn, reward_dict)
-            # Use total reward for Q-table update
-            update_q_table(npc, state, action_idx, reward_dict["total"], next_state)
-            
-            # STEP 3+5: Update adaptation state based on reward + shock pressure
-            shock_pressure = self.shock_manager.get_adaptation_pressure() if SHOCK_ENABLED else 0.0
-            npc.update_adaptation(reward_dict, shock_pressure)
+            if _cfg.RL_ENABLED:
+                update_q_table(npc, state, action_idx, reward_dict["total"], next_state)
+                shock_pressure = self.shock_manager.get_adaptation_pressure() if SHOCK_ENABLED else 0.0
+                npc.update_adaptation(reward_dict, shock_pressure)
             npc.add_adaptation_sample(self.turn)
 
-            # 6. Indoor HP regen
             if self.world.is_indoor(npc.location):
                 npc.modify_hp(NPC_INDOOR_REGEN)
 
-            # 7. Decay epsilon (only after cold start)
-            if self.turn > NPC_COLD_START_TURNS:
+            if _cfg.RL_ENABLED and self.turn > NPC_COLD_START_TURNS:
                 decay_epsilon(npc)
 
             # Log NPC action
@@ -3098,12 +3116,32 @@ class GameEngine:
         if self.player.health <= 0:
             return "fail"
         if self.quest_manager.quest_complete:
+            if self.turn < self.max_turns:
+                self._restart_quest()
+                return None
             return "success"
         if self.quest_manager.quest_failed:
+            if self.turn < self.max_turns:
+                self._restart_quest()
+                return None
             return "fail"
         if self.turn >= self.max_turns:
             return "turn_limit"
         return None
+
+    def _restart_quest(self) -> None:
+        """Reset quest state for a new episode. NPC learning (Q-tables, adaptation) is preserved."""
+        self._metrics["quests_completed"] = self._metrics.get("quests_completed", 0) + 1
+        self.quest_manager = QuestManager(self.mdp)
+        self.player.quest_state = {
+            "current_stage": 1,
+            "current_checkpoint": "1_1",
+            "completed_checkpoints": [],
+        }
+        self.player.location = "gate"
+        self.player.health = self.player.max_health
+        self.player.stamina = self.player.max_stamina
+        logger.info("Quest restarted (episode %d), NPC learning preserved", self._metrics.get("quests_completed", 1))
 
     # ── Save / Load ───────────────────────────────────────────────────────
 
