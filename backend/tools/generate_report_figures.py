@@ -25,7 +25,7 @@ from backend.engine.analytics import (
 from backend.engine.game_engine import GameEngine
 from backend.tools.playtest_bot import PlaytestBot
 
-REPORT_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "report")
+REPORT_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "report", "images")
 MAX_TURNS = 500
 SEED = 42
 

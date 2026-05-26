@@ -1,56 +1,217 @@
-\documentclass[12pt, a4paper]{article}
+% =============================================================================
+%  IIIT RAICHUR -- B.Tech PROJECT THESIS
+%  Department of Computer Science and Engineering
+% =============================================================================
 
-% ── Packages ──────────────────────────────────────────────────────────────
-\usepackage[margin=1in]{geometry}
+\documentclass[12pt, a4paper, oneside]{report}
+
+% ---------------------- PACKAGES ---------------------------------------------
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[margin=1in, top=1.2in, bottom=1.2in]{geometry}
 \usepackage{graphicx}
-\usepackage{amsmath, amssymb}
+\usepackage{setspace}
+\usepackage{titlesec}
+\usepackage{tocloft}
+\usepackage{fancyhdr}
 \usepackage{booktabs}
-\usepackage{hyperref}
-\usepackage{cleveref}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{tabularx}
+\usepackage{multirow}
 \usepackage{caption}
 \usepackage{subcaption}
-\usepackage{enumitem}
+\usepackage{amsmath, amssymb}
 \usepackage{xcolor}
+\usepackage[hidelinks, breaklinks=true]{hyperref}
+\usepackage{cleveref}
+\usepackage{url}
+\usepackage{enumitem}
 \usepackage{float}
-\usepackage{longtable}
 \usepackage[numbers]{natbib}
-\usepackage{setspace}
+
+% ---------------------- USER INPUTS ------------------------------------------
+\newcommand{\thesisTitle}{Cooperative NPC Behavior via Multi-Agent Reinforcement Learning in a Medieval Village RPG}
+\newcommand{\thesisTitleDisplay}{COOPERATIVE NPC BEHAVIOR VIA \\ MULTI-AGENT REINFORCEMENT LEARNING \\ IN A MEDIEVAL VILLAGE RPG}
+\newcommand{\studentNameA}{Shresth Sarthak Awasthi}
+\newcommand{\rollNumberA}{CS22B1051}
+\newcommand{\studentNameB}{Shaurya Yadav}
+\newcommand{\rollNumberB}{CS22B1050}
+\newcommand{\supervisorName}{Dr.~Supervisor Name}
+\newcommand{\departmentName}{Computer Science and Engineering}
+\newcommand{\submissionMonthYear}{May 2026}
+\newcommand{\submissionLocation}{Raichur -- 584135}
+\newcommand{\degreeName}{Bachelor of Technology}
+\newcommand{\logoPath}{images/iiitr_logo.png}
+
+% ---------------------- FORMATTING -------------------------------------------
 \onehalfspacing
 
-\hypersetup{
-    colorlinks=true,
-    linkcolor=blue!60!black,
-    citecolor=green!50!black,
-    urlcolor=blue!70!black,
+\titleformat{\chapter}[display]
+  {\normalfont\huge\bfseries}{\chaptertitlename\ \thechapter}{20pt}{\Huge}
+\titlespacing*{\chapter}{0pt}{-30pt}{30pt}
+
+\pagestyle{fancy}
+\fancyhf{}
+\fancyfoot[C]{\thepage}
+\renewcommand{\headrulewidth}{0pt}
+\renewcommand{\footrulewidth}{0pt}
+
+\fancypagestyle{plain}{%
+  \fancyhf{}%
+  \fancyfoot[C]{\thepage}%
+  \renewcommand{\headrulewidth}{0pt}%
+  \renewcommand{\footrulewidth}{0pt}%
 }
 
-% ── Title ─────────────────────────────────────────────────────────────────
-\title{
-    \vspace{-1cm}
-    \textbf{Cooperative NPC Behavior via Multi-Agent\\Reinforcement Learning in a Medieval Village RPG}\\[0.5em]
-    \large Final Semester Major Project Report
-}
-\author{
-    Shresth Sarthak Awasthi \and Shaurya Yadav\\[0.5em]
-    Department of Computer Science, IIIT Raichur\\
-    \texttt{cs22b1051@iiitr.ac.in}, \texttt{cs22b1052@iiitr.ac.in}
-}
-\date{\today}
+\renewcommand{\cftchapfont}{\bfseries}
+\renewcommand{\cftchappagefont}{\bfseries}
 
+\newcommand{\frontmatterheading}[1]{%
+  \begin{center}\Large\bfseries #1\end{center}
+  \vspace{0.5cm}
+}
+
+\setlength{\parskip}{0.5em}
+\setlength{\parindent}{1.5em}
+
+% =============================================================================
 \begin{document}
-\maketitle
 
-% ══════════════════════════════════════════════════════════════════════════
-\begin{abstract}
+% ---------------------- TITLE PAGE -------------------------------------------
+\begin{titlepage}
+    \centering
+    \thispagestyle{empty}
+    \vspace*{0.2cm}
+
+    {\Large\bfseries \thesisTitleDisplay \par}
+    \vspace{0.8cm}
+
+    {\normalsize A Project Report Submitted \par}
+    {\normalsize in Partial Fulfilment of the Requirements \par}
+    {\normalsize for the Degree of \par}
+    \vspace{0.5cm}
+
+    {\large\bfseries \MakeUppercase{\degreeName} \par}
+    \vspace{0.3cm}
+
+    {\normalsize in \par}
+    \vspace{0.2cm}
+
+    {\large\bfseries \MakeUppercase{\departmentName} \par}
+    \vspace{0.5cm}
+
+    {\normalsize\itshape by \par}
+    \vspace{0.3cm}
+
+    {\normalsize\bfseries \studentNameA{} (Roll No.~\rollNumberA) \par}
+    {\normalsize\bfseries \studentNameB{} (Roll No.~\rollNumberB) \par}
+    \vspace{0.5cm}
+
+    \includegraphics[width=1\textwidth]{\logoPath}\par
+    \vspace{0.5cm}
+
+    {\normalsize\itshape to \par}
+    \vspace{0.2cm}
+
+    {\normalsize\bfseries DEPARTMENT OF \MakeUppercase{\departmentName} \par}
+    {\normalsize\bfseries INDIAN INSTITUTE OF INFORMATION TECHNOLOGY \par}
+    {\normalsize\bfseries RAICHUR-584135, INDIA \par}
+    \vspace{0.4cm}
+
+    {\normalsize\itshape \submissionMonthYear \par}
+
+\end{titlepage}
+
+% ---------------------- FRONT MATTER (roman page numbers) --------------------
+\pagenumbering{roman}
+\setcounter{page}{2}
+
+% ---------------------- DECLARATION ------------------------------------------
+\clearpage
+\thispagestyle{plain}
+\frontmatterheading{DECLARATION}
+\addcontentsline{toc}{chapter}{Declaration}
+
+\noindent We, \textbf{\MakeUppercase{\studentNameA}} (Roll Number: \rollNumberA)
+and \textbf{\MakeUppercase{\studentNameB}} (Roll Number: \rollNumberB), hereby
+declare that this report entitled ``\textit{\thesisTitle}'' submitted to
+Indian Institute of Information Technology Raichur towards partial requirement
+of \degreeName{} in \departmentName{} is an original work carried out by us
+under the supervision of Mentor, \supervisorName{}, and has not formed the
+basis for the award of any degree or diploma, in this or any other institution
+or university. We have sincerely tried to uphold the academic ethics and
+honesty. Whenever an external information or statement or result is used then,
+that have been duly acknowledged and cited.
+
+\vspace{2.5cm}
+\noindent
+\begin{minipage}[t]{0.5\textwidth}
+\submissionLocation \\
+\submissionMonthYear
+\end{minipage}
+\hfill
+\begin{minipage}[t]{0.4\textwidth}
+\raggedleft
+\studentNameA \\
+Roll No.~\rollNumberA \\[1em]
+\studentNameB \\
+Roll No.~\rollNumberB
+\end{minipage}
+
+% ---------------------- CERTIFICATE ------------------------------------------
+\clearpage
+\thispagestyle{plain}
+\frontmatterheading{CERTIFICATE}
+\addcontentsline{toc}{chapter}{Certificate}
+
+\noindent This is to certify that the work contained in this project report
+entitled ``\textit{\thesisTitle}'' submitted by \textbf{\studentNameA} (Roll
+No: \rollNumberA) and \textbf{\studentNameB} (Roll No: \rollNumberB) to the
+Indian Institute of Information Technology Raichur towards partial requirement
+of \degreeName{} in \departmentName{} has been carried out by them under my
+supervision and that it has not been submitted elsewhere for the award of any
+degree.
+
+\vspace{3cm}
+\noindent
+\begin{minipage}[t]{0.5\textwidth}
+\submissionLocation \\
+\submissionMonthYear
+\end{minipage}
+\hfill
+\begin{minipage}[t]{0.4\textwidth}
+\raggedleft
+(\supervisorName) \\
+Project Supervisor
+\end{minipage}
+
+% ---------------------- ABSTRACT ---------------------------------------------
+\clearpage
+\thispagestyle{plain}
+\frontmatterheading{ABSTRACT}
+\addcontentsline{toc}{chapter}{Abstract}
+
 This report presents a medieval village RPG research playground for studying emergent cooperative behavior in multi-agent systems. The system combines a hierarchical Markov Decision Process (MDP) for quest progression with six tabular Q-learning NPC agents that develop adaptive personalities through a decomposed reward model. Each NPC receives a reward signal $R_i(t) = P_i(t) + G_i(t) + \lambda_i(t) \cdot C(t)$, where a dynamic $\lambda$ coefficient creates a feedback loop between cooperation tendency and community welfare weighting. A system shock engine injects non-stationary perturbations (famine, plague, raids) to test agent resilience. An optional LLM integration (via OpenRouter, Ollama, or LM Studio) provides atmospheric narration with template fallbacks. We conduct an ablation study across six conditions over 500 turns each, demonstrating that: (1)~Q-learning drives cooperation from a 0.500 baseline to 0.851 while schedule-only agents show no emergence; (2)~role-specific action masking improves cooperation by 0.088; (3)~system shocks reduce cooperation by 0.022 but agents recover, demonstrating adaptive resilience; (4)~the dynamic $\lambda$ feedback loop amplifies cooperation by 0.158 over a static baseline, making it the second-largest contributor after RL itself; and (5)~LLM narration achieves higher contextual grounding (0.57 vs 0.49) and 2.6$\times$ richer vocabulary than static templates.
-\end{abstract}
 
-\newpage
+% ---------------------- TABLE OF CONTENTS ------------------------------------
+\clearpage
 \tableofcontents
+\listoffigures
+\addcontentsline{toc}{chapter}{List of Figures}
+\listoftables
+\addcontentsline{toc}{chapter}{List of Tables}
 
-% ══════════════════════════════════════════════════════════════════════════
-\section{Introduction}
-\label{sec:introduction}
+\clearpage
+\pagenumbering{arabic}
+\setcounter{page}{1}
+
+% =============================================================================
+% CHAPTER 1: INTRODUCTION
+% =============================================================================
+\chapter{Introduction}
+\label{chap:introduction}
 
 Non-player characters (NPCs) in modern games typically follow scripted behavior trees or finite state machines, producing predictable and repetitive interactions. This project explores whether reinforcement learning can produce emergent cooperative behavior in a multi-agent game environment without explicit scripting of cooperation.
 
@@ -60,36 +221,135 @@ We build a single-player medieval village RPG where six NPCs learn autonomously 
 \textit{Can NPCs learn to shift from individually optimal strategies to cooperative behavior when community welfare contributes to their total reward?}
 \end{quote}
 
+\section{Problem Statement}
+\label{sec:problem-statement}
+
+Current NPC systems in games rely on hand-authored behavior trees, finite state machines, or scripted dialogue. These approaches produce deterministic, repetitive behavior that breaks immersion and cannot adapt to player strategy. The core problems are:
+
+\begin{itemize}
+    \item \textbf{No emergent cooperation:} Scripted NPCs cannot discover cooperative strategies on their own --- any prosocial behavior must be explicitly programmed by designers for every scenario.
+    \item \textbf{Brittleness to perturbation:} Static behavior trees cannot adapt when the game environment changes (e.g., resource shocks, new player strategies). NPCs continue executing their scripts regardless of context.
+    \item \textbf{No individual--community trade-off:} Real social agents must balance personal gain against group welfare. Scripted NPCs have no mechanism to represent, let alone dynamically adjust, this trade-off.
+    \item \textbf{Lack of interpretability in deep RL alternatives:} While deep RL can produce adaptive NPC behavior, the learned policies are opaque. For a research playground, full interpretability of what agents have learned is essential.
+\end{itemize}
+
+\section{Project Significance}
+\label{sec:project-significance}
+
+This project contributes to both game AI and multi-agent reinforcement learning research:
+
+\begin{itemize}
+    \item \textbf{Emergent social dynamics:} Demonstrates that cooperation can arise purely from reward structure and learning, without being scripted --- a result relevant to computational social science and mechanism design.
+    \item \textbf{Interpretable multi-agent RL:} By using tabular Q-learning (6,300 Q-values per NPC), every learned policy is directly inspectable. This contrasts with deep RL approaches where policy interpretation requires post-hoc explanation methods.
+    \item \textbf{Decomposed reward framework:} The $R_i(t) = P_i(t) + G_i(t) + \lambda_i(t) \cdot C(t)$ formulation with dynamic $\lambda$ is domain-agnostic and transferable to industrial multi-agent coordination problems (factory automation, automotive ECU tuning).
+    \item \textbf{Research playground:} The system provides a complete experimental platform with ablation controls, analytics dashboard, deterministic seeding, and automated bot playthroughs for reproducible research.
+\end{itemize}
+
+\section{Scope of Work}
+\label{sec:scope}
+
 The system is structured in three layers:
-\begin{enumerate}
-    \item \textbf{Hierarchical MDP} --- A 7-stage quest graph with 16 static checkpoints drives game progression. Dynamic checkpoints handle player deviations with nudging and convergence mechanisms.
-    \item \textbf{Q-Learning NPC Agents} --- Six NPCs run tabular Q-learning over a 225-state $\times$ 28-action space with role-specific action masking and adaptive personality coefficients.
-    \item \textbf{Optional LLM Narration} --- An HTTP adapter connects to OpenRouter, Ollama, or any OpenAI-compatible provider. Every LLM call has a deterministic template fallback, ensuring the game runs identically without a model.
-\end{enumerate}
+
+\begin{itemize}
+    \item \textbf{Hierarchical MDP:} A 7-stage quest graph with 16 static checkpoints drives game progression. Dynamic checkpoints handle player deviations with nudging and convergence mechanisms.
+    \item \textbf{Q-Learning NPC Agents:} Six NPCs run tabular Q-learning over a 225-state $\times$ 28-action space with role-specific action masking and adaptive personality coefficients.
+    \item \textbf{Optional LLM Narration:} An HTTP adapter connects to OpenRouter, Ollama, or any OpenAI-compatible provider. Every LLM call has a deterministic template fallback, ensuring the game runs identically without a model.
+\end{itemize}
 
 The project is implemented as a web application (Python/FastAPI backend, vanilla JavaScript frontend) with a real-time analytics dashboard for monitoring cooperation curves, reward decomposition, and shock response.
 
-% ══════════════════════════════════════════════════════════════════════════
-\section{Related Work}
-\label{sec:related_work}
+\section{Objectives}
+\label{sec:objectives}
 
-\textbf{Multi-Agent Reinforcement Learning.}
-Cooperative MARL has been studied through frameworks like QMIX~\cite{rashid2018qmix}, which factorizes joint Q-values, and MADDPG~\cite{lowe2017maddpg}, which uses centralized training with decentralized execution. Our approach uses independent Q-learners with a shared community reward signal, closer to the emergent social dilemma framework of Leibo et al.~\cite{leibo2017multi}.
+The main objectives of this project are:
 
-\textbf{Reward Shaping.}
-Ng et al.~\cite{ng1999rewardshaping} showed that potential-based reward shaping preserves optimal policies while accelerating learning. Our decomposed reward model extends this with a dynamic $\lambda$ coefficient that gates the community component based on each agent's cooperation tendency.
+\begin{enumerate}
+    \item Design and implement a multi-agent reinforcement learning environment within a medieval village RPG setting.
+    \item Develop a decomposed reward model with a dynamic $\lambda$ coefficient that creates feedback loops between individual and community welfare.
+    \item Implement six tabular Q-learning NPC agents with role-specific action masking and adaptive personality dynamics.
+    \item Build a system shock engine to test agent resilience under non-stationary environmental perturbations.
+    \item Conduct a systematic ablation study isolating the contribution of each subsystem to emergent cooperation.
+    \item Integrate optional LLM narration with guardrails and template fallbacks for atmospheric game text.
+\end{enumerate}
 
-\textbf{NPC Intelligence in Games.}
-Traditional NPC behavior uses behavior trees~\cite{isla2005bt} or hierarchical task networks. Recent work has explored RL for game NPCs~\cite{riedl2012interactive}, but primarily for single-agent scenarios. Our work applies multi-agent RL to a full game environment with quest progression and social dynamics.
+\section{Novelty}
+\label{sec:novelty}
 
-\textbf{LLM-Enhanced Game Narration.}
-Large language models have been applied to interactive fiction~\cite{urbanek2019light} and game dialogue. Our system uses LLMs as an optional narration layer with a 9-stage guardrail pipeline, maintaining full playability without model access.
+The key novel contributions of this project are:
 
-% ══════════════════════════════════════════════════════════════════════════
-\section{System Architecture}
-\label{sec:architecture}
+\begin{itemize}
+    \item \textbf{Dynamic $\lambda$ feedback loop:} Unlike static reward weighting in prior MARL work, the $\lambda_i(t) = 0.05 + \text{coop}_i \times 0.55$ mechanism creates a virtuous cycle where cooperation self-amplifies through the reward structure. Our ablation shows this contributes $+0.158$ to cooperation --- the second-largest factor after RL itself.
+    \item \textbf{Fully interpretable multi-agent cooperation:} While prior game AI research uses deep RL (opaque policies), our tabular approach lets researchers directly inspect every Q-value and trace exactly why an NPC chose a cooperative action.
+    \item \textbf{Integrated research playground:} The system combines RL agents, environmental shocks, adaptive personalities, quest progression, LLM narration, and a complete analytics dashboard in a single reproducible platform with ablation controls --- a combination not found in existing game AI testbeds.
+\end{itemize}
 
-\subsection{Hierarchical MDP}
+% =============================================================================
+% CHAPTER 2: LITERATURE SURVEY
+% =============================================================================
+\chapter{Literature Survey}
+\label{chap:literature}
+
+This chapter reviews prior work across four domains that converge in our project: multi-agent reinforcement learning, reward shaping, NPC intelligence in games, and LLM-enhanced narration. For each category, we summarize the major approaches and identify the gaps our project addresses.
+
+\section{Multi-Agent Reinforcement Learning}
+\label{sec:marl}
+
+Cooperative MARL has been studied through several frameworks. QMIX~\cite{rashid2018qmix} factorizes joint Q-values under a monotonicity constraint, enabling centralized training with decentralized execution for cooperative tasks. MADDPG~\cite{lowe2017maddpg} extends actor-critic methods to multi-agent settings by giving each agent's critic access to all agents' observations during training. Leibo et al.~\cite{leibo2017multi} study emergent social dilemmas in grid-world environments, showing that cooperation or defection can arise from independent learners depending on environmental incentives.
+
+Our approach uses independent Q-learners with a shared community reward signal, closest to the emergent cooperation framework of Leibo et al., but with a critical addition: the dynamic $\lambda$ coefficient that gates how much each agent weights the community signal based on its own cooperation history.
+
+\section{Reward Shaping}
+\label{sec:reward-shaping}
+
+Ng et al.~\cite{ng1999rewardshaping} proved that potential-based reward shaping preserves optimal policies while accelerating learning. This foundational result ensures that adding a shaping term $F(s, s') = \gamma \Phi(s') - \Phi(s)$ does not change what the agent ultimately learns, only how fast it gets there. Our decomposed reward model extends this idea: the community component $\lambda_i(t) \cdot C(t)$ acts as a shaping signal that nudges agents toward prosocial behavior, with the dynamic $\lambda$ controlling the strength of this nudge based on each agent's cooperation trajectory.
+
+\section{NPC Intelligence in Games}
+\label{sec:npc-intelligence}
+
+Traditional NPC behavior relies on behavior trees~\cite{isla2005bt} or hierarchical task networks, which require designers to manually author every decision branch. Recent work has explored RL for game NPCs~\cite{riedl2012interactive}, but primarily for single-agent scenarios (one NPC learning to interact with one player). Our work applies multi-agent RL to a full game environment with quest progression, social dynamics among NPCs, and environmental perturbations --- a significantly richer setting than prior single-agent game RL.
+
+\section{LLM-Enhanced Game Narration}
+\label{sec:llm-narration}
+
+Large language models have been applied to interactive fiction~\cite{urbanek2019light} and game dialogue generation. However, most systems treat the LLM as the primary game engine, making gameplay quality dependent on model availability and output quality. Our system uses LLMs as an optional narration layer with a 9-stage guardrail pipeline, maintaining full playability without model access. This separation of game logic from narration is a key architectural difference.
+
+\section{Comparison with Our Approach}
+\label{sec:lit-comparison}
+
+\begin{table}[H]
+\centering
+\caption{Comparison of Related Approaches and Our System}
+\label{tab:lit-comparison}
+\small
+\begin{tabularx}{\textwidth}{|l|l|X|X|}
+\hline
+\textbf{Work} & \textbf{Year} & \textbf{Methodology} & \textbf{Our Differentiation} \\
+\hline
+QMIX~\cite{rashid2018qmix} & 2018 & Factorized joint Q-values, centralized training & We use independent learners with shared community reward --- no centralized critic needed \\
+\hline
+MADDPG~\cite{lowe2017maddpg} & 2017 & Centralized critic, decentralized actors (deep RL) & Tabular Q-learning for full interpretability; dynamic $\lambda$ instead of static reward mixing \\
+\hline
+Leibo et al.~\cite{leibo2017multi} & 2017 & Emergent social dilemmas in grid-worlds & Full RPG environment with quests, shocks, adaptive personalities, and LLM narration \\
+\hline
+Ng et al.~\cite{ng1999rewardshaping} & 1999 & Potential-based reward shaping theory & Extended with dynamic gating via $\lambda_i(t)$ that evolves with cooperation tendency \\
+\hline
+Isla~\cite{isla2005bt} & 2005 & Behavior trees for NPC AI & RL replaces hand-authored trees; cooperation emerges rather than being scripted \\
+\hline
+LIGHT~\cite{urbanek2019light} & 2019 & LLM-driven interactive fiction & LLM is optional narration layer, not the game engine; 9-stage guardrails \\
+\hline
+\end{tabularx}
+\end{table}
+
+% =============================================================================
+% CHAPTER 3: METHODOLOGY
+% =============================================================================
+\chapter{Methodology}
+\label{chap:methodology}
+
+This chapter details the technical design of the system: the hierarchical MDP for quest progression, the Q-learning architecture for NPC agents, the decomposed reward model with dynamic $\lambda$, and the supporting subsystems (action masking, adaptive personalities, shock engine, LLM integration).
+
+\section{Hierarchical MDP}
+\label{sec:hierarchical-mdp}
 
 The quest is modeled as a two-level hierarchical MDP:
 
@@ -104,7 +364,8 @@ Each macro stage $S_k$ contains a micro MDP $\mathcal{M}_{\text{micro}}^{(k)}$ w
 
 \textbf{Quest Auto-Restart.} When the quest completes before the turn limit, the quest state resets while preserving all NPC Q-tables and adaptation states, enabling multi-episode learning within a single session.
 
-\subsection{NPC State Space and Q-Learning}
+\section{NPC State Space and Q-Learning}
+\label{sec:q-learning}
 
 Each NPC maintains a tabular Q-table over a discretized state space:
 
@@ -132,7 +393,8 @@ Total state space: $5 \times 5 \times 3 \times 3 = 225$ states. Action space: 28
 \end{equation}
 with $\alpha = 0.1$, $\gamma = 0.9$, $\varepsilon$-greedy exploration decaying from 0.15 to 0.05 at rate $0.995$/turn. Pre-training: 100 episodes $\times$ 50 turns per NPC at $\varepsilon = 0.5$.
 
-\subsection{Decomposed Reward Model}
+\section{Decomposed Reward Model}
+\label{sec:reward-model}
 
 Each NPC $i$ receives a reward signal composed of three terms:
 \begin{equation}
@@ -147,7 +409,8 @@ Each NPC $i$ receives a reward signal composed of three terms:
     \item $\lambda_i(t)$: \textbf{Dynamic lambda} --- $\lambda_i = 0.05 + \text{coop}_i \times 0.55$, ranging from 0.05 (selfish) to 0.60 (cooperative). Creates a feedback loop: positive community reward $\to$ cooperation rises $\to$ $\lambda$ increases $\to$ more weight on community reward.
 \end{itemize}
 
-\subsection{Role-Specific Action Masking}
+\section{Role-Specific Action Masking}
+\label{sec:action-masking}
 
 Each NPC archetype has a preferred action set. During action selection:
 \begin{itemize}[nosep]
@@ -155,7 +418,8 @@ Each NPC archetype has a preferred action set. During action selection:
     \item \textbf{Soft masking}: Role-aligned actions receive a $+0.5$ Q-value bonus; misaligned actions receive a $-0.3$ penalty.
 \end{itemize}
 
-\subsection{Adaptive Personality Dynamics}
+\section{Adaptive Personality Dynamics}
+\label{sec:adaptation}
 
 Four adaptation coefficients evolve per turn at base rate 0.018 with homeostatic drift rate 0.004 toward 0.5:
 
@@ -175,7 +439,8 @@ shock\_resilience & Shock adaptation & Increases under shock pressure \\
 \end{tabular}
 \end{table}
 
-\subsection{System Shock Engine}
+\section{System Shock Engine}
+\label{sec:shock-engine}
 
 Five shock types inject non-stationary perturbations:
 
@@ -198,58 +463,13 @@ Harsh Winter & 20 turns & 0.7$\times$ & Long-duration stress \\
 
 Shocks directly pressure cooperation downward: when shock intensity exceeds 0.1, cooperation tendency decreases proportionally, independent of the reward signal.
 
-\subsection{LLM Integration}
+\section{LLM Integration}
+\label{sec:llm-integration}
 
 The LLM service is a thin HTTP adapter supporting Ollama, OpenRouter, and OpenAI-compatible providers. Four use cases: input parsing, NPC dialogue, checkpoint generation, and narration enhancement. A 9-stage guardrail pipeline (strip reasoning blocks, parse JSON, schema validation, enum validation, value clamping, action reference validation, content filtering, length enforcement) ensures output quality. Every code path has a deterministic template fallback. Default model: \texttt{qwen3:4b} via LM Studio or \texttt{meta-llama/llama-3.2-3b-instruct:free} via OpenRouter.
 
-% ══════════════════════════════════════════════════════════════════════════
-\section{Implementation}
-\label{sec:implementation}
-
-The system comprises approximately 17,700 lines of Python (backend) and 6,300 lines of JavaScript (frontend).
-
-\begin{table}[H]
-\centering
-\caption{Technology Stack}
-\label{tab:tech_stack}
-\begin{tabular}{ll}
-\toprule
-\textbf{Component} & \textbf{Technology} \\
-\midrule
-Backend & Python 3.12, FastAPI, Pydantic \\
-Frontend & Vanilla JS, Chart.js, Cytoscape.js \\
-RL Engine & NumPy (tabular Q-tables) \\
-NLP & spaCy (input parsing fallback) \\
-LLM & HTTP adapter (Ollama / OpenRouter / LM Studio) \\
-Analytics & Matplotlib (research graphs) \\
-Testing & pytest (91 tests across 5 suites) \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-\subsection{NPC Roster}
-
-Six NPCs with distinct archetypes, reward weights, and starting locations:
-
-\begin{table}[H]
-\centering
-\caption{NPC Roster and Reward Weights}
-\label{tab:npc_roster}
-\begin{tabular}{llllllll}
-\toprule
-\textbf{NPC} & \textbf{Role} & \textbf{Location} & \textbf{Happiness} & \textbf{Income} & \textbf{Health} & \textbf{Rep.} \\
-\midrule
-Elder Maren & Elder & Elder's House & 0.3 & 0.1 & 0.2 & 0.4 \\
-Farmer Jak & Farmer & Fields & 0.2 & 0.4 & 0.2 & 0.2 \\
-Aldric & Guard & Gate & 0.1 & 0.2 & 0.3 & 0.4 \\
-Bryn & Guard & Gate & 0.1 & 0.2 & 0.3 & 0.4 \\
-Tessa & Tavern Keeper & Tavern & 0.2 & 0.4 & 0.1 & 0.3 \\
-Old Petra & Villager & Village Center & 0.4 & 0.2 & 0.2 & 0.2 \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-\subsection{Turn Processing Pipeline}
+\section{Turn Processing Pipeline}
+\label{sec:turn-pipeline}
 
 Each player action triggers a 10-step pipeline:
 \begin{enumerate}[nosep]
@@ -265,9 +485,50 @@ Each player action triggers a 10-step pipeline:
     \item Telemetry logging (world snapshot, reward decomposition, adaptation state)
 \end{enumerate}
 
-% ══════════════════════════════════════════════════════════════════════════
+% =============================================================================
+% CHAPTER 4: CHALLENGES AND SOLUTIONS
+% =============================================================================
+\chapter{Challenges and Solutions}
+\label{chap:challenges}
+
+Developing a multi-agent RL system within a full game environment introduced several technical and design challenges. Table~\ref{tab:challenges} summarizes the major issues faced and their corresponding solutions.
+
+\begin{table}[H]
+\centering
+\caption{Major Implementation Challenges and Their Solutions}
+\label{tab:challenges}
+\begin{tabularx}{\textwidth}{|X|X|}
+\hline
+\textbf{Challenge} & \textbf{Solution} \\
+\hline
+\textbf{Multi-agent non-stationarity:} Six Q-learners in a shared environment violate the stationary MDP assumption needed for convergence guarantees.
+& Slow adaptation rate (0.018), homeostatic drift toward 0.5, and a shared community reward signal that aligns agents, empirically producing stable cooperation. \\
+\hline
+\textbf{Reward hacking risk:} Agents could exploit $C(t)$ via degenerate strategies that inflate village stats without genuine cooperation.
+& Competing objectives (role-specific $G_i$, penalty $P_i$) and non-linear shaping (sigmoid, sub-linear) prevent saturation exploits. Ablation verified cooperation correlates with prosocial actions. \\
+\hline
+\textbf{LLM output quality:} Local 4B models produce inconsistent JSON, hallucinate game state, and occasionally generate inappropriate content.
+& 9-stage guardrail pipeline (JSON parse, schema/enum validation, value clamping, content filtering) with deterministic template fallbacks on every code path. \\
+\hline
+\textbf{Reproducibility:} Python's hash randomization and platform-specific RNG behavior make cross-run reproducibility difficult.
+& Single \texttt{MASTER\_SEED}; NPC pre-training seeds derived from registry index (not \texttt{hash()}). Explicit reproducibility tests verify identical playthroughs. \\
+\hline
+\textbf{Windows asyncio deadlocks:} Module-based execution caused \texttt{ProactorEventLoop} deadlocks with \texttt{asyncio.to\_thread}.
+& Direct script execution with \texttt{sys.path} insertion, avoiding the Windows-specific event loop interaction. \\
+\hline
+\end{tabularx}
+\end{table}
+
+% =============================================================================
+% CHAPTER 5: RESULTS AND DISCUSSION
+% =============================================================================
+\chapter{Results and Discussion}
+\label{chap:results}
+
+This chapter presents the experimental design, ablation study results, reward analysis, NPC adaptation patterns, and narrative quality evaluation.
+
 \section{Experimental Design}
-\label{sec:experimental_design}
+\label{sec:experimental-design}
 
 \subsection{Ablation Conditions}
 
@@ -279,7 +540,7 @@ We define seven ablation conditions, each isolating one subsystem:
 \label{tab:conditions}
 \begin{tabular}{llccccc}
 \toprule
-\textbf{ID} & \textbf{Description} & \textbf{MDP} & \textbf{RL} & \textbf{Shocks} & \textbf{Mask} & \textbf{Dyn. $\lambda$} \\
+\textbf{ID} & \textbf{Description} & \textbf{MDP} & \textbf{RL} & \textbf{Shocks} & \textbf{Mask} & \textbf{Dyn.\ $\lambda$} \\
 \midrule
 C1 & Full System (baseline) & \checkmark & \checkmark & \checkmark & \checkmark & \checkmark \\
 C2 & No LLM & \checkmark & \checkmark & \checkmark & \checkmark & \checkmark \\
@@ -307,11 +568,8 @@ C7 & Static $\lambda = 0.325$ & \checkmark & \checkmark & \checkmark & \checkmar
 
 Automated bot playthroughs using the \texttt{quest\_focused} strategy with seed 42 for reproducibility. Each condition runs for 500 turns with quest auto-restart. A famine shock is injected at turn 166 for conditions with shocks enabled. Normal difficulty preset with adaptive difficulty disabled.
 
-% ══════════════════════════════════════════════════════════════════════════
-\section{Results and Analysis}
-\label{sec:results}
-
-\subsection{Ablation Study}
+\section{Ablation Study Results}
+\label{sec:ablation-results}
 
 \begin{table}[H]
 \centering
@@ -333,54 +591,56 @@ C7 & Static $\lambda = 0.325$ & 0.693 & $-0.158$ \\
 
 \begin{figure}[H]
     \centering
-    \includegraphics[width=\textwidth]{fig_cooperation.png}
+    \includegraphics[width=\textwidth]{images/fig_cooperation.png}
     \caption{Cooperation index $\mathcal{K}(t)$ over 500 turns for six ablation conditions. C3 (No RL) remains flat at 0.500 while all RL-enabled conditions show emergence. C7 (Static $\lambda$) rises slower than C1, confirming the feedback loop's amplifying effect. C4 (Flat MDP) rises fastest due to more frequent quest cycling.}
     \label{fig:cooperation}
 \end{figure}
 
-\subsubsection{Finding 1: RL Drives Cooperation}
+\subsection{Finding 1: RL Drives Cooperation}
 
 The most significant result: C1 (Full System) achieves a cooperation index of 0.851 while C3 (No RL) remains at exactly 0.500 --- the initialization baseline. Without Q-learning, NPCs follow deterministic schedules and cannot adapt their behavior. The 0.351 gap demonstrates that cooperation is an \textit{emergent} property of the learning process, not a byproduct of game mechanics.
 
-\subsubsection{Finding 2: Role Masking Aids Learning}
+\subsection{Finding 2: Role Masking Aids Learning}
 
 C6 (No Role Masking) achieves 0.763, compared to C1's 0.851 --- a 0.088 difference. Without role constraints, NPCs explore the full 28-action space uniformly, producing noisier Q-value estimates. Role masking provides structural inductive bias: guards learn from guard-relevant actions, farmers from farming actions, producing cleaner gradient signals.
 
-\subsubsection{Finding 3: Shock Resilience}
+\subsection{Finding 3: Shock Resilience}
 
 C5 (No Shocks) reaches 0.873, slightly above C1's 0.851. The famine shock at turn 166 creates a visible dip in C1's cooperation curve (\cref{fig:cooperation}), but NPCs recover within approximately 30 turns. This demonstrates adaptive resilience: the shock\_resilience coefficient increases under pressure, and the dynamic $\lambda$ feedback loop restores cooperative behavior once the shock expires.
 
-\subsubsection{Finding 4: MDP Structure}
+\subsection{Finding 4: MDP Structure}
 
 C4 (Flat MDP) achieves the highest cooperation at 0.953. Without hierarchical stage gates, quest completion is faster (the bot cycles through more episodes in 500 turns), giving NPCs more learning opportunities. This suggests that quest structure affects the \textit{rate} of learning more than the \textit{direction} --- both converge toward cooperation, but flat MDPs provide more training data per unit time.
 
-\subsubsection{Finding 5: Dynamic Lambda Amplifies Cooperation}
+\subsection{Finding 5: Dynamic Lambda Amplifies Cooperation}
 
 C7 (Static $\lambda = 0.325$) achieves a cooperation index of 0.693, compared to C1's 0.851 --- a 0.158 difference, making the dynamic $\lambda$ feedback loop the second-largest contributor to cooperation after RL itself ($+0.351$). Crucially, C7 still shows cooperation emergence (0.500 $\to$ 0.693): the community reward signal alone drives some learning, even without the amplifying feedback loop. But the virtuous cycle --- positive community outcomes $\to$ cooperation rises $\to$ $\lambda$ increases $\to$ more weight on community reward --- provides a substantial acceleration. This confirms that the dynamic $\lambda$ mechanism is not merely cosmetic; it is a primary driver of the system's cooperation dynamics.
 
 \begin{figure}[H]
     \centering
-    \includegraphics[width=0.85\textwidth]{fig_final_bar.png}
+    \includegraphics[width=0.85\textwidth]{images/fig_final_bar.png}
     \caption{Final cooperation index by condition after 500 turns. C7 (Static $\lambda$) falls between C6 and C3, confirming the feedback loop's amplifying role.}
     \label{fig:final_bar}
 \end{figure}
 
-\subsection{Reward Decomposition}
+\section{Reward Decomposition}
+\label{sec:reward-decomposition}
 
 \begin{figure}[H]
     \centering
-    \includegraphics[width=\textwidth]{fig_reward.png}
+    \includegraphics[width=\textwidth]{images/fig_reward.png}
     \caption{Average reward components over time for C1 (Full System). Community reward C(t) dominates the total signal as $\lambda$ increases. Individual reward G(t) declines as NPC stats stabilize. The famine shock at turn 166 is visible as a dip in community reward.}
     \label{fig:reward}
 \end{figure}
 
 The reward decomposition (\cref{fig:reward}) confirms the hypothesized dynamic: early turns are dominated by individual reward $G(t)$ (stat changes from pre-training); as stats stabilize, community reward $C(t)$ becomes the primary gradient signal, amplified by the rising $\lambda$ coefficient.
 
-\subsection{NPC Adaptation and Role Divergence}
+\section{NPC Adaptation and Role Divergence}
+\label{sec:npc-adaptation}
 
 \begin{figure}[H]
     \centering
-    \includegraphics[width=\textwidth]{fig_npc_adaptation.png}
+    \includegraphics[width=\textwidth]{images/fig_npc_adaptation.png}
     \caption{NPC adaptation states after 500 turns. Left: C1 (Full System) shows role-specific divergence. Right: C3 (No RL) remains at baseline 0.500 across all coefficients.}
     \label{fig:npc_adaptation}
 \end{figure}
@@ -410,16 +670,18 @@ Key observations from \cref{tab:npc_states}:
     \item \textbf{Risk aversion shows subtle variation} --- Old Petra (0.484) is least risk-averse; Farmer Jak (0.494) slightly below baseline, driven by the 1.2$\times$ farming risk multiplier encountering occasional negative individual rewards.
 \end{itemize}
 
-\subsection{Action Distribution Shift}
+\section{Action Distribution Shift}
+\label{sec:action-shift}
 
 \begin{figure}[H]
     \centering
-    \includegraphics[width=0.85\textwidth]{fig_action_shift.png}
+    \includegraphics[width=0.85\textwidth]{images/fig_action_shift.png}
     \caption{Change in NPC action proportions between early and late game (C1). Green = actions used more in late game; red = used less. NPCs shift from social actions (talk, trade) toward utility and exploration (examine, work, rest).}
     \label{fig:action_shift}
 \end{figure}
 
-\subsection{Narrative Quality}
+\section{Narrative Quality}
+\label{sec:narrative-quality}
 
 \begin{table}[H]
 \centering
@@ -432,7 +694,7 @@ Key observations from \cref{tab:npc_states}:
 Contextual grounding & 0.567 & 0.488 & LLM \\
 Vocabulary diversity (TTR) & 0.323 & 0.277 & LLM \\
 Unique words & 396 & 151 & LLM \\
-Avg. narration length & 61.4 words & 27.3 words & LLM \\
+Avg.\ narration length & 61.4 words & 27.3 words & LLM \\
 Lexical coherence & 0.202 & 0.213 & Template \\
 \bottomrule
 \end{tabular}
@@ -448,18 +710,104 @@ The LLM produces narration that is both more contextually grounded (0.57 vs 0.49
 \textbf{Template (C2):} ``You look for a hiding spot but can't find adequate cover. Aldric and Bryn observe your actions.''
 \end{quote}
 
-\subsection{Social Welfare}
+\section{Social Welfare}
+\label{sec:social-welfare}
 
 \begin{figure}[H]
     \centering
-    \includegraphics[width=\textwidth]{fig_welfare.png}
+    \includegraphics[width=\textwidth]{images/fig_welfare.png}
     \caption{Village social welfare index over 500 turns. Tracks cooperation emergence at the village level, weighted by community reward performance.}
     \label{fig:welfare}
 \end{figure}
 
-% ══════════════════════════════════════════════════════════════════════════
-\section{Conclusion}
-\label{sec:conclusion}
+% =============================================================================
+% CHAPTER 6: TOOLS, TECHNOLOGIES, AND PARAMETERS
+% =============================================================================
+\chapter{Tools, Technologies, and Parameters}
+\label{chap:tools}
+
+This chapter documents the technology stack, NPC configuration, and key hyperparameters used in the implementation. The system comprises approximately 17,700 lines of Python (backend) and 6,300 lines of JavaScript (frontend).
+
+\section{Tools and Technologies}
+\label{sec:tools-tech}
+
+\begin{itemize}
+    \item \textbf{Programming Languages / Frameworks:} Python 3.12 (backend), Vanilla JavaScript (frontend), FastAPI (web framework), Pydantic (data validation).
+    \item \textbf{RL Engine:} NumPy for tabular Q-table operations.
+    \item \textbf{NLP:} spaCy for input parsing fallback.
+    \item \textbf{LLM Integration:} HTTP adapter supporting Ollama, OpenRouter, and LM Studio (OpenAI-compatible endpoints).
+    \item \textbf{Frontend Visualization:} Chart.js (analytics dashboard), Cytoscape.js (real-time MDP graph).
+    \item \textbf{Research Analytics:} Matplotlib for experiment figures and ablation plots.
+    \item \textbf{Testing:} pytest (91 tests across 5 suites: core gameplay, shock engine, adaptation \& masking, analytics, integration).
+    \item \textbf{Package Management:} \texttt{uv} with \texttt{pyproject.toml}.
+\end{itemize}
+
+\section{NPC Roster and Configuration}
+\label{sec:npc-roster}
+
+\begin{table}[H]
+\centering
+\caption{NPC Roster and Reward Weights}
+\label{tab:npc_roster}
+\begin{tabular}{llllllll}
+\toprule
+\textbf{NPC} & \textbf{Role} & \textbf{Location} & \textbf{Happiness} & \textbf{Income} & \textbf{Health} & \textbf{Rep.} \\
+\midrule
+Elder Maren & Elder & Elder's House & 0.3 & 0.1 & 0.2 & 0.4 \\
+Farmer Jak & Farmer & Fields & 0.2 & 0.4 & 0.2 & 0.2 \\
+Aldric & Guard & Gate & 0.1 & 0.2 & 0.3 & 0.4 \\
+Bryn & Guard & Gate & 0.1 & 0.2 & 0.3 & 0.4 \\
+Tessa & Tavern Keeper & Tavern & 0.2 & 0.4 & 0.1 & 0.3 \\
+Old Petra & Villager & Village Center & 0.4 & 0.2 & 0.2 & 0.2 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Key Parameters and Settings}
+\label{sec:parameters}
+
+\begin{table}[H]
+\centering
+\caption{Important Parameters Used in Implementation}
+\label{tab:parameters}
+\begin{tabularx}{\textwidth}{|l|X|}
+\hline
+\textbf{Parameter} & \textbf{Value / Description} \\
+\hline
+Learning rate ($\alpha$) & 0.1 --- standard tabular Q-learning rate \\
+\hline
+Discount factor ($\gamma$) & 0.9 --- balances immediate vs future reward \\
+\hline
+Exploration ($\varepsilon$) & Decays from 0.15 to 0.05 at rate 0.995/turn \\
+\hline
+Pre-training & 100 episodes $\times$ 50 turns per NPC at $\varepsilon = 0.5$ \\
+\hline
+Adaptation rate & 0.018 base rate with homeostatic drift 0.004 toward 0.5 \\
+\hline
+Dynamic $\lambda$ & $\lambda_i = 0.05 + \text{coop}_i \times 0.55$, range [0.05, 0.60] \\
+\hline
+Static $\lambda$ (C7) & Fixed at 0.325 (midpoint of dynamic range) \\
+\hline
+Soft mask bonus/penalty & $+0.5$ for role-aligned actions, $-0.3$ for misaligned \\
+\hline
+HP penalty threshold & $-10$ reward when HP drops below 20\% \\
+\hline
+Nudge reward & $R_{\text{nudge}} = 0.3 \cdot (d_{\text{before}} - d_{\text{after}})$ \\
+\hline
+Master seed & 42 (all randomness derived deterministically) \\
+\hline
+Experiment duration & 500 turns per condition with quest auto-restart \\
+\hline
+Famine shock injection & Turn 166 (one-third of session) \\
+\hline
+\end{tabularx}
+\end{table}
+
+% =============================================================================
+% CHAPTER 7: CONCLUSION AND FUTURE SCOPE
+% =============================================================================
+\chapter{Conclusion and Future Scope}
+\label{chap:conclusion}
 
 This project demonstrates that emergent cooperative behavior can arise from independent Q-learning agents when the reward signal includes a community welfare component gated by a dynamic $\lambda$ coefficient. The key findings:
 
@@ -471,7 +819,8 @@ This project demonstrates that emergent cooperative behavior can arise from inde
     \item \textbf{LLM narration adds quality without losing context.} With tuned prompts, the LLM achieves higher contextual grounding than templates while producing 2.6$\times$ richer vocabulary.
 \end{enumerate}
 
-\subsection{Limitations}
+\section{Limitations}
+\label{sec:limitations}
 
 \begin{itemize}[nosep]
     \item Results are from automated bot playthroughs with a single strategy (\texttt{quest\_focused}); human player behavior may produce different cooperation dynamics.
@@ -480,7 +829,8 @@ This project demonstrates that emergent cooperative behavior can arise from inde
     \item Narrative coherence metrics rely on token overlap rather than semantic similarity; sentence-transformer embeddings would provide stronger signal.
 \end{itemize}
 
-\subsection{Future Work}
+\section{Future Scope}
+\label{sec:future-scope}
 
 \begin{itemize}[nosep]
     \item Scale to 100 bot playthroughs per condition with varied strategies for statistical significance.
@@ -490,7 +840,8 @@ This project demonstrates that emergent cooperative behavior can arise from inde
     \item Explore longer sessions ($>$1000 turns) to test cooperation saturation.
 \end{itemize}
 
-\subsection{Real-World Transfer}
+\section{Real-World Transfer}
+\label{sec:real-world-transfer}
 
 The decomposed reward framework $R_i(t) = P_i(t) + G_i(t) + \lambda_i(t) \cdot C(t)$ generalises beyond games to any domain where heterogeneous subsystems must balance local objectives against a shared global target.
 
@@ -503,8 +854,10 @@ A modern engine's sensor--actuator subsystems (knock sensor, O$_2$ sensor, throt
 \textbf{Bridging the Gap.}
 Two challenges must be addressed: (i)~the 225-state tabular formulation must give way to function approximation (DQN or policy gradients) for high-dimensional, real-time sensor streams; and (ii)~the $P_i$ penalty discourages but does not formally prevent catastrophic states---a hybrid architecture enforcing hard constraints from classical control theory while allowing RL-based optimisation within the safe envelope is the likely path forward.
 
-% ══════════════════════════════════════════════════════════════════════════
-\newpage
+% =============================================================================
+% BIBLIOGRAPHY
+% =============================================================================
+\addcontentsline{toc}{chapter}{Bibliography}
 \bibliographystyle{plainnat}
 \bibliography{references}
 

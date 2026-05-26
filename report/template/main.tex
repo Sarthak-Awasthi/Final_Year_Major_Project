@@ -1,0 +1,763 @@
+% =============================================================================
+%  IIIT RAICHUR -- B.Tech PROJECT THESIS TEMPLATE
+%  Department of Computer Science and Engineering
+%  -----------------------------------------------------------------------------
+%  HOW TO USE
+%   1. Edit the placeholder commands in the "USER INPUTS" block below.
+%   2. Place your college logo at: images/iiitr_logo.png
+%   3. Replace the lorem ipsum / dummy text with your own project content.
+%   4. Add your figures to the images/ folder.
+%   5. Compile:
+%        pdflatex thesis.tex
+%        pdflatex thesis.tex
+%      (or simply: latexmk -pdf thesis.tex)
+%
+%  This template is domain-agnostic. The dummy text is generic so it works for
+%  any kind of project -- software, hardware, embedded, ML, networking, etc.
+% =============================================================================
+
+\documentclass[12pt, a4paper, oneside]{report}
+
+% ---------------------- PACKAGES ---------------------------------------------
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[margin=1in, top=1.2in, bottom=1.2in]{geometry}
+\usepackage{graphicx}
+\usepackage{setspace}
+\usepackage{titlesec}
+\usepackage{tocloft}
+\usepackage{fancyhdr}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{tabularx}
+\usepackage{multirow}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{amsmath, amssymb}
+\usepackage{xcolor}
+\usepackage[hidelinks, breaklinks=true]{hyperref}
+\usepackage{url}
+\usepackage{enumitem}
+\usepackage{float}
+\usepackage{lipsum}    % provides \lipsum for lorem ipsum dummy text
+
+% ---------------------- USER INPUTS (EDIT THESE) -----------------------------
+% Plain title (single line) -- used in declaration, certificate, abstract.
+\newcommand{\thesisTitle}{Title of Your Project as a Single Line}
+% Display title (with line breaks) -- used only on the title page.
+% Add \\ wherever you want a line break for visual layout.
+\newcommand{\thesisTitleDisplay}{TITLE OF YOUR PROJECT \\ IN TWO OR THREE LINES \\ AS NEEDED}
+\newcommand{\studentName}{Your Full Name}
+\newcommand{\rollNumber}{CS21B10XX}
+\newcommand{\supervisorName}{Dr.~Supervisor Name}
+\newcommand{\departmentName}{Computer Science and Engineering}
+\newcommand{\submissionMonthYear}{May 2025}
+\newcommand{\submissionLocation}{Raichur -- 584135}
+\newcommand{\degreeName}{Bachelor of Technology}
+\newcommand{\logoPath}{images/iiitr_logo.png}
+
+% ---------------------- FORMATTING -------------------------------------------
+\onehalfspacing
+
+% Chapter title formatting (matches "Chapter N" on top, title below)
+\titleformat{\chapter}[display]
+  {\normalfont\huge\bfseries}{\chaptertitlename\ \thechapter}{20pt}{\Huge}
+\titlespacing*{\chapter}{0pt}{-30pt}{30pt}
+
+% Page style -- page number at bottom centre, no header rule
+\pagestyle{fancy}
+\fancyhf{}
+\fancyfoot[C]{\thepage}
+\renewcommand{\headrulewidth}{0pt}
+\renewcommand{\footrulewidth}{0pt}
+
+\fancypagestyle{plain}{%
+  \fancyhf{}%
+  \fancyfoot[C]{\thepage}%
+  \renewcommand{\headrulewidth}{0pt}%
+  \renewcommand{\footrulewidth}{0pt}%
+}
+
+% TOC formatting
+\renewcommand{\cftchapfont}{\bfseries}
+\renewcommand{\cftchappagefont}{\bfseries}
+
+% Helper command for centered front-matter headings (Declaration, Certificate, Abstract)
+\newcommand{\frontmatterheading}[1]{%
+  \begin{center}\Large\bfseries #1\end{center}
+  \vspace{0.5cm}
+}
+
+% Paragraph spacing
+\setlength{\parskip}{0.5em}
+\setlength{\parindent}{1.5em}
+
+% =============================================================================
+\begin{document}
+
+% ---------------------- TITLE PAGE -------------------------------------------
+\begin{titlepage}
+    \centering
+    \thispagestyle{empty}
+    \vspace*{0.2cm}
+
+    {\Large\bfseries \thesisTitleDisplay \par}
+    \vspace{0.8cm}
+
+    {\normalsize A Project Report Submitted \par}
+    {\normalsize in Partial Fulfilment of the Requirements \par}
+    {\normalsize for the Degree of \par}
+    \vspace{0.5cm}
+
+    {\large\bfseries \MakeUppercase{\degreeName} \par}
+    \vspace{0.3cm}
+
+    {\normalsize in \par}
+    \vspace{0.2cm}
+
+    {\large\bfseries \MakeUppercase{\departmentName} \par}
+    \vspace{0.5cm}
+
+    {\normalsize\itshape by \par}
+    \vspace{0.3cm}
+
+    {\normalsize\bfseries \studentName{} (Roll No.~\rollNumber) \par}
+    \vspace{0.5cm}
+
+    % College logo
+    \includegraphics[width=1\textwidth]{\logoPath}\par
+    \vspace{0.5cm}
+
+    {\normalsize\itshape to \par}
+    \vspace{0.2cm}
+
+    {\normalsize\bfseries DEPARTMENT OF \MakeUppercase{\departmentName} \par}
+    {\normalsize\bfseries INDIAN INSTITUTE OF INFORMATION TECHNOLOGY \par}
+    {\normalsize\bfseries RAICHUR-584135, INDIA \par}
+    \vspace{0.4cm}
+
+    {\normalsize\itshape \submissionMonthYear \par}
+
+\end{titlepage}
+
+% ---------------------- FRONT MATTER (roman page numbers) --------------------
+\pagenumbering{roman}
+\setcounter{page}{2}
+
+% ---------------------- DECLARATION ------------------------------------------
+\clearpage
+\thispagestyle{plain}
+\frontmatterheading{DECLARATION}
+\addcontentsline{toc}{chapter}{Declaration}
+
+\noindent I \textbf{\MakeUppercase{\studentName}} (Roll Number: \rollNumber) hereby
+declare that, this report entitled ``\textit{\thesisTitle}'' submitted to
+Indian Institute of Information Technology Raichur towards partial requirement
+of \degreeName{} in \departmentName{} is an original work carried out by me
+under the supervision of Mentor, \supervisorName{} and has not formed the
+basis for the award of any degree or diploma, in this or any other institution
+or university. I have sincerely tried to uphold the academic ethics and
+honesty. Whenever an external information or statement or result is used then,
+that have been duly acknowledged and cited.
+
+\vspace{2.5cm}
+\noindent
+\begin{minipage}[t]{0.5\textwidth}
+\submissionLocation \\
+\submissionMonthYear
+\end{minipage}
+\hfill
+\begin{minipage}[t]{0.4\textwidth}
+\raggedleft
+\studentName \\
+Roll No.~\rollNumber
+\end{minipage}
+
+% ---------------------- CERTIFICATE ------------------------------------------
+\clearpage
+\thispagestyle{plain}
+\frontmatterheading{CERTIFICATE}
+\addcontentsline{toc}{chapter}{Certificate}
+
+\noindent This is to certify that the work contained in this project report
+entitled ``\textit{\thesisTitle}'' submitted by \textbf{\studentName} (Roll
+No: \rollNumber) to the Indian Institute of Information Technology Raichur
+towards partial requirement of \degreeName{} in \departmentName{} has been
+carried out by him/her under my supervision and that it has not been submitted
+elsewhere for the award of any degree.
+
+\vspace{3cm}
+\noindent
+\begin{minipage}[t]{0.5\textwidth}
+\submissionLocation \\
+\submissionMonthYear
+\end{minipage}
+\hfill
+\begin{minipage}[t]{0.4\textwidth}
+\raggedleft
+(\supervisorName) \\
+Project Supervisor
+\end{minipage}
+
+% ---------------------- ABSTRACT ---------------------------------------------
+\clearpage
+\thispagestyle{plain}
+\frontmatterheading{ABSTRACT}
+\addcontentsline{toc}{chapter}{Abstract}
+
+% Replace this dummy text with your own abstract (~250-300 words).
+% A good abstract: motivates the problem, states what you built, summarises
+% the methodology, and highlights the key results.
+\lipsum[1]
+
+\lipsum[2][1-5]
+
+% ---------------------- TABLE OF CONTENTS ------------------------------------
+\clearpage
+\tableofcontents
+\listoffigures
+\addcontentsline{toc}{chapter}{List of Figures}
+\listoftables
+\addcontentsline{toc}{chapter}{List of Tables}
+
+\clearpage
+\pagenumbering{arabic}
+\setcounter{page}{1}
+
+% =============================================================================
+% CHAPTER 1: INTRODUCTION
+% =============================================================================
+\chapter{Introduction}
+\label{chap:introduction}
+
+\lipsum[3][1-7]
+% Replace the lorem ipsum above with your introductory paragraph -- set the
+% broader context of your project, discuss the relevance of the domain, and
+% motivate the structure of this chapter.
+
+\section{Problem Statement}
+\label{sec:problem-statement}
+
+\lipsum[4][1-2]
+
+\begin{itemize}
+    \item \textbf{Issue One:} \lipsum[5][1-2]
+    \item \textbf{Issue Two:} \lipsum[6][1-2]
+    \item \textbf{Issue Three:} \lipsum[7][1-2]
+    \item \textbf{Issue Four:} \lipsum[8][1-2]
+\end{itemize}
+
+\section{Project Significance}
+\label{sec:project-significance}
+
+\lipsum[9][1-3]
+
+\begin{itemize}
+    \item \textbf{Benefit One:} \lipsum[10][1-2]
+    \item \textbf{Benefit Two:} \lipsum[11][1-2]
+    \item \textbf{Benefit Three:} \lipsum[12][1-2]
+    \item \textbf{Benefit Four:} \lipsum[13][1-2]
+\end{itemize}
+
+\section{Scope of Work}
+\label{sec:scope}
+
+\lipsum[14][1-3]
+
+\begin{itemize}
+    \item \textbf{Component A:} \lipsum[15][1-2]
+    \item \textbf{Component B:} \lipsum[16][1-2]
+    \item \textbf{Component C:} \lipsum[17][1-2]
+\end{itemize}
+
+\lipsum[18][1-3]
+
+\section{Objectives}
+\label{sec:objectives}
+
+The main objectives of this project are:
+
+\begin{enumerate}
+    \item \lipsum[19][1-1]
+    \item \lipsum[20][1-1]
+    \item \lipsum[21][1-1]
+    \item \lipsum[22][1-1]
+    \item \lipsum[23][1-1]
+    \item \lipsum[24][1-1]
+\end{enumerate}
+
+\section{Novelty}
+\label{sec:novelty}
+
+\lipsum[25][1-3]
+
+\begin{itemize}
+    \item \textbf{Novel Aspect One:} \lipsum[26][1-2]
+    \item \textbf{Novel Aspect Two:} \lipsum[27][1-2]
+    \item \textbf{Novel Aspect Three:} \lipsum[28][1-2]
+\end{itemize}
+
+\lipsum[29][1-3]
+
+% =============================================================================
+% CHAPTER 2: LITERATURE SURVEY
+% =============================================================================
+\chapter{Literature Survey}
+\label{chap:literature}
+
+\lipsum[30][1-7]
+% Replace with an overview of the literature in your domain. Identify the
+% major directions / categories of prior work and the gaps your project fills.
+
+\section{Existing Approaches -- Category A}
+\label{sec:category-a}
+
+\subsection{Approach A.1}
+\lipsum[31][1-3] \cite{ref1}
+
+\subsection{Approach A.2}
+\lipsum[32][1-3] \cite{ref2}
+
+\subsection{Approach A.3}
+\lipsum[33][1-3] \cite{ref3}
+
+\subsection{Differentiation of Our Approach}
+\lipsum[34][1-2]
+
+\begin{itemize}
+    \item \lipsum[35][1-1]
+    \item \lipsum[36][1-1]
+\end{itemize}
+
+\lipsum[37][1-2]
+
+\begin{table}[H]
+\centering
+\caption{Summary of Category A Approaches and Our Approach}
+\label{tab:cat-a-comparison}
+\small
+\begin{tabularx}{\textwidth}{|l|l|l|X|X|}
+\hline
+\textbf{Author(s)} & \textbf{Title} & \textbf{Year} & \textbf{Methodology} & \textbf{Key Findings} \\
+\hline
+Author A \cite{ref1} & Approach A.1 & 20XX & Methodology of approach A.1 & Strengths and limitations of approach A.1 \\
+\hline
+Author B \cite{ref2} & Approach A.2 & 20XX & Methodology of approach A.2 & Strengths and limitations of approach A.2 \\
+\hline
+Author C \cite{ref3} & Approach A.3 & 20XX & Methodology of approach A.3 & Strengths and limitations of approach A.3 \\
+\hline
+\textbf{Proposed} & Our project name & 20XX & Brief summary of our methodology & Brief summary of our contribution \\
+\hline
+\end{tabularx}
+\end{table}
+
+\section{Existing Approaches -- Category B}
+\label{sec:category-b}
+
+\lipsum[38][1-4]
+
+\subsection{Approach B.1}
+\lipsum[39][1-3] \cite{ref4}
+
+\subsection{Approach B.2}
+\lipsum[40][1-3] \cite{ref5}
+
+\subsection{Approach B.3}
+\lipsum[41][1-3] \cite{ref6}
+
+\subsection{Differentiation of Our Approach}
+\lipsum[42][1-2]
+
+\begin{itemize}
+    \item \textbf{Feature One:} \lipsum[43][1-1]
+    \item \textbf{Feature Two:} \lipsum[44][1-1]
+    \item \textbf{Feature Three:} \lipsum[45][1-1]
+\end{itemize}
+
+\begin{table}[H]
+\centering
+\caption{Comparison of Category B Approaches}
+\label{tab:cat-b-comparison}
+\small
+\begin{tabularx}{\textwidth}{|l|X|X|}
+\hline
+\textbf{Tool / Method} & \textbf{Key Features} & \textbf{Limitations} \\
+\hline
+Approach B.1 \cite{ref4} & Key features summary & Limitations summary \\
+\hline
+Approach B.2 \cite{ref5} & Key features summary & Limitations summary \\
+\hline
+Approach B.3 \cite{ref6} & Key features summary & Limitations summary \\
+\hline
+\end{tabularx}
+\end{table}
+
+\section{Existing Approaches -- Category C}
+\label{sec:category-c}
+
+\lipsum[46][1-4]
+
+\subsection{Approach C.1}
+\lipsum[47][1-2] \cite{ref7}
+
+\subsection{Approach C.2}
+\lipsum[48][1-2] \cite{ref8}
+
+\subsection{Differentiation of Our Approach}
+\lipsum[49][1-3]
+
+\begin{itemize}
+    \item \textbf{Aspect One:} \lipsum[50][1-1]
+    \item \textbf{Aspect Two:} \lipsum[51][1-1]
+\end{itemize}
+
+\begin{table}[H]
+\centering
+\caption{Comparison of Category C Approaches}
+\label{tab:cat-c-comparison}
+\small
+\begin{tabularx}{\textwidth}{|l|X|X|X|}
+\hline
+\textbf{Tool / Method} & \textbf{Key Features} & \textbf{Methodology} & \textbf{Limitations} \\
+\hline
+Approach C.1 \cite{ref7} & Features & Methodology & Limitations \\
+\hline
+Approach C.2 \cite{ref8} & Features & Methodology & Limitations \\
+\hline
+\end{tabularx}
+\end{table}
+
+\lipsum[52][1-2]
+
+% =============================================================================
+% CHAPTER 3: METHODOLOGY
+% =============================================================================
+\chapter{Methodology}
+\label{chap:methodology}
+
+\lipsum[53][1-4]
+
+\section{Problem Restatement}
+\label{sec:problem-restatement}
+
+\lipsum[54][1-3]
+
+\begin{itemize}
+    \item \lipsum[55][1-1]
+    \item \lipsum[56][1-1]
+    \item \lipsum[57][1-1]
+\end{itemize}
+
+\section{Overall Approach}
+\label{sec:overall-approach}
+
+\lipsum[58][1-2]
+
+\begin{itemize}
+    \item \textbf{Module One:} \lipsum[59][1-2]
+    \item \textbf{Module Two:} \lipsum[60][1-2]
+    \item \textbf{Module Three:} \lipsum[61][1-2]
+\end{itemize}
+
+\section{System Block Diagram / Data Model}
+\label{sec:block-diagram}
+
+The block diagram (Figure~\ref{fig:block-diagram}) shows the high-level
+structure of the system and the relationships among its core entities.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\textwidth]{images/block_diagram.png}
+    \caption{System Block Diagram}
+    \label{fig:block-diagram}
+\end{figure}
+
+\lipsum[62][1-3]
+
+\section{Architecture}
+\label{sec:architecture}
+
+The overall architecture is shown in Figure~\ref{fig:architecture}.
+\lipsum[63][1-4]
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\textwidth]{images/architecture.png}
+    \caption{System Architecture}
+    \label{fig:architecture}
+\end{figure}
+
+\section{Module One}
+\label{sec:module-one}
+
+\lipsum[64][1-3]
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\textwidth]{images/module1_flow.png}
+    \caption{Module One -- Process Flow}
+    \label{fig:module1}
+\end{figure}
+
+\section{Module Two}
+\label{sec:module-two}
+
+\lipsum[65][1-3]
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\textwidth]{images/module2_flow.png}
+    \caption{Module Two -- Process Flow}
+    \label{fig:module2}
+\end{figure}
+
+\section{Module Three}
+\label{sec:module-three}
+
+\lipsum[66][1-3]
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\textwidth]{images/module3_flow.png}
+    \caption{Module Three -- Process Flow}
+    \label{fig:module3}
+\end{figure}
+
+\section{Module Four}
+\label{sec:module-four}
+
+\lipsum[67][1-3]
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\textwidth]{images/module4_flow.png}
+    \caption{Module Four -- Process Flow}
+    \label{fig:module4}
+\end{figure}
+
+% =============================================================================
+% CHAPTER 4: CHALLENGES AND SOLUTIONS
+% =============================================================================
+\chapter{Challenges and Solutions}
+\label{chap:challenges}
+
+\lipsum[68][1-5]
+
+A summary of the major issues faced and their corresponding solutions is
+provided in Table~\ref{tab:challenges}.
+
+\begin{table}[H]
+\centering
+\caption{Major Implementation Challenges and Their Solutions}
+\label{tab:challenges}
+\begin{tabularx}{\textwidth}{|X|X|}
+\hline
+\textbf{Challenge} & \textbf{Solution} \\
+\hline
+Description of the first challenge encountered during implementation
+& Description of how the first challenge was resolved \\
+\hline
+Description of the second challenge encountered during implementation
+& Description of how the second challenge was resolved \\
+\hline
+Description of the third challenge encountered during implementation
+& Description of how the third challenge was resolved \\
+\hline
+\end{tabularx}
+\end{table}
+
+% =============================================================================
+% CHAPTER 5: RESULTS AND DISCUSSION
+% =============================================================================
+\chapter{Results and Discussion}
+\label{chap:results}
+
+\lipsum[69][1-3]
+
+\section{Result Set One}
+\label{sec:result-set-1}
+
+\lipsum[70][1-2]
+
+\subsection{Output 1.1}
+\lipsum[71][1-2]
+(See Figure~\ref{fig:result1}.)
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\textwidth]{images/result1.png}
+    \caption{Caption describing output 1.1}
+    \label{fig:result1}
+\end{figure}
+
+\subsection{Output 1.2}
+\lipsum[72][1-2]
+(See Figure~\ref{fig:result2}.)
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\textwidth]{images/result2.png}
+    \caption{Caption describing output 1.2}
+    \label{fig:result2}
+\end{figure}
+
+\subsection{Output 1.3}
+\lipsum[73][1-2]
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\textwidth]{images/result3.png}
+    \caption{Caption describing output 1.3}
+    \label{fig:result3}
+\end{figure}
+
+\section{Result Set Two}
+\label{sec:result-set-2}
+
+\subsection{Output 2.1}
+\lipsum[74][1-2]
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\textwidth]{images/result4.png}
+    \caption{Caption describing output 2.1}
+    \label{fig:result4}
+\end{figure}
+
+\subsection{Output 2.2}
+\lipsum[75][1-2]
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\textwidth]{images/result5.png}
+    \caption{Caption describing output 2.2}
+    \label{fig:result5}
+\end{figure}
+
+% Add more result subsections as needed.
+
+% =============================================================================
+% CHAPTER 6: TOOLS, TECHNOLOGIES, AND PARAMETERS
+% =============================================================================
+\chapter{Tools, Technologies, and Parameters}
+\label{chap:tools}
+
+\lipsum[76][1-5]
+
+\section{Tools and Technologies}
+\label{sec:tools}
+
+\begin{itemize}
+    \item \textbf{Programming Languages / Frameworks:} List the languages and
+          frameworks used (e.g.~C/C++, Python, MATLAB, Verilog, Java, etc.).
+    \item \textbf{Hardware / Platform:} List any hardware components, boards,
+          sensors, or platforms (or write ``Not applicable'' for pure-software
+          projects).
+    \item \textbf{Libraries / Toolkits:} List the major libraries or toolkits
+          relied upon (e.g.~scientific computing, simulation, ML, signal
+          processing libraries).
+    \item \textbf{Datasets / External Resources:} List datasets, APIs, or
+          external resources used.
+    \item \textbf{Development \& Build Tools:} List IDEs, build systems,
+          version control, simulation tools, etc.
+\end{itemize}
+
+\section{Key Parameters and Settings}
+\label{sec:parameters}
+
+\begin{table}[H]
+\centering
+\caption{Important Parameters Used in Implementation}
+\label{tab:parameters}
+\begin{tabularx}{\textwidth}{|l|X|}
+\hline
+\textbf{Parameter} & \textbf{Value / Description} \\
+\hline
+Parameter 1 & Value and short rationale \\
+\hline
+Parameter 2 & Value and short rationale \\
+\hline
+Parameter 3 & Value and short rationale \\
+\hline
+Parameter 4 & Value and short rationale \\
+\hline
+\end{tabularx}
+\end{table}
+
+% =============================================================================
+% CHAPTER 7: CONCLUSION AND FUTURE SCOPE
+% =============================================================================
+\chapter{Conclusion and Future Scope}
+\label{chap:conclusion}
+
+\lipsum[77][1-5]
+
+\noindent\textbf{Future Enhancements:}
+
+\begin{itemize}
+    \item \lipsum[78][1-1]
+    \item \lipsum[79][1-1]
+    \item \lipsum[80][1-1]
+    \item \lipsum[81][1-1]
+    \item \lipsum[82][1-1]
+\end{itemize}
+
+\lipsum[83][1-2]
+
+% =============================================================================
+% BIBLIOGRAPHY
+% =============================================================================
+\addcontentsline{toc}{chapter}{Bibliography}
+
+% Option 1: Manual entries (default -- start writing references right away)
+\begin{thebibliography}{99}
+
+\bibitem{ref1}
+Author Surname, Initials. (Year). \textit{Title of the work}.
+Journal / Publisher / URL.
+
+\bibitem{ref2}
+Author Surname, Initials. (Year). \textit{Title of the work}.
+Journal / Publisher / URL.
+
+\bibitem{ref3}
+Author Surname, Initials. (Year). \textit{Title of the work}.
+Journal / Publisher / URL.
+
+\bibitem{ref4}
+Author Surname, Initials. (Year). \textit{Title of the work}.
+Journal / Publisher / URL.
+
+\bibitem{ref5}
+Author Surname, Initials. (Year). \textit{Title of the work}.
+Journal / Publisher / URL.
+
+\bibitem{ref6}
+Author Surname, Initials. (Year). \textit{Title of the work}.
+Journal / Publisher / URL.
+
+\bibitem{ref7}
+Author Surname, Initials. (Year). \textit{Title of the work}.
+Journal / Publisher / URL.
+
+\bibitem{ref8}
+Author Surname, Initials. (Year). \textit{Title of the work}.
+Journal / Publisher / URL.
+
+% Add more \bibitem entries as needed.
+
+\end{thebibliography}
+
+% Option 2: Use BibTeX instead. To switch:
+%   1. Comment out the manual \begin{thebibliography} ... \end{thebibliography}
+%      block above.
+%   2. Create a references.bib file in this folder.
+%   3. Uncomment the two lines below.
+%   4. Compile with: pdflatex -> bibtex -> pdflatex -> pdflatex
+%
+% \bibliographystyle{plain}
+% \bibliography{references}
+
+\end{document}
