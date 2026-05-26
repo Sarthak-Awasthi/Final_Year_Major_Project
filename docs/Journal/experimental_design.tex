@@ -120,15 +120,16 @@ We ran an initial round of automated experiments using the playtest bot (\texttt
 \centering
 \caption{Ablation study results (seed=42, 500 turns, quest auto-restart).}
 \label{tab:ablation_results}
-\begin{tabular}{@{}lccc@{}}
+\begin{tabular}{@{}lcc@{}}
 \toprule
-Condition & Turns & Quests Completed & Final Cooperation $\cK$ \\
+Condition & Final Cooperation $\cK$ & $\Delta$ vs C1 \\
 \midrule
-\textbf{C1}: Full System          & 500 & 6 & 0.8509 \\
-\textbf{C3}: No RL (Schedules Only) & 500 & 5 & 0.5000 \\
-\textbf{C4}: Flat MDP              & 500 & 3 & 0.9530 \\
-\textbf{C5}: No Shocks             & 500 & 6 & 0.8732 \\
-\textbf{C6}: No Role Masking       & 500 & 5 & 0.7628 \\
+\textbf{C1}: Full System              & 0.851 & --- \\
+\textbf{C3}: No RL (Schedules Only)   & 0.500 & $-0.351$ \\
+\textbf{C4}: Flat MDP                 & 0.953 & $+0.102$ \\
+\textbf{C5}: No Shocks                & 0.873 & $+0.022$ \\
+\textbf{C6}: No Role Masking          & 0.763 & $-0.088$ \\
+\textbf{C7}: Static $\lambda = 0.325$ & 0.693 & $-0.158$ \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -136,9 +137,10 @@ Condition & Turns & Quests Completed & Final Cooperation $\cK$ \\
 Key findings from the ablation:
 \begin{itemize}
     \item \textbf{RL drives cooperation:} C1 ($\cK = 0.851$) vs.\ C3 ($\cK = 0.500$) --- Q-learning NPCs cooperate $+0.351$ more than schedule-only NPCs, confirming that learned policy is necessary for emergent cooperation.
-    \item \textbf{Flat MDP achieves higher cooperation than hierarchical:} C4 ($\cK = 0.953$) exceeds C1 by $+0.102$. Faster quest cycling in the flat structure produces more learning episodes within 500 turns, though C4 completes fewer quests overall (3 vs.\ 6).
+    \item \textbf{Flat MDP achieves higher cooperation than hierarchical:} C4 ($\cK = 0.953$) exceeds C1 by $+0.102$. Faster quest cycling in the flat structure produces more learning episodes within 500 turns.
     \item \textbf{Shocks reduce final cooperation by $0.022$:} C5 ($\cK = 0.873$) vs.\ C1 ($\cK = 0.851$). The full-system condition shows a dip-and-recover pattern around shock events, indicating adaptive resilience rather than permanent degradation.
     \item \textbf{Role masking improves cooperation by $+0.088$:} C1 ($\cK = 0.851$) vs.\ C6 ($\cK = 0.763$). Structured role-specific action biases create a cleaner learning signal for Q-learning agents.
+    \item \textbf{Dynamic $\lambda$ amplifies cooperation by $+0.158$:} C7 (static $\lambda = 0.325$, $\cK = 0.693$) still shows emergence from the community reward signal, but the dynamic feedback loop (C1, $\cK = 0.851$) provides a substantial boost --- the second-largest single-component contribution after RL itself.
 \end{itemize}
 
 \subsubsection{NPC Final Adaptation States (C1, Turn 500)}

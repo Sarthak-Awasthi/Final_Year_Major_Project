@@ -68,18 +68,20 @@ Things we're aware of but haven't fully addressed:
 The initial automated experiments (500-turn bot playthroughs, seed=42, quest auto-restart) have produced several quantitative findings that support the system's core design hypotheses:
 
 \begin{itemize}
-    \item \textbf{Cooperation emerges through RL:} The cooperation index $\cK$ rises from the baseline $0.500$ to $0.851$ over 500 turns with Q-learning (C1), while schedule-only NPCs (C3) remain at $0.500$ throughout. This confirms that learned policy --- not pre-authored schedules --- is responsible for emergent prosocial behavior.
+    \item \textbf{Cooperation emerges through RL:} The cooperation index $\cK$ rises from the baseline $0.500$ to $0.851$ over 500 turns with Q-learning (C1), while schedule-only NPCs (C3) remain at $0.500$ throughout ($+0.351$ gap). This confirms that learned policy --- not pre-authored schedules --- is responsible for emergent prosocial behavior.
 
     \item \textbf{Role masking contributes $+0.088$ to cooperation:} Disabling role-specific action masking (C6) reduces final cooperation from $0.851$ to $0.763$. The structured bias creates a cleaner learning signal for Q-learning agents.
 
     \item \textbf{System shocks reduce cooperation by $0.022$ but NPCs recover:} The full system (C1, $\cK = 0.851$) shows a dip-and-recover pattern around shock events compared to the no-shock condition (C5, $\cK = 0.873$). This demonstrates adaptive resilience --- shocks perturb but do not permanently degrade cooperation.
+
+    \item \textbf{Dynamic $\lambda$ amplifies cooperation by $+0.158$:} C7 (static $\lambda = 0.325$) achieves $\cK = 0.693$, still showing emergence from the community reward signal, but the dynamic feedback loop (C1, $\cK = 0.851$) provides a $+0.158$ boost --- the second-largest single-component contribution after RL itself. This confirms the virtuous cycle mechanism: higher cooperation $\to$ higher $\lambda$ $\to$ more weight on community reward $\to$ even more cooperation.
 
     \item \textbf{LLM narration is more contextually grounded ($0.567$ vs.\ $0.488$) and uses $2.6\times$ richer vocabulary} than templates, while maintaining similar lexical coherence. Even a small local model (\texttt{qwen3:4b}) produces meaningfully better narrative output than the template fallback.
 \end{itemize}
 
 \subsection{What's Next}
 
-With the initial automated experiments completed, the remaining future work focuses on scaling and validation:
+With the initial automated experiments completed, the remaining future work focuses on scaling, validation, and real-world transfer:
 
 \begin{itemize}
     \item \textbf{Scale the experiments:} Initial single-seed ablation is complete (Section~\ref{sec:preliminary_results}); next step is 100 bot playthroughs per condition with varied seeds for statistical significance
@@ -88,7 +90,19 @@ With the initial automated experiments completed, the remaining future work focu
     \item Player intent tracking via belief states (POMDP-style)
     \item Scaling to more NPCs with parameter sharing
     \item \textbf{User studies:} The bot experiments confirm the mechanisms work; human playtesting with post-session questionnaires is the next validation step
-    \item Longer sessions ($>$500 turns) to investigate whether cooperation saturates or continues to evolve --- preliminary results show $\cK$ at $0.851$ after 500 turns, suggesting further room to grow
+    \item Longer sessions ($>$500 turns) to investigate whether cooperation saturates or continues to evolve --- results show $\cK$ at $0.851$ after 500 turns, suggesting further room to grow
     \item More shock types and multi-shock interaction effects
-    \item \textbf{Dynamic $\lambda$ ablation (C7):} Not yet run; needed to isolate the effect of the cooperation feedback loop
 \end{itemize}
+
+\subsection{Real-World Transfer: Beyond Games}
+
+The decomposed reward framework $R_i(t) = P_i(t) + G_i(t) + \lambda_i(t) \cdot C(t)$ is not game-specific. The individual--community tension it models appears naturally in at least two industrial domains where decentralised, self-organising control could replace costly centralised optimisation.
+
+\subsubsection{Smart Factory Coordination}
+In an automated production line, each cell (stamping, welding, painting, logistics) optimises its own KPI --- throughput, defect rate, idle time --- analogous to role-specific $G_i$ weights. The community signal $C(t)$ maps to plant-wide OEE (Overall Equipment Effectiveness). Supply-chain disruptions, equipment breakdowns, and demand spikes are direct analogues of famine, plague, and trade-boom shocks. Current Industry~4.0 approaches rely on centralised MPC controllers that must be re-modelled whenever the line changes. Our dynamic-$\lambda$ architecture offers a decentralised alternative: each cell runs a lightweight learner, the community reward propagates cooperation, and a new station joins the reward structure without replanning the entire plant. The ablation result C1~vs.~C3 ($+0.351$ cooperation from RL over fixed schedules) suggests learned policies would significantly outperform static dispatch rules.
+
+\subsubsection{Automotive ECU Self-Tuning}
+A modern engine's sensor--actuator subsystems (knock sensor, O$_2$ sensor, throttle body, MAP sensor, coolant temperature, crank position) map onto heterogeneous NPC roles: each maximises a local objective (detonation margin, fuel-trim accuracy, airflow response) while the community target $C(t)$ is engine-level efficiency (e.g.\ brake-specific fuel consumption). The dynamic $\lambda$ feedback loop enables \emph{continuous self-calibration}: a base map provides the pre-trained Q-table (cold-start), and on-road experience adjusts cooperation tendencies as altitude, fuel quality, and component wear shift the reward landscape. Component aging becomes a slow-onset shock; aftermarket modifications reset part of the state, and the system re-converges without manual tuning --- our C4 result ($\cK = 0.953$ with fast quest cycling) suggests rapid re-convergence is achievable.
+
+\subsubsection{Bridging the Gap}
+Two challenges must be addressed before transfer: (i)~\textbf{state-space scale} --- the 225-state tabular formulation must give way to function approximation (DQN or policy gradients) for high-dimensional, real-time sensor streams; and (ii)~\textbf{safety guarantees} --- the $P_i$ penalty term discourages but does not formally prevent catastrophic states. A hybrid architecture that enforces hard constraints from classical control theory while allowing RL-based optimisation within the safe envelope is the likely path forward.

@@ -8,36 +8,36 @@ This section describes how the system is actually put together --- what talks to
 \begin{figure}[ht]
 \centering
 \begin{verbatim}
-+-------------------------------------------------------+
++--------------------------------------------------------+
 |                    Frontend                            |
-|  HTML/CSS/JS + Cytoscape.js MDP Graph                 |
-|  Chart.js Analytics Dashboard                         |
-|  REST <-> WebSocket <->                               |
-+------------------+----------------+-------------------+
+|  HTML/CSS/JS + Cytoscape.js MDP Graph                  |
+|  Chart.js Analytics Dashboard                          |
+|  REST <-> WebSocket <->                                |
++------------------+----------------+--------------------+
                    |                |
-+------------------v----------------v-------------------+
++------------------v----------------v--------------------+
 |                  FastAPI Server                        |
-|  REST: /api/action, /api/save, /api/load, ...         |
+|  REST: /api/action, /api/save, /api/load, ...          |
 |  REST: /api/metrics/timeseries, /api/metrics/experiment|
-|  WebSocket: /ws (real-time state pushes)              |
-+------------------+------------------------------------+
-                   |
-+------------------v------------------------------------+
+|  WebSocket: /ws (real-time state pushes)               |
++------------------+-------------------------------------+
+                          |
++-------------------------v------------------------------+
 |                 GameEngine                             |
-|  +----------+ +--------+ +--------+ +---------+      |
-|  | Quest/MDP| | NPC/RL | | Player | | World   |      |
-|  | System   | | System | | System | | System  |      |
-|  +----+-----+ +----+---+ +----+---+ +----+----+      |
-|       |             |          |          |            |
-|  +----v-------------v----------v----------v------+     |
-|  |          Shock Manager + Analytics            |     |
-|  +-----------------------------------------------+     |
-|       |                                               |
-|  +----v---------------------------------------------+ |
-|  |              LLM Service                         | |
-|  |     (optional -- always has fallback)            | |
-|  +--------------------------------------------------+ |
-+-------------------------------------------------------+
+|     +----------+ +--------+ +--------+ +---------+     |
+|     | Quest/MDP| | NPC/RL | | Player | | World   |     |
+|     | System   | | System | | System | | System  |     |
+|     +----+-----+ +----+---+ +----+---+ +----+----+     |
+|          |            |          |          |          |
+|   +------v------------v----------v----------v-----+    |
+|   |          Shock Manager + Analytics            |    |
+|   +-----------------------------------------------+    |
+|                          |                             |
+|  +-----------------------v--------------------------+  |
+|  |                 LLM Service                      |  |
+|  |     (optional -- always has fallback)            |  |
+|  +--------------------------------------------------+  |
++--------------------------------------------------------+
 \end{verbatim}
 \caption{Architecture overview. The LLM sits at the bottom --- other modules call it, but it never imports game logic. The Shock Manager sits alongside the core systems, injecting non-stationarity. Analytics aggregates data from all systems.}
 \label{fig:arch}
