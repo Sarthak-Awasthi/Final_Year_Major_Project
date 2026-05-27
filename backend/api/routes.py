@@ -565,7 +565,7 @@ async def submit_action(req: ActionRequest) -> TurnResultResponse:
             npc_names = [npc.name for npc in npcs_here]
             highlighted = []
             if hasattr(engine, 'quest_manager') and engine.quest_manager:
-                cp = engine.quest_manager.get_current_checkpoint()
+                cp = engine.quest_manager.mdp.get_checkpoint(engine.quest_manager.current_checkpoint)
                 if cp and hasattr(cp, 'highlighted_actions'):
                     highlighted = cp.highlighted_actions or []
 

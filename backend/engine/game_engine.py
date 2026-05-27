@@ -127,6 +127,8 @@ class GameEngine:
         self.turn: int = 0
         self.game_over: bool = False
         self.game_result: str | None = None  # "success" / "fail" / "turn_limit"
+        self.last_interacted_npc_uid: str | None = None
+        self._last_dialogue: dict[str, str] = {}  # npc_uid → last dialogue text
 
         # Subsystems
         self.world = World()
@@ -1039,9 +1041,12 @@ class GameEngine:
     ) -> dict:
         """Resolve talk, greet, or ask_info actions."""
         if not target_npc:
-            # Auto-select an NPC at the location
             npcs_here = get_npcs_at_location(self.npc_registry, self.player.location)
-            if npcs_here:
+            # Prefer the last NPC the player interacted with, if still nearby
+            if self.last_interacted_npc_uid and npcs_here:
+                last_match = [n for n in npcs_here if n.npc_uid == self.last_interacted_npc_uid]
+                target_npc = last_match[0] if last_match else npcs_here[0]
+            elif npcs_here:
                 target_npc = npcs_here[0]
             else:
                 narration = get_template_narration(action_id, "blocked", ctx)
@@ -1066,6 +1071,25 @@ class GameEngine:
                 "action_id": action_id,
                 "ap_cost": ap_cost,
                 "narration": narration,
+                "effects": {},
+                "target": target_npc.npc_uid,
+                "perception": None,
+            }
+
+        # Detect "repeat" intent — replay last dialogue instead of generating new
+        raw_text = (parsed_input.get("raw_text") or "").lower()
+        _repeat_phrases = ("repeat", "say that again", "what did you say", "come again", "pardon", "say again", "one more time", "didn't catch")
+        if any(p in raw_text for p in _repeat_phrases) and target_npc.npc_uid in self._last_dialogue:
+            prev = self._last_dialogue[target_npc.npc_uid]
+            narration = get_template_narration(action_id, "success", ctx)
+            self.last_interacted_npc_uid = target_npc.npc_uid
+            return {
+                "success": True,
+                "action_id": action_id,
+                "ap_cost": 0,
+                "narration": f"{target_npc.name} repeats what they said.",
+                "dialogue": prev,
+                "dialogue_speaker": target_npc.name,
                 "effects": {},
                 "target": target_npc.npc_uid,
                 "perception": None,
@@ -1146,6 +1170,9 @@ class GameEngine:
                 f" (New point of interest discovered: {', '.join(poi_names)})"
             )
 
+        self.last_interacted_npc_uid = target_npc.npc_uid
+        self._last_dialogue[target_npc.npc_uid] = raw_dialogue
+
         return {
             "success": True,
             "action_id": action_id,
@@ -1172,6 +1199,7 @@ class GameEngine:
             return self._no_target("persuade", ap_cost, ctx)
 
         ctx["target"] = target_npc.name
+        self.last_interacted_npc_uid = target_npc.npc_uid
         rep = self.player.get_reputation(target_npc.npc_uid)
         social_mod = SOCIAL_MODIFIERS.get(social, 0)
         prob = compute_skill_probability("persuade", reputation=rep, social_modifier=social_mod)
@@ -2349,9 +2377,15 @@ class GameEngine:
         }
 
     def _auto_select_npc(self) -> NPC | None:
-        """Auto-select the first active NPC at the player's location."""
+        """Auto-select an NPC at the player's location, preferring the last interacted one."""
         npcs = get_npcs_at_location(self.npc_registry, self.player.location)
-        return npcs[0] if npcs else None
+        if not npcs:
+            return None
+        if self.last_interacted_npc_uid:
+            last_match = [n for n in npcs if n.npc_uid == self.last_interacted_npc_uid]
+            if last_match:
+                return last_match[0]
+        return npcs[0]
 
     def _get_active_weather(self) -> str | None:
         """Get active weather event description, if any."""

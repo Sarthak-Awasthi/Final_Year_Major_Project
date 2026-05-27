@@ -324,6 +324,11 @@ def parse_text_input(
         masked_doc or doc, masked_text,
     )
 
+    # When no clear action is detected, treat conversational input as "talk"
+    if action_id is None or confidence < 0.4:
+        action_id = "talk"
+        confidence = max(confidence, 0.35)
+
     parsed = ParsedInput(
         source="text",
         raw_text=text_clean,
@@ -435,22 +440,31 @@ def _extract_action(doc: Doc | None, text_lower: str) -> tuple[str | None, float
     return None, 0.0
 
 
+_keyword_cache: list[tuple[re.Pattern, str]] | None = None
+
+
 def _keyword_action_match(text_lower: str) -> str | None:
     """Try to match *text_lower* against ``ACTION_SYNONYMS``.
 
     Longer synonym phrases are checked first to prevent partial triggers
     (e.g. *"go to the gate"* should match ``move_to``, not ``look``).
+    Uses word-boundary matching to avoid substring false positives
+    (e.g. "repeat" should not match "eat").
     """
-    # Build a flat list of (phrase, action_id) sorted longest-first.
-    candidates: list[tuple[str, str]] = []
-    for action_id, synonyms in ACTION_SYNONYMS.items():
-        for phrase in synonyms:
-            candidates.append((phrase.lower(), action_id))
-    # Sort by descending phrase length for greedy matching.
-    candidates.sort(key=lambda t: len(t[0]), reverse=True)
+    global _keyword_cache
+    if _keyword_cache is None:
+        candidates: list[tuple[str, str]] = []
+        for action_id, synonyms in ACTION_SYNONYMS.items():
+            for phrase in synonyms:
+                candidates.append((phrase.lower(), action_id))
+        candidates.sort(key=lambda t: len(t[0]), reverse=True)
+        _keyword_cache = [
+            (re.compile(r"(?<!\w)" + re.escape(phrase) + r"(?!\w)"), action_id)
+            for phrase, action_id in candidates
+        ]
 
-    for phrase, action_id in candidates:
-        if phrase in text_lower:
+    for pattern, action_id in _keyword_cache:
+        if pattern.search(text_lower):
             return action_id
 
     return None
