@@ -11,7 +11,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
-from backend.config import MASTER_SEED, MAX_TURNS, logger
+from backend.config import MASTER_SEED, MAX_TURNS, logger, apply_ablation_preset, reset_ablation_defaults
 from backend.engine.game_engine import GameEngine
 
 
@@ -35,6 +35,7 @@ class SessionManager:
         difficulty: str = "normal",
         max_turns: int = MAX_TURNS,
         player_name: str = "Traveler",
+        condition: str = "C1",
     ) -> dict:
         """Create a new game session, replacing any existing one.
 
@@ -46,6 +47,7 @@ class SessionManager:
             difficulty: Difficulty preset (``easy`` / ``normal`` / ``hard``).
             max_turns: Maximum turns before the session ends.
             player_name: Display name for the player character.
+            condition: Ablation preset (``C1`` / ``C3`` / ``C4`` / ``C5`` / ``C6`` / ``C7``).
 
         Returns:
             Full initial game state dict from ``engine.initialize()``.
@@ -56,6 +58,8 @@ class SessionManager:
         self.session_id = uuid.uuid4().hex[:12]
         self.created_at = datetime.now(timezone.utc)
 
+        apply_ablation_preset(condition)
+
         engine = GameEngine(seed=seed, difficulty=difficulty, max_turns=max_turns)
         engine.player.name = player_name
         initial_state = await engine.initialize()
@@ -63,11 +67,12 @@ class SessionManager:
         self.current_engine = engine
 
         logger.info(
-            "Session created: id=%s, seed=%d, difficulty=%s, player=%s",
+            "Session created: id=%s, seed=%d, difficulty=%s, player=%s, condition=%s",
             self.session_id,
             seed,
             difficulty,
             player_name,
+            condition,
         )
         return initial_state
 

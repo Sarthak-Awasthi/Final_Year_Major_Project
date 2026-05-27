@@ -82,6 +82,10 @@ class NewGameRequest(BaseModel):
         default="Traveler",
         description="Display name for the player character.",
     )
+    condition: str = Field(
+        default="C1",
+        description="Ablation condition: C1 (full), C3 (no RL), C4 (flat MDP), C5 (no shocks), C6 (no masking), C7 (static lambda).",
+    )
 
     model_config = {
         "json_schema_extra": {
@@ -91,6 +95,7 @@ class NewGameRequest(BaseModel):
                     "difficulty": "normal",
                     "max_turns": 200,
                     "player_name": "Traveler",
+                    "condition": "C1",
                 }
             ]
         }
@@ -501,18 +506,21 @@ async def new_game(req: NewGameRequest) -> GameStateResponse:
     """
     if req.difficulty not in ("easy", "normal", "hard"):
         raise HTTPException(status_code=422, detail="Invalid difficulty. Choose: easy, normal, hard.")
+    if req.condition not in ("C1", "C3", "C4", "C5", "C6", "C7"):
+        raise HTTPException(status_code=422, detail="Invalid condition. Choose: C1, C3, C4, C5, C6, C7.")
 
     state = await session_mgr.create_session(
         seed=req.seed,
         difficulty=req.difficulty,
         max_turns=req.max_turns,
         player_name=req.player_name,
+        condition=req.condition,
     )
 
     # Broadcast initial state over WebSocket
     await ws_manager.broadcast({"type": "state_sync", "data": state})
 
-    logger.info("New game started: player=%s, difficulty=%s", req.player_name, req.difficulty)
+    logger.info("New game started: player=%s, difficulty=%s, condition=%s", req.player_name, req.difficulty, req.condition)
     return GameStateResponse(**state)
 
 

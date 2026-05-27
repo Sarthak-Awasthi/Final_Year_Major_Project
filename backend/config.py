@@ -172,6 +172,26 @@ RL_ENABLED: bool = _env_bool("RL_ENABLED", True)        # False = schedule-only 
 DYNAMIC_LAMBDA: bool = _env_bool("DYNAMIC_LAMBDA", True) # False = static λ=0.3 (C7)
 HIERARCHICAL_MDP: bool = _env_bool("HIERARCHICAL_MDP", True)  # False = flat single-stage (C4)
 
+ABLATION_PRESETS: dict[str, dict[str, bool]] = {
+    "C1": {"RL_ENABLED": True,  "ROLE_MASK_ENABLED": True,  "DYNAMIC_LAMBDA": True,  "SHOCK_ENABLED": True,  "HIERARCHICAL_MDP": True},
+    "C3": {"RL_ENABLED": False, "ROLE_MASK_ENABLED": False, "DYNAMIC_LAMBDA": True,  "SHOCK_ENABLED": True,  "HIERARCHICAL_MDP": True},
+    "C4": {"RL_ENABLED": True,  "ROLE_MASK_ENABLED": True,  "DYNAMIC_LAMBDA": True,  "SHOCK_ENABLED": True,  "HIERARCHICAL_MDP": False},
+    "C5": {"RL_ENABLED": True,  "ROLE_MASK_ENABLED": True,  "DYNAMIC_LAMBDA": True,  "SHOCK_ENABLED": False, "HIERARCHICAL_MDP": True},
+    "C6": {"RL_ENABLED": True,  "ROLE_MASK_ENABLED": False, "DYNAMIC_LAMBDA": True,  "SHOCK_ENABLED": True,  "HIERARCHICAL_MDP": True},
+    "C7": {"RL_ENABLED": True,  "ROLE_MASK_ENABLED": True,  "DYNAMIC_LAMBDA": False, "SHOCK_ENABLED": True,  "HIERARCHICAL_MDP": True},
+}
+
+def apply_ablation_preset(condition: str) -> None:
+    """Patch module-level config flags for the given ablation condition."""
+    import backend.config as _self
+    preset = ABLATION_PRESETS.get(condition, ABLATION_PRESETS["C1"])
+    for key, value in preset.items():
+        setattr(_self, key, value)
+
+def reset_ablation_defaults() -> None:
+    """Restore all ablation flags to their defaults (C1 = full system)."""
+    apply_ablation_preset("C1")
+
 # ─── STEP 5: Dynamic Shock Engine ────────────────────────────────────────────
 SHOCK_ENABLED: bool = _env_bool("SHOCK_ENABLED", True)  # Env-configurable; toggle shock engine
 SHOCK_MAX_ACTIVE: int = 3           # Maximum concurrent shocks

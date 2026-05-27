@@ -91,6 +91,9 @@ let pendingAction = null;  // Action waiting for target selection
 let actionInFlight = false; // Prevents double-submission
 let showAllNpcs = false;
 let cachedAllNpcs = null;
+let coopChart = null;
+let coopData = { turns: [], values: [] };
+let activeCondition = 'C1';
 
 // ═══════════════════════════════════════════════════════════════
 // DOM References
@@ -109,6 +112,8 @@ const dom = {
     // New Game
     playerNameInput:  $('#player-name-input'),
     seedInput:        $('#seed-input'),
+    conditionSelect:  $('#condition-select'),
+    conditionDesc:    $('#condition-desc'),
     difficultySelect: $('#difficulty-select'),
     startGameBtn:     $('#start-game-btn'),
 
@@ -217,6 +222,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initFooter();
     initMDPGraph();
     initNPCToggle();
+    initConditionSelector();
     applyURLParams();
     updateLLMStatus();
 });
@@ -599,30 +605,32 @@ async function sendAction(payload) {
     }
 }
 
-async function startGame(playerName, seed, difficulty) {
+async function startGame(playerName, seed, difficulty, condition) {
     try {
+        activeCondition = condition || 'C1';
         const result = await apiPost('/game/new', {
             player_name: playerName,
             seed: seed || undefined,
             difficulty: difficulty,
+            condition: activeCondition,
         });
         if (result) {
             gameState = result;
             dom.newGameModal.classList.remove('active');
             dom.gameContainer.classList.remove('hidden');
-            // Clear the static welcome message before rendering game narration
             dom.narrativeContent.innerHTML = '';
             updateAllUI();
-            // Display opening backstory narration
+            initCoopChart();
+            const badge = $('#coop-condition-badge');
+            if (badge) badge.textContent = activeCondition;
             if (result.opening_narration) {
                 appendNarration({ text: result.opening_narration, type: 'backstory' });
             }
-            // Render MDP graph from initial state
             if (result.graph) {
                 updateMDPGraph(result.graph);
             }
             connectWebSocket();
-            showToast('Game started! Good luck.', 'success');
+            showToast(`Game started with ${activeCondition}!`, 'success');
         }
     } catch (e) {
         // Error already toasted
@@ -733,6 +741,7 @@ function handleWSMessage(data) {
 function handleActionResult(result) {
     if (result.state) {
         gameState = result.state;
+        updateCoopChart();
         updateAllUI();
     }
 
@@ -879,6 +888,84 @@ function updateQuestPanel() {
     dom.questProgressFill.style.width = `${Math.round(progress * 100)}%`;
 
     dom.questDescription.textContent = quest.description || quest.stage_description || '';
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Ablation Condition Selector
+// ═══════════════════════════════════════════════════════════════
+
+const CONDITION_DESCRIPTIONS = {
+    C1: 'All subsystems active: RL + masking + dynamic λ + shocks + hierarchy.',
+    C3: 'RL and role masking disabled. NPCs follow fixed schedules — no learning.',
+    C4: 'Flat MDP — no hierarchical stage structure. Single-stage quest.',
+    C5: 'Shock engine disabled. No external perturbations (famine, plague, etc.).',
+    C6: 'Role masking disabled. NPCs ignore role-specific action preferences.',
+    C7: 'Static λ = 0.325. Cooperation weight does not adapt over time.',
+};
+
+function initConditionSelector() {
+    if (dom.conditionSelect) {
+        dom.conditionSelect.addEventListener('change', () => {
+            const desc = CONDITION_DESCRIPTIONS[dom.conditionSelect.value] || '';
+            if (dom.conditionDesc) dom.conditionDesc.textContent = desc;
+        });
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Cooperation Chart
+// ═══════════════════════════════════════════════════════════════
+
+function initCoopChart() {
+    coopData = { turns: [], values: [] };
+    const canvas = $('#coop-chart');
+    if (!canvas || typeof Chart === 'undefined') return;
+    if (coopChart) { coopChart.destroy(); coopChart = null; }
+    coopChart = new Chart(canvas, {
+        type: 'line',
+        data: {
+            labels: coopData.turns,
+            datasets: [{
+                label: 'K(t)',
+                data: coopData.values,
+                borderColor: '#58a6ff',
+                backgroundColor: 'rgba(88,166,255,0.1)',
+                borderWidth: 1.5,
+                pointRadius: 0,
+                tension: 0.3,
+                fill: true,
+            }],
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            animation: false,
+            scales: {
+                x: { display: true, title: { display: false }, ticks: { color: '#8b949e', maxTicksLimit: 6, font: { size: 9 } }, grid: { color: 'rgba(48,54,61,0.5)' } },
+                y: { display: true, min: 0, max: 1, ticks: { color: '#8b949e', stepSize: 0.25, font: { size: 9 } }, grid: { color: 'rgba(48,54,61,0.5)' } },
+            },
+            plugins: {
+                legend: { display: false },
+            },
+        },
+    });
+}
+
+async function updateCoopChart() {
+    try {
+        const result = await apiGet('/metrics/cooperation');
+        const val = result.global_cooperation ?? 0.5;
+        const turn = gameState?.turn ?? coopData.turns.length;
+        coopData.turns.push(turn);
+        coopData.values.push(parseFloat(val.toFixed(3)));
+        if (coopChart) {
+            coopChart.data.labels = coopData.turns;
+            coopChart.data.datasets[0].data = coopData.values;
+            coopChart.update();
+        }
+        const valEl = $('#coop-value');
+        if (valEl) valEl.textContent = val.toFixed(3);
+    } catch (e) { /* ignore */ }
 }
 
 function initNPCToggle() {
@@ -1449,7 +1536,8 @@ function initModals() {
         const name = dom.playerNameInput.value.trim() || 'Player';
         const seed = dom.seedInput.value ? parseInt(dom.seedInput.value, 10) : null;
         const difficulty = dom.difficultySelect.value;
-        startGame(name, seed, difficulty);
+        const condition = dom.conditionSelect ? dom.conditionSelect.value : 'C1';
+        startGame(name, seed, difficulty, condition);
     });
 
     // Enter on name field
@@ -2246,7 +2334,8 @@ function applyURLParams() {
             const name = dom.playerNameInput?.value?.trim() || playerName || 'Player';
             const s = dom.seedInput?.value ? parseInt(dom.seedInput.value, 10) : (seed ? parseInt(seed, 10) : null);
             const d = dom.difficultySelect?.value || difficulty || 'normal';
-            startGame(name, s, d);
+            const c = dom.conditionSelect?.value || 'C1';
+            startGame(name, s, d, c);
         }, 200);
     }
 }

@@ -53,6 +53,19 @@
                     </select>
                 </div>
 
+                <div class="form-group">
+                    <label for="condition-select">Ablation Condition</label>
+                    <select id="condition-select">
+                        <option value="C1" selected>C1 — Full System</option>
+                        <option value="C3">C3 — No RL (schedule-only NPCs)</option>
+                        <option value="C4">C4 — Flat MDP (no hierarchy)</option>
+                        <option value="C5">C5 — No Shocks</option>
+                        <option value="C6">C6 — No Role Masking</option>
+                        <option value="C7">C7 — Static Lambda (no adaptation)</option>
+                    </select>
+                    <div id="condition-desc" class="condition-desc">All subsystems active: RL + masking + dynamic λ + shocks + hierarchy.</div>
+                </div>
+
                 <button id="start-game-btn" class="btn btn-primary btn-lg">Start Game</button>
             </div>
         </div>
@@ -505,6 +518,21 @@
                     <h3 class="panel-title">Events</h3>
                     <div id="event-list" class="event-list">
                         <div class="empty-state">No events yet</div>
+                    </div>
+                </section>
+
+                <!-- Cooperation Chart -->
+                <section id="coop-chart-panel" class="panel">
+                    <h3 class="panel-title">
+                        <span>Cooperation Index</span>
+                        <span id="coop-condition-badge" class="condition-badge">C1</span>
+                    </h3>
+                    <div class="coop-chart-container">
+                        <canvas id="coop-chart"></canvas>
+                    </div>
+                    <div class="coop-value-row">
+                        <span class="coop-label">K(t)</span>
+                        <span id="coop-value" class="coop-value">0.500</span>
                     </div>
                 </section>
 
