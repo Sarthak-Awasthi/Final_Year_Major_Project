@@ -1,4 +1,4 @@
-# Cooperative NPC Behavior via Multi-Agent Reinforcement Learning
+# Cooperative Non-Player Character Behavior via Multi-Agent Reinforcement Learning in a Role-Playing Game Environment
 
 A medieval village RPG research playground for studying emergent cooperative behavior in multi-agent systems using tabular Q-learning with decomposed rewards.
 

@@ -2382,6 +2382,10 @@ class GameEngine:
             "player_inventory": self.player.inventory,
         }
 
+        # Pass action success into context so the quest manager can gate
+        # probability-based transitions (sneak, persuade) on actual outcome.
+        context["action_success"] = action_result.get("success")
+
         # Check if this action completes the current checkpoint
         completion = self.quest_manager.check_completion(action_id, target_npc, context)
 
@@ -2499,8 +2503,13 @@ class GameEngine:
                 "quest_progress": self.quest_manager.get_quest_progress(),
             }
 
-        # No completion — check for deviation
-        if action_result["success"] and action_id not in ("look", "wait", "status", "rest", "examine"):
+        # No completion — check for deviation.
+        # Combat actions record deviations even on failure (attacking is
+        # a deliberate player choice, not a mechanical miss).
+        is_deliberate = action_id in ("attack",)
+        action_ok = action_result.get("success", True) or is_deliberate
+        exempt = action_id in ("look", "wait", "status", "rest", "examine")
+        if action_ok and not exempt:
             deviation = self.quest_manager.handle_deviation(action_id, context)
             self.event_log.add_entry(
                 turn=self.turn, time_of_day=self.world.time_of_day,

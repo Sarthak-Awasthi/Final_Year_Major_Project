@@ -21,15 +21,11 @@
             "environment": "The gate is a sturdy wooden structure reinforced with iron bands. A notice board beside it is covered in faded postings. The road behind you stretches into gathering darkness."
           },
           "highlighted_actions": [
-            {"id": "greet", "label": "Greet the guards", "type": "social"},
+            {"id": "present_item", "label": "Show travel papers", "type": "social"},
             {"id": "sneak", "label": "Sneak past the guards", "type": "stealth"},
-            {"id": "present_item", "label": "Show travel papers", "type": "social"}
+            {"id": "persuade", "label": "Persuade the guards", "type": "social"}
           ],
           "quest_transitions": {
-            "greet": {
-              "next": "1_2",
-              "effects": {"stamina": -1, "reputation": {"guard_a3f1": 2, "guard_b7e2": 2}}
-            },
             "sneak": {
               "next": "1_2",
               "effects": {"stamina": -5, "reputation": {"guard_a3f1": -5, "guard_b7e2": -5}},
@@ -39,6 +35,11 @@
               "next": "1_2",
               "effects": {"stamina": -1, "reputation": {"guard_a3f1": 5, "guard_b7e2": 5}},
               "requires": {"item": "travel_papers"}
+            },
+            "persuade": {
+              "next": "1_2",
+              "effects": {"stamina": -2, "reputation": {"guard_a3f1": 1, "guard_b7e2": 1}},
+              "success_prob": 0.5
             }
           },
           "is_dynamic": false,
@@ -581,7 +582,7 @@
   "metadata": {
     "author": "MVP Research Project",
     "created": "2026-03-01",
-    "total_checkpoints": 16,
+    "total_checkpoints": 15,
     "total_stages": 7,
     "estimated_turns": "30-60",
     "difficulty": "normal"

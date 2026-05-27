@@ -89,6 +89,8 @@ let wsReconnectAttempts = 0;
 let cy = null;             // Cytoscape instance
 let pendingAction = null;  // Action waiting for target selection
 let actionInFlight = false; // Prevents double-submission
+let showAllNpcs = false;
+let cachedAllNpcs = null;
 
 // ═══════════════════════════════════════════════════════════════
 // DOM References
@@ -177,6 +179,8 @@ const dom = {
 
     // NPC
     npcList:          $('#npc-list'),
+    npcToggleBtn:     $('#npc-toggle-btn'),
+    npcPanelTitle:    $('#npc-panel-title'),
 
     // Nearby Objects
     groundItemsList:  $('#ground-items-list'),
@@ -212,6 +216,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initModals();
     initFooter();
     initMDPGraph();
+    initNPCToggle();
     applyURLParams();
     updateLLMStatus();
 });
@@ -732,7 +737,11 @@ function handleActionResult(result) {
     }
 
     if (result.narration) {
-        appendNarration(result.narration);
+        appendNarration({
+            text: result.narration,
+            type: 'player',
+            turn: result.turn ?? gameState.turn,
+        });
     }
 
     // Display NPC dialogue separately from narration
@@ -742,6 +751,7 @@ function handleActionResult(result) {
             type: 'dialogue',
             speaker: result.dialogue_speaker || 'NPC',
             speaker_type: 'npc',
+            turn: result.turn ?? gameState.turn,
         });
     }
 
@@ -871,10 +881,35 @@ function updateQuestPanel() {
     dom.questDescription.textContent = quest.description || quest.stage_description || '';
 }
 
+function initNPCToggle() {
+    if (dom.npcToggleBtn) {
+        dom.npcToggleBtn.addEventListener('click', async () => {
+            showAllNpcs = !showAllNpcs;
+            dom.npcToggleBtn.textContent = showAllNpcs ? 'Here' : 'All';
+            dom.npcPanelTitle.textContent = showAllNpcs ? 'All NPCs' : 'NPCs Here';
+            if (showAllNpcs) {
+                await fetchAllNpcs();
+            }
+            updateNPCPanel();
+        });
+    }
+}
+
+async function fetchAllNpcs() {
+    try {
+        const result = await apiGet('/npc/list');
+        cachedAllNpcs = result.npcs || [];
+    } catch (e) {
+        cachedAllNpcs = [];
+    }
+}
+
 function updateNPCPanel() {
-    const npcs = gameState.npcs_here || [];
+    const npcs = showAllNpcs ? (cachedAllNpcs || []) : (gameState.npcs_here || []);
+    const emptyMsg = showAllNpcs ? 'No NPC data available' : 'No NPCs at this location';
+
     if (npcs.length === 0) {
-        dom.npcList.innerHTML = '<div class="empty-state">No NPCs at this location</div>';
+        dom.npcList.innerHTML = `<div class="empty-state">${emptyMsg}</div>`;
         return;
     }
 
@@ -882,12 +917,16 @@ function updateNPCPanel() {
         const rep = npc.reputation ?? 0;
         const tier = getRepTier(rep);
         const initial = (npc.name || '?')[0].toUpperCase();
+        const locationBadge = showAllNpcs
+            ? `<div class="npc-location-badge">${npc.location || '?'}</div>`
+            : '';
         return `
             <div class="npc-card" data-npc-uid="${npc.npc_uid}">
                 <div class="npc-avatar">${initial}</div>
                 <div class="npc-info">
                     <div class="npc-name">${npc.name}</div>
                     <div class="npc-archetype">${npc.archetype || ''}</div>
+                    ${locationBadge}
                 </div>
                 <span class="npc-rep ${tier.cls}" data-tooltip="${tier.label}">${rep >= 0 ? '+' : ''}${rep}</span>
             </div>

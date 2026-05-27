@@ -196,6 +196,13 @@ class QuestManager:
             stages_to_scan = [self.mdp.stages.get(self.current_stage)]
         else:
             stages_to_scan = list(self.mdp.stages.values())
+
+        # The immediate next checkpoint is handled by normal completion,
+        # not forward scanning.  Exclude it to prevent trivial skips
+        # (e.g. "talk" at 1_1 matching 1_2's "talk" transition).
+        current_cp_obj = self.mdp.get_checkpoint(self.current_checkpoint)
+        nudge_target = getattr(current_cp_obj, "nudge_target", None) if current_cp_obj else None
+
         for stage in stages_to_scan:
             if stage is None:
                 continue
@@ -205,6 +212,8 @@ class QuestManager:
                 if cp_id in completed_set:
                     continue
                 if cp_id == self.current_checkpoint:
+                    continue
+                if cp_id == nudge_target:
                     continue
                 result = self._check_checkpoint_completion(
                     cp_id, action_id, target, context
@@ -282,6 +291,12 @@ class QuestManager:
             required_loc = requires.get("location")
             if required_loc and context.get("location") != required_loc:
                 return None
+
+        # 4. For probability-gated transitions, the action must have
+        #    succeeded.  Regular actions (no success_prob) advance
+        #    regardless of the action handler's success flag.
+        if "success_prob" in matched and context.get("action_success") is False:
+            return None
 
         return matched
 

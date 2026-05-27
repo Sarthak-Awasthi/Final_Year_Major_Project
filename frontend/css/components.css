@@ -376,6 +376,35 @@
     text-transform: capitalize;
 }
 
+.npc-location-badge {
+    font-size: 0.62rem;
+    color: var(--blue, #58a6ff);
+    background: rgba(88, 166, 255, 0.1);
+    padding: 1px 5px;
+    border-radius: 2px;
+    display: inline-block;
+    margin-top: 2px;
+    text-transform: capitalize;
+}
+
+.panel-toggle-btn {
+    float: right;
+    font-size: 0.65rem;
+    padding: 1px 8px;
+    border: 1px solid var(--border, #30363d);
+    border-radius: 3px;
+    background: var(--bg-secondary, #161b22);
+    color: var(--text-muted, #8b949e);
+    cursor: pointer;
+    font-family: var(--font-mono);
+    transition: background 0.15s, color 0.15s;
+}
+
+.panel-toggle-btn:hover {
+    background: var(--bg-tertiary, #21262d);
+    color: var(--text-primary, #e6edf3);
+}
+
 .npc-rep {
     font-size: 0.72rem;
     font-family: var(--font-mono);
