@@ -1,10 +1,4 @@
-"""
-checkpoint.py — Dynamic checkpoint generation with LLM and template fallback.
-
-When a player deviates from the expected quest path an ad-hoc checkpoint
-is generated.  The pipeline tries the LLM first (when available), then
-falls back to one of four category-based templates.
-"""
+"""Dynamic checkpoint generation: LLM when available, category templates otherwise."""
 
 from __future__ import annotations
 
@@ -17,22 +11,22 @@ from backend.llm.prompts import build_checkpoint_prompt
 from backend.quest.mdp import Checkpoint
 
 
-# ─── Action category sets (built once at import time) ────────────────────────
-
 _COMBAT_ACTIONS: set[str] = {
     aid for aid, meta in UNIVERSAL_ACTIONS.items() if meta["category"] == "combat"
 }
 _EXPLORATION_ACTIONS: set[str] = {
     aid for aid, meta in UNIVERSAL_ACTIONS.items() if meta["category"] == "exploration"
 }
+# `talk` is its own UNIVERSAL_ACTIONS category — fold it into social so
+# talk/greet/ask_info/persuade route to the social template instead of random.
 _SOCIAL_ACTIONS: set[str] = {
-    aid for aid, meta in UNIVERSAL_ACTIONS.items() if meta["category"] == "social"
+    aid for aid, meta in UNIVERSAL_ACTIONS.items()
+    if meta["category"] in ("social", "talk")
 }
 _STEALTH_ACTIONS: set[str] = {
     aid for aid, meta in UNIVERSAL_ACTIONS.items() if meta["category"] == "stealth"
 }
 
-# ─── Checkpoint templates ────────────────────────────────────────────────────
 
 CHECKPOINT_TEMPLATES: dict[str, dict] = {
     "unexpected_combat": {
@@ -57,8 +51,6 @@ CHECKPOINT_TEMPLATES: dict[str, dict] = {
     },
 }
 
-# ─── Default placeholder values ──────────────────────────────────────────────
-
 _TEMPLATE_DEFAULTS: dict[str, str] = {
     "npc_name": "a nearby villager",
     "discovery": "a hidden alcove beneath the old stones",
@@ -69,28 +61,16 @@ _TEMPLATE_DEFAULTS: dict[str, str] = {
 }
 
 
-# ─── Public API ──────────────────────────────────────────────────────────────
-
 def generate_dynamic_checkpoint(
     stage_id: int,
     action_id: str,
     context: dict,
     llm_service: object | None = None,
 ) -> Checkpoint:
-    """Generate a dynamic checkpoint for an unexpected player action.
+    """Build a dynamic checkpoint for an off-path action.
 
-    Attempts LLM generation first (when *llm_service* is provided).
-    Falls back to a category-based template on failure or absence of LLM.
-
-    Args:
-        stage_id: Current quest stage number.
-        action_id: The action that triggered deviation.
-        context: Game context dict.  Expected keys:
-            ``checkpoint_id``, ``location``, ``npc_name``, ``nudge_target``.
-        llm_service: Optional LLM service handle.
-
-    Returns:
-        A new :class:`Checkpoint` ready to be inserted into the MDP.
+    Tries the LLM first; falls back to a category template on failure
+    or when no LLM is available.
     """
     cp_id: str = context.get("checkpoint_id", f"{stage_id}_D0")
 
@@ -111,8 +91,6 @@ def generate_dynamic_checkpoint(
     return cp
 
 
-# ─── LLM generation (Phase 6 stub) ──────────────────────────────────────────
-
 def _llm_checkpoint(
     stage_id: int,
     action_id: str,
@@ -120,19 +98,10 @@ def _llm_checkpoint(
     cp_id: str,
     llm_service: object,
 ) -> Checkpoint | None:
-    """Attempt LLM-based checkpoint generation.
-
-    Builds a prompt, sends it to the LLM, validates the response, and
-    constructs a Checkpoint from the validated output.  Retries up to
-    LLM_MAX_RETRIES times before returning ``None``.
-
-    Returns:
-        A new Checkpoint, or ``None`` on failure.
-    """
+    """Ask the LLM for a checkpoint; return None if every retry fails validation."""
     if not hasattr(llm_service, "available") or not llm_service.available:
         return None
 
-    # Gather prompt context
     location = context.get("location", "unknown")
     npc_name = context.get("npc_name", "")
     nudge_target = context.get("nudge_target", "")
@@ -191,23 +160,13 @@ def _llm_checkpoint(
     return None
 
 
-# ─── Template generation ─────────────────────────────────────────────────────
-
 def _template_checkpoint(
     stage_id: int,
     action_id: str,
     context: dict,
     cp_id: str,
 ) -> Checkpoint:
-    """Build a Checkpoint from a pre-defined category template.
-
-    Template selection:
-        combat actions   → ``unexpected_combat``
-        exploration      → ``unexpected_explore``
-        social           → ``unexpected_social``
-        stealth          → ``unexpected_stealth``
-        other            → random choice
-    """
+    """Build a checkpoint from the category-template matching `action_id`."""
     template_key = _select_template_key(action_id)
     template = CHECKPOINT_TEMPLATES[template_key]
 
@@ -223,7 +182,7 @@ def _template_checkpoint(
         description=description,
         location=context.get("location", ""),
         trigger={"action": action_id},
-        completion_conditions=None,  # dynamic CPs resolve on any highlighted action
+        completion_conditions=None,
         rewards={},
         highlighted_actions=highlighted,
         next_checkpoint=nudge_target,
@@ -234,10 +193,7 @@ def _template_checkpoint(
     )
 
 
-# ─── Helpers ─────────────────────────────────────────────────────────────────
-
 def _select_template_key(action_id: str) -> str:
-    """Map an action ID to the corresponding template key."""
     if action_id in _COMBAT_ACTIONS:
         return "unexpected_combat"
     if action_id in _EXPLORATION_ACTIONS:
@@ -246,19 +202,11 @@ def _select_template_key(action_id: str) -> str:
         return "unexpected_social"
     if action_id in _STEALTH_ACTIONS:
         return "unexpected_stealth"
-    # Navigation / utility / unknown → pick at random (seeded)
     return random.choice(list(CHECKPOINT_TEMPLATES.keys()))
 
 
 def _fill_template(template: str, context: dict) -> str:
-    """Fill ``{placeholder}`` values in *template* from *context*.
-
-    Missing keys are resolved from ``_TEMPLATE_DEFAULTS``.  If a key is
-    still unresolved after merging, it is silently stripped.
-
-    Supported placeholders: ``{npc_name}``, ``{discovery}``,
-    ``{outcome}``, ``{quest_hint}``, ``{next_landmark}``, ``{nudge_hint}``.
-    """
+    """Substitute `{placeholder}` tokens; fall back to defaults; strip any left over."""
     merged: dict[str, str] = {
         **_TEMPLATE_DEFAULTS,
         **{k: str(v) for k, v in context.items() if isinstance(v, str)},

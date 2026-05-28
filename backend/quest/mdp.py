@@ -1,11 +1,10 @@
-"""
-mdp.py — MDP data structures for the hierarchical quest system.
+"""Hierarchical-MDP data model for the quest system.
 
-Macro MDP: Quest stages S1–S7 + terminal S_success / S_fail. γ = 1.0
-Micro MDP: Checkpoints within each stage. γ = 0.95
+Macro layer: stages S1-S7 + terminal S_success / S_fail (gamma = 1.0).
+Micro layer: checkpoints within a stage (gamma = 0.95).
 
-Static checkpoint IDs:  "{stage}_{index}"  (e.g., "1_1", "3_2")
-Dynamic checkpoint IDs: "{stage}_D{counter}" (e.g., "1_D1", "2_D3")
+Static checkpoint IDs are "{stage}_{index}" (e.g. "3_2"); dynamic ones
+inserted at runtime are "{stage}_D{n}" (e.g. "3_D1").
 """
 
 from __future__ import annotations
@@ -15,34 +14,14 @@ from dataclasses import dataclass, field
 from backend.config import logger
 
 
-# ─── Data Structures ─────────────────────────────────────────────────────────
-
 @dataclass
 class Checkpoint:
-    """A single checkpoint (micro-state) within a quest stage.
-
-    Attributes:
-        checkpoint_id: Unique ID, e.g. '3_2' (static) or '3_D1' (dynamic).
-        stage_id: Parent stage number.
-        description: Narrative text shown to the player.
-        location: World location where this checkpoint occurs.
-        trigger: Optional dict describing the action that reveals this CP.
-        completion_conditions: Dict mapping action keys to transition dicts
-            (mirrors ``quest_transitions`` from the JSON data).
-        rewards: Aggregated rewards from completing this checkpoint.
-        highlighted_actions: Suggested action IDs for the player.
-        next_checkpoint: Primary next checkpoint ID (from nudge_target).
-        hint: Environmental / narrative hint text.
-        is_dynamic: True if this checkpoint was generated at runtime.
-        is_terminal: True if reaching this checkpoint ends the quest.
-        nudge_target: Preferred next checkpoint for the nudging system.
-    """
-
     checkpoint_id: str
     stage_id: int
     description: str
     location: str
     trigger: dict | None = None
+    # Mirrors `quest_transitions` from JSON: action-key → transition dict.
     completion_conditions: dict | None = None
     rewards: dict = field(default_factory=dict)
     highlighted_actions: list[str] = field(default_factory=list)
@@ -51,20 +30,16 @@ class Checkpoint:
     is_dynamic: bool = False
     is_terminal: bool = False
     nudge_target: str | None = None
+    # Optional gate: blocks movement to specified targets until the player
+    # advances past this checkpoint (e.g. guards at CP 1_1).
+    movement_gate: dict | None = None
+    # Optional safety-net: transitions out of this CP additionally require
+    # the named item in inventory. Enforced in _check_checkpoint_completion.
+    requires_item: str | None = None
 
 
 @dataclass
 class Stage:
-    """A macro-state containing one or more checkpoints.
-
-    Attributes:
-        stage_id: Stage number (1-based).
-        name: Human-readable stage title.
-        description: Narrative overview of this stage.
-        checkpoints: Ordered mapping of checkpoint_id → Checkpoint.
-        next_stage: ID of the following stage, or None for the final stage.
-    """
-
     stage_id: int
     name: str
     description: str
@@ -72,24 +47,13 @@ class Stage:
     next_stage: int | None = None
 
 
-# ─── QuestMDP ────────────────────────────────────────────────────────────────
-
 class QuestMDP:
-    """Hierarchical MDP representation of the quest system.
-
-    Parses the quest JSON into stages and checkpoints and provides
-    traversal, lookup, and graph-export helpers.
-    """
+    """Parses the quest JSON into a stage/checkpoint graph and serves lookups."""
 
     MACRO_GAMMA: float = 1.0
     MICRO_GAMMA: float = 0.95
 
     def __init__(self, quest_data: dict) -> None:
-        """Parse stages and checkpoints from quest JSON data.
-
-        Args:
-            quest_data: Deserialized contents of ``main_quest.json``.
-        """
         self.quest_id: str = quest_data["quest_id"]
         self.title: str = quest_data["title"]
         self.stages: dict[int, Stage] = {}
@@ -101,10 +65,7 @@ class QuestMDP:
             len(self.get_all_checkpoints()),
         )
 
-    # ── Parsing ───────────────────────────────────────────────────────────
-
     def _parse_stages(self, quest_data: dict) -> None:
-        """Build internal stage / checkpoint graph from raw JSON."""
         stages_list = quest_data.get("stages", [])
         for idx, stage_data in enumerate(stages_list):
             stage_id: int = stage_data["stage_id"]
@@ -124,34 +85,31 @@ class QuestMDP:
             self.stages[stage_id] = stage
 
     def _parse_checkpoint(self, cp_data: dict, stage_data: dict) -> Checkpoint:
-        """Convert a single checkpoint dict from JSON into a Checkpoint."""
         cp_id: str = cp_data["cp_id"]
         stage_id = self.get_stage_for_checkpoint(cp_id)
 
-        # Highlighted action IDs — JSON stores list[dict] or list[str]
         highlighted: list[str] = []
         for entry in cp_data.get("highlighted_actions", []):
             highlighted.append(entry["id"] if isinstance(entry, dict) else entry)
 
-        # Aggregate rewards across all quest_transitions
         transitions: dict = cp_data.get("quest_transitions", {})
+
+        # Keep the max positive reputation delta per NPC across all transitions
+        # so the rewards dict reflects the best-case outcome at this CP.
         rewards: dict = {}
         for _key, trans in transitions.items():
             effects = trans.get("effects", {})
             if "reputation" in effects:
                 rewards.setdefault("reputation", {})
                 for npc_uid, delta in effects["reputation"].items():
-                    # Keep the max positive delta per NPC across transitions
                     prev = rewards["reputation"].get(npc_uid, 0)
                     rewards["reputation"][npc_uid] = max(prev, delta)
 
-        # Primary next checkpoint — prefer nudge_target, else first transition
         next_cp: str | None = cp_data.get("nudge_target")
         if next_cp is None and transitions:
             first_trans = next(iter(transitions.values()))
             next_cp = first_trans.get("next")
 
-        # Hint text from context.environment
         context_block = cp_data.get("context", {})
         hint = context_block.get("environment", "")
 
@@ -159,7 +117,9 @@ class QuestMDP:
             checkpoint_id=cp_id,
             stage_id=stage_id,
             description=cp_data.get("description", ""),
-            location=stage_data.get("location", ""),
+            # Per-CP override beats stage default (CP 2_2's narration is at
+            # elders_house even though stage 2 is village_center).
+            location=cp_data.get("location") or stage_data.get("location", ""),
             trigger=None,
             completion_conditions=transitions if transitions else None,
             rewards=rewards,
@@ -169,12 +129,11 @@ class QuestMDP:
             is_dynamic=cp_data.get("is_dynamic", False),
             is_terminal=cp_data.get("is_terminal", False),
             nudge_target=cp_data.get("nudge_target"),
+            movement_gate=cp_data.get("movement_gate"),
+            requires_item=cp_data.get("requires_item"),
         )
 
-    # ── Lookups ───────────────────────────────────────────────────────────
-
     def get_checkpoint(self, checkpoint_id: str) -> Checkpoint | None:
-        """Retrieve a checkpoint by its ID, or None if not found."""
         stage_id = self.get_stage_for_checkpoint(checkpoint_id)
         stage = self.stages.get(stage_id)
         if stage is None:
@@ -182,31 +141,18 @@ class QuestMDP:
         return stage.checkpoints.get(checkpoint_id)
 
     def get_stage(self, stage_id: int) -> Stage | None:
-        """Retrieve a stage by its numeric ID, or None if not found."""
         return self.stages.get(stage_id)
 
     def get_next_checkpoint(self, current_cp_id: str) -> str | None:
-        """Return the primary next checkpoint ID following *current_cp_id*."""
         cp = self.get_checkpoint(current_cp_id)
         return cp.next_checkpoint if cp else None
 
     @staticmethod
     def get_stage_for_checkpoint(checkpoint_id: str) -> int:
-        """Extract the stage number from a checkpoint ID.
-
-        Works for both static (``'3_2'``) and dynamic (``'3_D1'``) formats.
-        """
+        """Stage prefix is the part before the first `_`, in both static and dynamic IDs."""
         return int(checkpoint_id.split("_")[0])
 
-    # ── Mutation ──────────────────────────────────────────────────────────
-
     def add_dynamic_checkpoint(self, stage_id: int, checkpoint: Checkpoint) -> None:
-        """Insert a dynamically generated checkpoint into a stage.
-
-        Args:
-            stage_id: Target stage number.
-            checkpoint: The new Checkpoint to add.
-        """
         stage = self.stages.get(stage_id)
         if stage is None:
             logger.warning("Cannot add dynamic CP: stage %d not found", stage_id)
@@ -218,41 +164,23 @@ class QuestMDP:
             stage_id,
         )
 
-    # ── Iteration helpers ─────────────────────────────────────────────────
-
     def get_all_checkpoints(self) -> list[Checkpoint]:
-        """Return a flat list of every checkpoint across all stages."""
-        result: list[Checkpoint] = []
-        for stage in self.stages.values():
-            result.extend(stage.checkpoints.values())
-        return result
+        return [cp for stage in self.stages.values() for cp in stage.checkpoints.values()]
 
     def get_checkpoint_ids_for_stage(self, stage_id: int) -> list[str]:
-        """Return all checkpoint IDs belonging to *stage_id*."""
         stage = self.stages.get(stage_id)
         return list(stage.checkpoints.keys()) if stage else []
-
-    # ── Visualisation ─────────────────────────────────────────────────────
 
     def to_graph_data(
         self,
         current_cp_id: str | None = None,
         completed_cps: list[str] | None = None,
     ) -> dict:
-        """Return a hierarchical graph with stage nodes + checkpoint nodes.
+        """Cytoscape-shaped graph with stage nodes on top and checkpoint nodes below.
 
-        The graph has two tiers:
-        - **Stage nodes** (``kind='stage'``): arranged in a horizontal row,
-          connected sequentially with thick arrows.
-        - **Checkpoint nodes** (``kind='checkpoint'``): positioned below their
-          parent stage, connected with thinner edges.
-
-        Args:
-            current_cp_id: The checkpoint to highlight as ``'current'``.
-            completed_cps: List of already-completed checkpoint IDs.
-
-        Returns:
-            ``{"nodes": [...], "edges": [...]}`` suitable for Cytoscape.js.
+        Returns ``{"nodes": [...], "edges": [...]}``. ``current_cp_id``
+        is highlighted as `current`; everything in ``completed_cps`` is
+        rendered with the `completed` style.
         """
         completed_set: set[str] = set(completed_cps or [])
         current_stage_id: int | None = None
@@ -268,17 +196,15 @@ class QuestMDP:
 
         sorted_stages = sorted(self.stages.values(), key=lambda s: s.stage_id)
 
-        # ── Layout constants ──────────────────────────────────────────
-        stage_x_gap = 220       # horizontal spacing between stages
-        cp_y_start = 140        # vertical offset for first checkpoint row
-        cp_y_gap = 80           # vertical gap between checkpoint rows
-        cp_x_spread = 80        # horizontal spread within a stage
+        stage_x_gap = 220
+        cp_y_start = 140
+        cp_y_gap = 80
+        cp_x_spread = 80
 
         for si, stage in enumerate(sorted_stages):
             stage_x = si * stage_x_gap
             stage_node_id = f"stage_{stage.stage_id}"
 
-            # Determine stage status
             all_cps = list(stage.checkpoints.keys())
             stage_completed = all(c in completed_set for c in all_cps) if all_cps else False
             stage_is_current = (current_stage_id == stage.stage_id) and not stage_completed
@@ -299,7 +225,6 @@ class QuestMDP:
                 "position": {"x": stage_x, "y": 0},
             })
 
-            # Stage-to-stage edge
             if si + 1 < len(sorted_stages):
                 next_stage_node = f"stage_{sorted_stages[si + 1].stage_id}"
                 edges.append({
@@ -308,12 +233,10 @@ class QuestMDP:
                     "type": "stage_link",
                 })
 
-            # ── Checkpoint nodes beneath this stage ───────────────────
             cp_list = list(stage.checkpoints.values())
             num_cps = len(cp_list)
 
             for ci, cp in enumerate(cp_list):
-                # Determine checkpoint type/status
                 if current_cp_id and cp.checkpoint_id == current_cp_id:
                     cp_type = "current"
                 elif cp.checkpoint_id in completed_set:
@@ -325,10 +248,9 @@ class QuestMDP:
                 else:
                     cp_type = "static"
 
-                # Position: spread checkpoints under their stage node
                 x_offset = (ci - (num_cps - 1) / 2) * cp_x_spread
                 cp_x = stage_x + x_offset
-                cp_y = cp_y_start + (ci // 3) * cp_y_gap  # wrap rows of 3
+                cp_y = cp_y_start + (ci // 3) * cp_y_gap  # wrap into rows of 3
 
                 nodes.append({
                     "id": cp.checkpoint_id,
@@ -340,7 +262,6 @@ class QuestMDP:
                     "position": {"x": cp_x, "y": cp_y},
                 })
 
-                # Edge from stage node to first checkpoint
                 if ci == 0:
                     edges.append({
                         "source": stage_node_id,
@@ -348,14 +269,12 @@ class QuestMDP:
                         "type": "stage_to_cp",
                     })
 
-                # Checkpoint-to-checkpoint edges from transitions
                 if cp.completion_conditions:
                     for _key, trans in cp.completion_conditions.items():
                         target = trans.get("next")
                         if target and target not in ("S_success", "S_fail"):
                             edge_key = (cp.checkpoint_id, target)
                             if edge_key not in seen_edges:
-                                # Determine edge type
                                 edge_type = "completed" if cp.checkpoint_id in completed_set else "default"
                                 edges.append({
                                     "source": cp.checkpoint_id,
@@ -373,7 +292,6 @@ class QuestMDP:
                                 })
                                 seen_edges.add(edge_key)
 
-        # ── Terminal pseudo-nodes ─────────────────────────────────────
         last_x = (len(sorted_stages) - 1) * stage_x_gap
         nodes.append({
             "id": "S_success",

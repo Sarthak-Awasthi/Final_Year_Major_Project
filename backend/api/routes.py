@@ -1,8 +1,7 @@
-"""
-routes.py — REST API routes for the MVP research game.
+"""REST routes for the MVP research game.
 
-All endpoints are ``async def`` and tagged by category for the Swagger UI.
-Pydantic models provide request/response validation with example values.
+Pydantic models validate payloads and produce Swagger examples; each
+endpoint is tagged by category so the generated UI groups cleanly.
 """
 
 from __future__ import annotations
@@ -43,16 +42,8 @@ session_mgr = SessionManager()
 
 
 def get_engine(raise_on_missing: bool = True) -> GameEngine | None:
-    """Return the active :class:`GameEngine` or raise ``400``.
-
-    Args:
-        raise_on_missing: If ``True`` (default), raise ``HTTPException``
-            when no game is running.  When ``False``, silently return
-            ``None`` (used by WebSocket reconnection).
-
-    Returns:
-        The current engine instance, or ``None``.
-    """
+    """Active engine or 400. Set `raise_on_missing=False` for WebSocket
+    reconnects that need to handle the no-game case themselves."""
     if session_mgr.current_engine is None:
         if raise_on_missing:
             raise HTTPException(
@@ -517,7 +508,6 @@ async def new_game(req: NewGameRequest) -> GameStateResponse:
         condition=req.condition,
     )
 
-    # Broadcast initial state over WebSocket
     await ws_manager.broadcast({"type": "state_sync", "data": state})
 
     logger.info("New game started: player=%s, difficulty=%s, condition=%s", req.player_name, req.difficulty, req.condition)
@@ -531,11 +521,7 @@ async def new_game(req: NewGameRequest) -> GameStateResponse:
     summary="Submit player action",
 )
 async def submit_action(req: ActionRequest) -> TurnResultResponse:
-    """Submit a player action via button or free-text input.
-
-    The request is parsed into a unified ``ParsedInput`` dict and
-    forwarded to the engine for turn processing.
-    """
+    """Normalise the request into a ParsedInput dict and run one engine turn."""
     engine = get_engine()
 
     if engine.game_over:
@@ -544,7 +530,6 @@ async def submit_action(req: ActionRequest) -> TurnResultResponse:
             detail=f"Game is over. Result: {engine.game_result}",
         )
 
-    # Parse input based on source
     if req.source == "text":
         if not req.text:
             raise HTTPException(status_code=422, detail="'text' field required when source='text'.")
@@ -556,7 +541,8 @@ async def submit_action(req: ActionRequest) -> TurnResultResponse:
             player_inventory=engine.player.inventory if hasattr(engine.player, 'inventory') else None,
         )
 
-        # Layer 3: LLM refinement for low-confidence parses
+        # Layer-3 LLM refinement: only invoked when the heuristic parser is
+        # uncertain (confidence < 0.5) and an LLM is reachable.
         if parsed_input.get("confidence", 1.0) < 0.5 and engine.llm and engine.llm.available:
             from backend.player.input_parser import _llm_parse_input
             from backend.npc.personality import get_npcs_at_location
@@ -577,7 +563,8 @@ async def submit_action(req: ActionRequest) -> TurnResultResponse:
                 llm_service=engine.llm,
             )
             if llm_parsed is not None and llm_parsed.get("confidence", 0) > parsed_input.get("confidence", 0):
-                # Keep original target extraction, override action/emotion/social
+                # Heuristic targets are more reliable than LLM hallucinated ones —
+                # fall back to the heuristic extraction when the LLM omits a target.
                 llm_parsed["target_npc"] = llm_parsed.get("target_npc") or parsed_input.get("target_npc")
                 llm_parsed["target_item"] = llm_parsed.get("target_item") or parsed_input.get("target_item")
                 llm_parsed["target_location"] = llm_parsed.get("target_location") or parsed_input.get("target_location")
@@ -602,10 +589,10 @@ async def submit_action(req: ActionRequest) -> TurnResultResponse:
             detail="Invalid source. Must be 'button' or 'text'.",
         )
 
-    # Process the turn
     result = await engine.process_turn(parsed_input)
 
-    # Build response — accommodate varying engine result shapes
+    # Engine results carry different keys depending on action type, so
+    # each field has a fallback path.
     action_result = result.get("action_result", {})
     narration = result.get("narration") or action_result.get("narration", "")
     dialogue = action_result.get("dialogue")
@@ -627,7 +614,6 @@ async def submit_action(req: ActionRequest) -> TurnResultResponse:
         quest_update=result.get("quest_update"),
     )
 
-    # Broadcast over WebSocket
     await ws_manager.broadcast_turn_result(result)
 
     state = engine.get_full_state()
@@ -793,7 +779,8 @@ async def get_llm_status() -> LLMStatusResponse:
     if engine is not None:
         status = engine.llm.get_status()
         return LLMStatusResponse(**status)
-    # No session — report based on config
+    # No session yet, so we can't ask the engine — report what the
+    # config says instead so the dashboard isn't blank pre-game.
     from backend.config import LLM_API_BASE_URL, LLM_ENABLED, LLM_MODEL_NAME, LLM_PROVIDER
 
     return LLMStatusResponse(
@@ -843,7 +830,6 @@ async def load_game(req: LoadRequest) -> GameStateResponse:
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed to load save: {exc}")
 
-    # Broadcast restored state
     await ws_manager.broadcast({"type": "state_sync", "data": state})
 
     return GameStateResponse(**state)
@@ -861,7 +847,8 @@ async def list_saves() -> SaveListResponse:
     if engine is not None:
         saves = engine.get_save_list()
     else:
-        # No active session — scan directory directly
+        # Pre-game: enumerate the saves folder directly so the menu can
+        # offer "Load" before any engine exists.
         import json
         from backend.config import SAVES_DIR
 

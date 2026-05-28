@@ -1,9 +1,7 @@
-"""
-prompts.py — Prompt templates for all LLM use cases.
+"""Prompt templates for every LLM call.
 
-Every builder returns a fully-formed prompt string ready for the model.
-Token estimation and budget truncation utilities are included so that
-callers never exceed the 2 500-token hard prompt limit.
+Every builder runs its output through `truncate_to_budget` so the prompt
+fits inside `LLM_MAX_PROMPT_TOKENS`.
 """
 
 from __future__ import annotations
@@ -16,41 +14,16 @@ from backend.config import (
 )
 
 
-# ─── Token estimation ────────────────────────────────────────────────────────
-
 def estimate_tokens(text: str) -> int:
-    """Rough token count: ~4 characters per token.
-
-    This is a conservative heuristic that aligns well with typical BPE
-    tokenizers for English text.
-
-    Args:
-        text: Input string.
-
-    Returns:
-        Estimated token count.
-    """
+    """Approximate token count at 4 chars/token — close enough for English BPE."""
     return max(1, len(text) // 4)
 
 
 def truncate_to_budget(prompt: str, max_tokens: int = LLM_MAX_PROMPT_TOKENS) -> str:
-    """Trim a prompt to fit within the token budget.
+    """Shrink an over-budget prompt by progressively dropping bulky sections.
 
-    Truncation priority (applied in order until within budget):
-      1. Conversation history → last 3 exchanges
-      2. Event log → last 3 events
-      3. Omit inventory details
-
-    If the prompt is still over budget after all reductions, it is hard-
-    truncated to ``max_tokens * 4`` characters (the inverse of our 4-
-    chars-per-token estimate).
-
-    Args:
-        prompt: The original prompt string.
-        max_tokens: Maximum allowed tokens.
-
-    Returns:
-        A prompt that fits within the budget.
+    Priority: trim conversation history → trim event log → drop inventory.
+    Falls back to a hard char-count truncation as a last resort.
     """
     if estimate_tokens(prompt) <= max_tokens:
         return prompt
@@ -66,7 +39,6 @@ def truncate_to_budget(prompt: str, max_tokens: int = LLM_MAX_PROMPT_TOKENS) -> 
     for line in lines:
         lower = line.lower().strip()
 
-        # Detect conversation history section
         if "conversation history" in lower or "recent conversation" in lower:
             in_history = True
             in_events = False
@@ -78,22 +50,21 @@ def truncate_to_budget(prompt: str, max_tokens: int = LLM_MAX_PROMPT_TOKENS) -> 
             result_lines.append(line)
             continue
         if "inventory" in lower and ("items" in lower or ":" in lower):
-            # Check if we need to drop inventory
+            # Only drop inventory once we're already near budget — earlier
+            # rejection would shed it unnecessarily on borderline prompts.
             if estimate_tokens("\n".join(result_lines)) > max_tokens * 0.8:
                 skip_inventory = True
                 result_lines.append("(inventory omitted for brevity)")
                 continue
 
-        # Reset section tracking on blank line or new header
         if lower == "" or (lower.startswith("#") and not in_history and not in_events):
             if in_history:
-                # Keep only last 3 exchanges (6 lines: player + npc alternating)
+                # 6 lines ≈ last 3 exchanges (player + npc turns alternate).
                 trimmed = history_lines[-6:] if len(history_lines) > 6 else history_lines
                 result_lines.extend(trimmed)
                 history_lines = []
                 in_history = False
             elif in_events:
-                # Keep only last 3 events
                 trimmed = event_lines[-3:] if len(event_lines) > 3 else event_lines
                 result_lines.extend(trimmed)
                 event_lines = []
@@ -110,7 +81,6 @@ def truncate_to_budget(prompt: str, max_tokens: int = LLM_MAX_PROMPT_TOKENS) -> 
         else:
             result_lines.append(line)
 
-    # Flush any remaining section lines
     if history_lines:
         trimmed = history_lines[-6:] if len(history_lines) > 6 else history_lines
         result_lines.extend(trimmed)
@@ -120,7 +90,6 @@ def truncate_to_budget(prompt: str, max_tokens: int = LLM_MAX_PROMPT_TOKENS) -> 
 
     prompt = "\n".join(result_lines)
 
-    # Hard-truncate as last resort
     max_chars = max_tokens * 4
     if len(prompt) > max_chars:
         prompt = prompt[:max_chars]
@@ -128,8 +97,6 @@ def truncate_to_budget(prompt: str, max_tokens: int = LLM_MAX_PROMPT_TOKENS) -> 
 
     return prompt
 
-
-# ─── Prompt builders ──────────────────────────────────────────────────────────
 
 def build_checkpoint_prompt(
     stage_desc: str,
@@ -143,23 +110,6 @@ def build_checkpoint_prompt(
     expected_next: str,
     inventory_summary: str,
 ) -> str:
-    """Build a prompt for dynamic checkpoint generation.
-
-    Args:
-        stage_desc: Description of the current quest stage.
-        player_action: The action that triggered deviation.
-        emotion: Player's emotional tone.
-        social: Player's social register.
-        location: Current location name.
-        health: Player health.
-        stamina: Player stamina/AP.
-        reputation: Average reputation value.
-        expected_next: Description of the expected next checkpoint.
-        inventory_summary: Brief inventory listing.
-
-    Returns:
-        Full prompt string for checkpoint generation.
-    """
     prompt = f"""You are a game master AI for a medieval village RPG.
 
 ## Task
@@ -216,40 +166,34 @@ def build_dialogue_prompt(
     emotion: str,
     social: str,
 ) -> str:
-    """Build a prompt for NPC dialogue generation.
-
-    Args:
-        npc_name: Display name of the NPC.
-        npc_uid: Unique identifier of the NPC.
-        npc_role: Role description (e.g. 'village elder').
-        archetype: Archetype key (e.g. 'elder').
-        personality: Personality description string.
-        mood: Current mood (e.g. 'content', 'anxious').
-        happiness: Happiness stat (0-10).
-        reputation: Player's reputation with this NPC (-100 to +100).
-        context: Current game context summary.
-        conversation_history: List of prior exchanges (dicts with 'role' and 'text').
-        player_input: What the player said or did.
-        emotion: Player's emotional tone.
-        social: Player's social register.
-
-    Returns:
-        Full prompt string for dialogue generation.
-    """
-    # Truncate conversation history to last N entries
     recent = conversation_history[-LLM_CONVERSATION_CONTEXT:]
     history_text = ""
     if recent:
         history_lines = []
         for entry in recent:
-            role = entry.get("role", "unknown")
-            text = entry.get("text", "")
-            history_lines.append(f"  {role}: {text}")
-        history_text = "\n".join(history_lines)
+            # Engine stores history as {turn, action, player_text, npc_response};
+            # other call-sites pass {role, text}. Handle both — the legacy
+            # branch caused total amnesia when the engine format reached us.
+            if "player_text" in entry or "npc_response" in entry:
+                ptext = (entry.get("player_text") or "").strip()
+                nresp = (entry.get("npc_response") or "").strip()
+                action = entry.get("action", "")
+                turn = entry.get("turn")
+                turn_tag = f"t{turn}" if turn is not None else ""
+                if ptext:
+                    history_lines.append(f"  [{turn_tag} {action}] Player: {ptext}")
+                elif action:
+                    history_lines.append(f"  [{turn_tag}] Player: ({action})")
+                if nresp:
+                    history_lines.append(f"  [{turn_tag}] {npc_name}: {nresp}")
+            else:
+                role = entry.get("role", "unknown")
+                text = entry.get("text", "")
+                history_lines.append(f"  {role}: {text}")
+        history_text = "\n".join(history_lines) if history_lines else "  (no prior conversation)"
     else:
         history_text = "  (no prior conversation)"
 
-    # Map reputation to disposition
     if reputation >= 50:
         disposition = "trusting and warm"
     elif reputation >= 20:
@@ -261,7 +205,7 @@ def build_dialogue_prompt(
     else:
         disposition = "hostile and dismissive"
 
-    prompt = f"""You are roleplaying as {npc_name}, a {npc_role} in a medieval village.
+    prompt = f"""You are roleplaying as {npc_name}, a {npc_role} in a village RPG.
 
 ## Character
 - Name: {npc_name} (UID: {npc_uid})
@@ -281,6 +225,11 @@ The player ({emotion} tone, {social} manner) says/does: "{player_input}"
 
 ## Instructions
 Respond in character as {npc_name}. Keep the response to 1-3 sentences.
+Stay consistent with the Recent Conversation above — do NOT forget what you
+have already asked of the player, what they have shown you, or what
+unresolved demands sit between you. If you previously asked for something
+(papers, payment, an answer) and the player has not provided it, hold your
+ground rather than waving them past with empty pleasantries.
 Consider your mood, personality, and relationship with the player.
 If the player is rude or threatening, react accordingly.
 
@@ -307,24 +256,9 @@ def build_input_analysis_prompt(
     npcs_present: list[str],
     highlighted_actions: list[str],
 ) -> str:
-    """Build a prompt for free-text input 3D analysis.
-
-    Extracts emotion, intent, social register and maps to the universal
-    action catalog.
-
-    Args:
-        player_text: Raw player input text.
-        location: Current location name.
-        npcs_present: List of NPC names present at the location.
-        highlighted_actions: Actions currently highlighted by the quest.
-
-    Returns:
-        Full prompt string for input analysis.
-    """
+    """Prompt for parsing free-text input into (emotion, social, intent, action)."""
     npcs_str = ", ".join(npcs_present) if npcs_present else "nobody"
     highlighted_str = ", ".join(highlighted_actions) if highlighted_actions else "none"
-
-    # Provide the full action catalog
     action_list = ", ".join(UNIVERSAL_ACTION_IDS)
 
     prompt = f"""You are a natural language parser for a medieval village RPG.
@@ -380,31 +314,10 @@ def build_narration_prompt(
     social: str,
     witnesses: list[str],
 ) -> str:
-    """Build a prompt for narrative text enhancement.
-
-    The LLM enriches a template narration with context-aware details.
-
-    Args:
-        action_id: The action being narrated.
-        actor_name: Who performed the action.
-        target_name: Target of the action (may be None).
-        outcome_type: Outcome category (success/fail/blocked/partial).
-        template_text: The base template narration to enhance.
-        location: Current location name.
-        time_of_day: Current time period.
-        weather: Current weather condition or None.
-        emotion: Actor's emotional tone.
-        social: Actor's social register.
-        witnesses: List of witness NPC names.
-
-    Returns:
-        Full prompt string for narration enhancement.
-        The expected output is plain text (not JSON).
-    """
+    """Prompt for LLM enrichment of a template narration line. Expects plain text back, not JSON."""
     target_str = target_name if target_name else "no specific target"
     weather_str = weather if weather else "clear"
     witnesses_str = ", ".join(witnesses) if witnesses else "nobody"
-
     location_readable = location.replace("_", " ").title()
 
     prompt = f"""You are a narrator for a medieval village RPG set in the village of Thornhaven.
@@ -441,21 +354,7 @@ def build_action_decomposition_prompt(
     inventory_items: list[str],
     highlighted_actions: list[str],
 ) -> str:
-    """Build a prompt to decompose complex free-text into atomic action steps.
-
-    The LLM breaks down compound player intent (e.g. "show travel papers
-    to the guard") into a sequence of game-engine-level atomic actions.
-
-    Args:
-        player_text: Raw player input text.
-        location: Current location name.
-        npcs_present: List of NPC display names present at the location.
-        inventory_items: List of item names the player carries.
-        highlighted_actions: Actions highlighted by the current quest checkpoint.
-
-    Returns:
-        Full prompt string for action decomposition.
-    """
+    """Prompt that splits a compound command (e.g. 'show papers to guard') into atomic action steps."""
     npcs_str = ", ".join(npcs_present) if npcs_present else "nobody"
     items_str = ", ".join(inventory_items) if inventory_items else "nothing"
     highlighted_str = ", ".join(highlighted_actions) if highlighted_actions else "none"

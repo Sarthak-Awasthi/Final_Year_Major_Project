@@ -1,10 +1,5 @@
-"""
-quest_manager.py — Quest progression manager.
-
-Tracks the player's position in the hierarchical MDP, checks checkpoint
-completion conditions, handles deviations, and serialises / deserialises
-quest state for save/load.
-"""
+"""Quest progression manager: tracks position in the MDP, matches actions to
+transitions, handles deviations and convergence, and serialises for save/load."""
 
 from __future__ import annotations
 
@@ -20,18 +15,9 @@ from backend.quest.mdp import Checkpoint, QuestMDP
 
 
 class QuestManager:
-    """Manages quest progression through the hierarchical MDP.
-
-    One instance exists per game session.  It owns no data itself — it
-    references a shared :class:`QuestMDP` for the graph topology.
-    """
+    """One instance per game session. Owns mutable state; the MDP graph is shared."""
 
     def __init__(self, mdp: QuestMDP) -> None:
-        """Initialise at the first checkpoint of stage 1.
-
-        Args:
-            mdp: The parsed quest MDP graph.
-        """
         self.mdp = mdp
         self.current_stage: int = 1
         self.current_checkpoint: str = "1_1"
@@ -41,14 +27,13 @@ class QuestManager:
         self.dynamic_counter: dict[int, int] = defaultdict(int)
         self.quest_complete: bool = False
         self.quest_failed: bool = False
-        # (action_id, stage_id) → count — used for loop detection
+        # Per-(action, stage) counter feeding loop detection.
         self._action_history: dict[tuple[str, int], int] = {}
-        # Tracks the last static checkpoint before deviation started.
-        # Used to check convergence back to the main quest path.
+        # Static CP the player last sat on before any deviation chain. Cleared
+        # on advance; consulted by `check_convergence` so off-path actions can
+        # still satisfy the original CP's transitions.
         self._deviation_origin: str | None = None
         logger.debug("QuestManager initialised at checkpoint %s", self.current_checkpoint)
-
-    # ── Completion check ──────────────────────────────────────────────────
 
     def _check_checkpoint_completion(
         self,
@@ -57,14 +42,8 @@ class QuestManager:
         target: str | None,
         context: dict,
     ) -> dict | None:
-        """Core logic: check whether *action_id* satisfies a specific checkpoint.
-
-        This is the shared implementation used by both :meth:`check_completion`
-        (current checkpoint) and :meth:`check_convergence` (deviation origin).
-
-        Returns:
-            A result dict or ``None`` when conditions are not satisfied.
-        """
+        """Shared completion logic for check_completion / check_convergence /
+        check_forward_completion. Returns the transition result or None."""
         cp = self.mdp.get_checkpoint(checkpoint_id)
         if cp is None or cp.completion_conditions is None:
             return None
@@ -74,9 +53,22 @@ class QuestManager:
             return None
 
         next_cp: str | None = matched.get("next")
-        effects: dict = matched.get("effects", {})
 
-        # Build rewards summary
+        # Safety net for `requires_item` on the destination: block the
+        # transition unless the player will hold that item after it fires
+        # (already in inventory, or granted via this transition's `gives`).
+        if next_cp and next_cp not in ("S_success", "S_fail"):
+            next_cp_obj = self.mdp.get_checkpoint(next_cp)
+            required_item = getattr(next_cp_obj, "requires_item", None) if next_cp_obj else None
+            if required_item:
+                effects_block = matched.get("effects", {}) or {}
+                will_be_given = required_item in (effects_block.get("gives") or [])
+                inventory: list[dict] = context.get("player_inventory", []) or []
+                already_has = any(itm.get("id") == required_item for itm in inventory)
+                if not (will_be_given or already_has):
+                    return None
+
+        effects: dict = matched.get("effects", {})
         rewards: dict = {}
         if "reputation" in effects:
             rewards["reputation"] = effects["reputation"]
@@ -87,7 +79,6 @@ class QuestManager:
         if "stamina" in effects:
             rewards["stamina"] = effects["stamina"]
 
-        # Detect cross-stage transition
         stage_transition = False
         if next_cp and next_cp not in ("S_success", "S_fail"):
             next_stage_id = QuestMDP.get_stage_for_checkpoint(next_cp)
@@ -115,28 +106,6 @@ class QuestManager:
         target: str | None,
         context: dict,
     ) -> dict | None:
-        """Check whether *action_id* satisfies the current checkpoint.
-
-        Matching logic:
-          1. Exact key match in ``completion_conditions``.
-          2. Compound key prefix match (e.g. ``move_to_fields``).
-
-        Args:
-            action_id: The action the player performed.
-            target: Optional target NPC / item / location.
-            context: Game context dict (must include ``target_location``
-                when relevant).
-
-        Returns:
-            A result dict or ``None`` when conditions are not satisfied::
-
-                {
-                    "checkpoint_completed": str,
-                    "next_checkpoint": str | None,
-                    "rewards": dict,
-                    "stage_transition": bool,
-                }
-        """
         return self._check_checkpoint_completion(
             self.current_checkpoint, action_id, target, context
         )
@@ -147,15 +116,7 @@ class QuestManager:
         target: str | None,
         context: dict,
     ) -> dict | None:
-        """Check if action satisfies the deviation origin, enabling convergence.
-
-        When the player is on a dynamic checkpoint and performs an action that
-        would satisfy the original static checkpoint they deviated from, this
-        method detects it so the player can converge back to the main path.
-
-        Returns:
-            Completion dict or ``None``.
-        """
+        """If the player is on a dynamic CP, try to satisfy the static CP they came from."""
         if self._deviation_origin is None:
             return None
         result = self._check_checkpoint_completion(
@@ -178,31 +139,20 @@ class QuestManager:
         target: str | None,
         context: dict,
     ) -> dict | None:
-        """Scan remaining static checkpoints for a matching transition.
-
-        When the player performs a quest-critical action that matches a
-        *future* checkpoint (e.g. returning an item directly to an NPC,
-        skipping intermediate travel steps), this method finds that match
-        and allows the quest to leap forward.
-
-        Only static (non-dynamic) checkpoints from the current stage
-        onward are scanned.  Already-completed checkpoints are skipped.
-
-        Returns:
-            Completion dict (with all skipped CPs marked) or ``None``.
-        """
+        """Allow a quest-critical action to skip ahead to a future static CP."""
         completed_set = set(self.completed_checkpoints)
         if _cfg.HIERARCHICAL_MDP:
             stages_to_scan = [self.mdp.stages.get(self.current_stage)]
         else:
             stages_to_scan = list(self.mdp.stages.values())
 
-        # The immediate next checkpoint is handled by normal completion,
-        # not forward scanning.  Exclude it to prevent trivial skips
-        # (e.g. "talk" at 1_1 matching 1_2's "talk" transition).
+        # The immediate next CP is the job of `check_completion`; excluding it
+        # here prevents trivial collisions where a bare action key matches a
+        # neighbour (e.g. "talk" at 1_1 picking up 1_2's "talk" transition).
         current_cp_obj = self.mdp.get_checkpoint(self.current_checkpoint)
         nudge_target = getattr(current_cp_obj, "nudge_target", None) if current_cp_obj else None
 
+        player_location = context.get("location")
         for stage in stages_to_scan:
             if stage is None:
                 continue
@@ -214,6 +164,11 @@ class QuestManager:
                 if cp_id == self.current_checkpoint:
                     continue
                 if cp_id == nudge_target:
+                    continue
+                # Reject CPs whose scene is elsewhere — without this filter,
+                # `move_to village_center` at CP 4_1 could leap to CP 5_1
+                # (located at fields), teleporting the player.
+                if cp.location and player_location and cp.location != player_location:
                     continue
                 result = self._check_checkpoint_completion(
                     cp_id, action_id, target, context
@@ -237,14 +192,12 @@ class QuestManager:
         context: dict,
         cp: Checkpoint,
     ) -> dict | None:
-        """Find the matching transition dict inside *cp.completion_conditions*.
+        """Resolve `action_id` against `cp.completion_conditions` keys.
 
-        Also validates ``requires`` constraints (e.g. the player must have
-        a specific item).  The *context* dict should include
-        ``player_inventory`` (list of item dicts) when callers want
-        ``requires.item`` checks to be enforced.
-
-        Returns the raw transition dict, or ``None``.
+        Two-stage match — exact key first, then compound suffix (e.g.
+        "move_to_fields"). Both branches obey direction (target_location)
+        and `requires` constraints. See feedback_transition_matching.md for
+        the two traps this function navigates.
         """
         conditions = cp.completion_conditions
         if conditions is None:
@@ -252,14 +205,25 @@ class QuestManager:
 
         matched: dict | None = None
 
-        # 1. Exact match
         if action_id in conditions:
-            matched = conditions[action_id]
-        else:
-            # 2. Compound-key match (e.g. "move_to_fields")
+            candidate = conditions[action_id]
+            # Direction guard: if the bare-key transition declares an
+            # expected target_location, only honor it when the player's
+            # `target_location` agrees. Without this, CP 4_3's
+            # `move_to → 5_1` (target_location: fields) would fire on
+            # `move_to village_center` too, breaking forward-completion.
+            expected_loc = (candidate.get("effects", {}) or {}).get("target_location")
+            actual_loc = context.get("target_location")
+            if not (expected_loc and actual_loc and expected_loc != actual_loc):
+                matched = candidate
+
+        if matched is None:
+            # Compound key (e.g. "move_to_fields"). Only suffixed keys are
+            # considered here — the bare-action key is already handled
+            # above. Re-matching it would silently undo the direction guard.
             target_location = context.get("target_location", "")
             for key, transition in conditions.items():
-                if not key.startswith(action_id):
+                if not key.startswith(action_id) or key == action_id:
                     continue
                 suffix = key[len(action_id) + 1:] if len(key) > len(action_id) else ""
                 if suffix and target_location and suffix == target_location:
@@ -268,52 +232,42 @@ class QuestManager:
                 if suffix and target and suffix == target:
                     matched = transition
                     break
-                if not suffix:
-                    matched = transition
-                    break
 
         if matched is None:
             return None
 
-        # 3. Validate `requires` constraints
         requires = matched.get("requires")
         if requires:
             inventory: list[dict] = context.get("player_inventory", [])
-            # requires.item — player must possess item with matching id
             required_item = requires.get("item")
             if required_item:
-                has_item = any(
-                    itm.get("id") == required_item for itm in inventory
-                )
+                has_item = any(itm.get("id") == required_item for itm in inventory)
                 if not has_item:
                     return None
-            # requires.location — player must be at specified location
             required_loc = requires.get("location")
             if required_loc and context.get("location") != required_loc:
                 return None
 
-        # 4. For probability-gated transitions, the action must have
-        #    succeeded.  Regular actions (no success_prob) advance
-        #    regardless of the action handler's success flag.
-        if "success_prob" in matched and context.get("action_success") is False:
-            return None
+        # Action-success gating. Probability rolls (sneak, persuade) and
+        # movement both demand a successful outcome — a blocked move_to
+        # must not advance the quest even though its action_id matches a
+        # transition key. Other actions stay lenient because their
+        # resolvers report False for benign reasons (no target specified,
+        # NPC asleep, etc.).
+        if context.get("action_success") is False:
+            if "success_prob" in matched or action_id == "move_to":
+                return None
 
         return matched
 
-    # ── State advancement ────────────────────────────────────────────────
-
     def advance_checkpoint(self, next_cp_id: str) -> None:
-        """Move to the next checkpoint, recording the current one.
-
-        Handles terminal states (``S_success`` / ``S_fail``) and
-        cross-stage transitions automatically.  Also clears the deviation
-        origin so convergence tracking resets.
-        """
+        """Step to `next_cp_id`; handle terminals and cross-stage hops."""
         old_cp = self.current_checkpoint
         if old_cp not in self.completed_checkpoints:
             self.completed_checkpoints.append(old_cp)
 
-        # Also mark the deviation origin as completed when converging
+        # Mark the origin completed too when converging — otherwise the
+        # main-path CP the player deviated from sits "unfinished" forever.
         if (
             self._deviation_origin is not None
             and self._deviation_origin != old_cp
@@ -331,8 +285,8 @@ class QuestManager:
             return
 
         self.current_checkpoint = next_cp_id
-        self.deviation_count = 0  # reset on forward progress
-        self._deviation_origin = None  # clear deviation tracking
+        self.deviation_count = 0
+        self._deviation_origin = None
 
         new_stage = QuestMDP.get_stage_for_checkpoint(next_cp_id)
         if new_stage != self.current_stage:
@@ -341,39 +295,22 @@ class QuestManager:
         logger.info("Advanced checkpoint: %s → %s", old_cp, next_cp_id)
 
     def advance_stage(self, next_stage: int) -> None:
-        """Transition to a new quest stage (no-op in flat MDP mode)."""
+        # Flat-MDP mode keeps everything in stage 1; the hierarchical stage
+        # split is feature-flagged for ablation conditions.
         if not _cfg.HIERARCHICAL_MDP:
             return
         old_stage = self.current_stage
         self.current_stage = next_stage
         logger.info("Stage transition: %d → %d", old_stage, next_stage)
 
-    # ── Deviation handling ───────────────────────────────────────────────
-
     def handle_deviation(self, action_id: str, context: dict) -> dict:
-        """Record and evaluate a player deviation from the expected path.
-
-        On the first deviation, records the current checkpoint as the
-        *deviation origin* so that convergence checks can later match
-        the player's actions against the original checkpoint's conditions.
-
-        Args:
-            action_id: The off-path action taken.
-            context: Current game context.
-
-        Returns:
-            ``{"needs_dynamic_cp": bool, "deviation_count": int,
-              "force_convergence": bool}``
-        """
+        """Record a deviation and report whether the engine should spawn a
+        dynamic CP or force convergence."""
         self.deviation_count += 1
 
-        # Record the origin checkpoint on the first deviation so we can
-        # check convergence back to the main path later.
         if self._deviation_origin is None:
             self._deviation_origin = self.current_checkpoint
-            logger.info(
-                "Deviation origin set to %s", self._deviation_origin
-            )
+            logger.info("Deviation origin set to %s", self._deviation_origin)
 
         needs_dynamic = self.deviation_count >= 1
         force_convergence = self.deviation_count >= NUDGE_FORCE_CONVERGENCE_THRESHOLD
@@ -390,32 +327,17 @@ class QuestManager:
             "force_convergence": force_convergence,
         }
 
-    # ── Dynamic checkpoints ──────────────────────────────────────────────
-
     def generate_dynamic_cp_id(self, stage_id: int) -> str:
-        """Generate a unique dynamic checkpoint ID.
-
-        Format: ``"{stage}_D{counter}"`` with auto-incrementing counter
-        per stage.
-        """
         self.dynamic_counter[stage_id] += 1
         return f"{stage_id}_D{self.dynamic_counter[stage_id]}"
 
     def add_dynamic_checkpoint(self, checkpoint: Checkpoint) -> None:
-        """Insert a dynamic checkpoint into the MDP and track it."""
         self.mdp.add_dynamic_checkpoint(checkpoint.stage_id, checkpoint)
         self.dynamic_checkpoints.append(checkpoint.checkpoint_id)
         logger.info("Dynamic checkpoint %s tracked by manager", checkpoint.checkpoint_id)
 
-    # ── Loop detection ───────────────────────────────────────────────────
-
     def check_loop_detection(self, action_id: str, stage_id: int) -> bool:
-        """Detect repeated dynamic-CP generation for the same action/stage.
-
-        Returns ``True`` when the same *action_id* has created a dynamic
-        checkpoint at *stage_id* at least ``DYNAMIC_CP_LOOP_THRESHOLD``
-        times (default 3), signalling forced convergence.
-        """
+        """Detect spam: same action repeating in the same stage past the threshold."""
         key = (action_id, stage_id)
         self._action_history[key] = self._action_history.get(key, 0) + 1
         if self._action_history[key] >= DYNAMIC_CP_LOOP_THRESHOLD:
@@ -428,15 +350,7 @@ class QuestManager:
             return True
         return False
 
-    # ── Progress summary ─────────────────────────────────────────────────
-
     def get_quest_progress(self) -> dict:
-        """Return a snapshot of current quest progress.
-
-        Keys: quest_id, title, current_stage, current_checkpoint,
-        completed_checkpoints, dynamic_checkpoints, deviation_count,
-        completion_percent, quest_complete, quest_failed, total_checkpoints.
-        """
         total = len(self.mdp.get_all_checkpoints())
         completed = len(self.completed_checkpoints)
         pct = (completed / max(total, 1)) * 100
@@ -456,29 +370,21 @@ class QuestManager:
             "total_checkpoints": total,
         }
 
-    # ── Terminal states ──────────────────────────────────────────────────
-
     def trigger_failure(self) -> None:
-        """Mark the quest as failed."""
         self.quest_failed = True
         logger.info("Quest '%s' FAILED", self.mdp.quest_id)
 
     def trigger_success(self) -> None:
-        """Mark the quest as successfully completed."""
         self.quest_complete = True
         if self.current_checkpoint not in self.completed_checkpoints:
             self.completed_checkpoints.append(self.current_checkpoint)
         logger.info("Quest '%s' COMPLETED successfully", self.mdp.quest_id)
 
-    # ── Serialisation ────────────────────────────────────────────────────
-
     @property
     def deviation_origin(self) -> str | None:
-        """The static checkpoint the player deviated from, or None."""
         return self._deviation_origin
 
     def to_dict(self) -> dict:
-        """Serialise quest-manager state for save files."""
         return {
             "current_stage": self.current_stage,
             "current_checkpoint": self.current_checkpoint,
@@ -489,6 +395,7 @@ class QuestManager:
             "quest_complete": self.quest_complete,
             "quest_failed": self.quest_failed,
             "deviation_origin": self._deviation_origin,
+            # Flatten the tuple key — JSON has no native tuple support.
             "action_history": {
                 f"{act}|{stg}": cnt
                 for (act, stg), cnt in self._action_history.items()
@@ -497,16 +404,6 @@ class QuestManager:
 
     @classmethod
     def from_dict(cls, data: dict, mdp: QuestMDP) -> QuestManager:
-        """Restore a QuestManager from previously saved state.
-
-        Args:
-            data: Dict produced by :meth:`to_dict`.
-            mdp: The parsed quest MDP (must already include any dynamic CPs
-                that were saved).
-
-        Returns:
-            A fully restored QuestManager instance.
-        """
         manager = cls(mdp)
         manager.current_stage = data["current_stage"]
         manager.current_checkpoint = data["current_checkpoint"]
@@ -521,7 +418,6 @@ class QuestManager:
         manager.quest_failed = data.get("quest_failed", False)
         manager._deviation_origin = data.get("deviation_origin")
 
-        # Restore action history
         manager._action_history = {}
         for key_str, count in data.get("action_history", {}).items():
             parts = key_str.split("|")

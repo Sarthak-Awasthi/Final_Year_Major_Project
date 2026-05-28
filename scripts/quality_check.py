@@ -1,7 +1,8 @@
-"""Comprehensive quality check for faculty demo.
+"""End-to-end quality check sweep against the running FastAPI server.
 
-Tests every interaction pattern, edge case, and common user input
-to catch embarrassing bugs before the presentation.
+Exercises free-text parsing, NPC targeting / memory, repeat dialogue, the
+movement gate at CP 1_1, edge cases, ablation conditions, public API
+endpoints, the full quest playthrough, and deviation/convergence.
 """
 
 import httpx
@@ -76,9 +77,6 @@ def get_inv(s=None):
     return [i.get("id", "") for i in inv]
 
 
-# ═══════════════════════════════════════════════════════════════
-# 1. FREE TEXT PARSING — common inputs that should NOT break
-# ═══════════════════════════════════════════════════════════════
 section("1. FREE TEXT PARSING")
 
 new_game()
@@ -109,18 +107,15 @@ for text, expected_action, desc in free_text_cases:
         ok = True
         if expected_action and actual != expected_action:
             ok = False
-        # Key: no 500 errors
+        # Tolerate any matched_action when none was expected — what we
+        # care about here is "doesn't 500".
         check(f"'{text}' → {actual}", ok or expected_action is None,
               f"expected={expected_action}, got={actual}" if not ok and expected_action else desc)
     except Exception as e:
         check(f"'{text}' → no crash", False, str(e))
-    # Reset game for each test to avoid state accumulation
     new_game()
 
 
-# ═══════════════════════════════════════════════════════════════
-# 2. SUBSTRING FALSE POSITIVE REGRESSION
-# ═══════════════════════════════════════════════════════════════
 section("2. SUBSTRING MATCHING REGRESSION")
 
 new_game()
@@ -145,26 +140,21 @@ for text, false_action, desc in substring_cases:
     new_game()
 
 
-# ═══════════════════════════════════════════════════════════════
-# 3. NPC TARGETING & LAST-INTERACTED
-# ═══════════════════════════════════════════════════════════════
 section("3. NPC TARGETING & CONVERSATION MEMORY")
 
 new_game()
 
-# Talk to Aldric explicitly
 r1 = act(action_id="talk", target_npc="guard_a3f1")
 check("Talk to Aldric explicitly",
       r1.get("dialogue_speaker") == "Aldric",
       f"speaker={r1.get('dialogue_speaker')}")
 
-# Free text without naming NPC → should go to Aldric
+# Untargeted text should follow the most recently interacted NPC.
 r2 = act(source="text", text="what do you know about this place?")
 check("Free text routes to last NPC (Aldric)",
       r2.get("dialogue_speaker") == "Aldric",
       f"speaker={r2.get('dialogue_speaker')}")
 
-# Talk to Bryn, then free text should switch
 r3 = act(action_id="talk", target_npc="guard_b7e2")
 check("Talk to Bryn explicitly",
       r3.get("dialogue_speaker") == "Bryn",
@@ -176,9 +166,6 @@ check("Free text now routes to Bryn",
       f"speaker={r4.get('dialogue_speaker')}")
 
 
-# ═══════════════════════════════════════════════════════════════
-# 4. REPEAT DIALOGUE
-# ═══════════════════════════════════════════════════════════════
 section("4. REPEAT DIALOGUE")
 
 new_game()
@@ -204,21 +191,17 @@ check("'what did you say' also repeats",
       r4.get("dialogue", "") == original_dialogue)
 
 
-# ═══════════════════════════════════════════════════════════════
-# 5. QUEST GATE — CRITICAL FACULTY SCENARIO
-# ═══════════════════════════════════════════════════════════════
 section("5. QUEST GATE (Faculty Scenario)")
 
 new_game()
 
-# Greet should NOT advance
+# Casual interactions must not let the player slip past the gate.
 r = act(action_id="greet", target_npc="guard_a3f1")
 s = r.get("state", {})
 check("Greet at gate → quest stays at 1_1 or deviation",
       get_cp(s) != "1_2",
       f"CP={get_cp(s)}")
 
-# Free text "can you repeat" should NOT advance
 new_game()
 act(action_id="greet", target_npc="guard_a3f1")
 r2 = act(source="text", text="can you please repeat yourself")
@@ -227,7 +210,7 @@ check("'repeat yourself' → quest stays",
       get_cp(s2) != "1_2" and get_cp(s2) != "2_1",
       f"CP={get_cp(s2)}")
 
-# Talk should NOT forward-complete to 2_1
+# Forward-completion must not silently leap from 1_1 to 2_1 on a bare talk.
 new_game()
 r3 = act(action_id="talk", target_npc="guard_a3f1")
 s3 = r3.get("state", {})
@@ -235,7 +218,6 @@ check("Talk at gate → quest stays (no forward skip)",
       get_cp(s3) != "2_1",
       f"CP={get_cp(s3)}")
 
-# Present papers SHOULD advance
 new_game()
 r4 = act(action_id="present_item", target_npc="guard_a3f1", target_item="travel_papers")
 s4 = r4.get("state", {})
@@ -244,12 +226,8 @@ check("Present travel_papers → advances to 1_2",
       f"CP={get_cp(s4)}")
 
 
-# ═══════════════════════════════════════════════════════════════
-# 6. EDGE CASES
-# ═══════════════════════════════════════════════════════════════
 section("6. EDGE CASES")
 
-# Empty text
 new_game()
 try:
     r = act(source="text", text="")
@@ -257,7 +235,6 @@ try:
 except httpx.HTTPStatusError as e:
     check("Empty text → 422 rejected", e.response.status_code == 422)
 
-# Very long text
 new_game()
 try:
     r = act(source="text", text="a " * 500)
@@ -265,7 +242,6 @@ try:
 except httpx.HTTPStatusError:
     check("Very long text → rejected gracefully", True)
 
-# Special characters
 new_game()
 try:
     r = act(source="text", text="hello! @#$% how are you?")
@@ -273,8 +249,8 @@ try:
 except Exception as e:
     check("Special chars → no crash", False, str(e))
 
-# Action with no NPCs at location (after moving) — engine falls back to
-# an NPC at the current location, which is correct behavior
+# Targeting a guard from village_center: engine substitutes a present NPC
+# rather than crashing — intended behavior.
 new_game()
 act(action_id="present_item", target_npc="guard_a3f1", target_item="travel_papers")
 act(action_id="move_to", target_location="village_center")
@@ -283,19 +259,16 @@ check("Talk to remote NPC → falls back to local NPC",
       r.get("action_result", {}).get("success") is True,
       f"speaker={r.get('dialogue_speaker')}")
 
-# Pick up when nothing on ground
 new_game()
 r = act(action_id="pick_up")
 check("Pick up with nothing → fails gracefully",
       r.get("action_result", {}).get("success") is False)
 
-# Give item you don't have
 new_game()
 r = act(action_id="give_item", target_npc="guard_a3f1", target_item="jade_amulet")
 check("Give item you don't have → fails gracefully",
       r.get("action_result", {}).get("success") is False)
 
-# Attack guard
 new_game()
 r = act(action_id="attack", target_npc="guard_a3f1")
 ar = r.get("action_result", {})
@@ -303,9 +276,6 @@ check("Attack guard → handled (no crash)",
       ar.get("action_id") == "attack")
 
 
-# ═══════════════════════════════════════════════════════════════
-# 7. ABLATION CONDITIONS
-# ═══════════════════════════════════════════════════════════════
 section("7. ABLATION CONDITIONS")
 
 for cond in ["C1", "C3", "C4", "C5", "C6", "C7"]:
@@ -315,7 +285,6 @@ for cond in ["C1", "C3", "C4", "C5", "C6", "C7"]:
     except Exception as e:
         check(f"{cond} → game starts", False, str(e))
 
-# Invalid condition
 try:
     new_game(condition="C99")
     check("Invalid condition C99 → rejected", False, "should have been rejected")
@@ -323,22 +292,17 @@ except httpx.HTTPStatusError:
     check("Invalid condition C99 → rejected", True)
 
 
-# ═══════════════════════════════════════════════════════════════
-# 8. API ENDPOINTS
-# ═══════════════════════════════════════════════════════════════
 section("8. API ENDPOINTS")
 
 new_game()
 act(action_id="present_item", target_npc="guard_a3f1", target_item="travel_papers")
 
-# Game state
 try:
     s = state()
     check("/api/game/state → works", "turn" in s)
 except Exception as e:
     check("/api/game/state → works", False, str(e))
 
-# NPC list
 try:
     r = client.get("/api/npc/list").json()
     check("/api/npc/list → 6 NPCs", len(r.get("npcs", [])) == 6,
@@ -346,7 +310,6 @@ try:
 except Exception as e:
     check("/api/npc/list → works", False, str(e))
 
-# Cooperation metric
 try:
     r = client.get("/api/metrics/cooperation").json()
     check("/api/metrics/cooperation → valid",
@@ -355,7 +318,6 @@ try:
 except Exception as e:
     check("/api/metrics/cooperation → works", False, str(e))
 
-# Analytics
 try:
     r = client.get("/api/metrics/timeseries").json()
     check("/api/metrics/timeseries → valid",
@@ -363,14 +325,12 @@ try:
 except Exception as e:
     check("/api/metrics/analytics → works", False, str(e))
 
-# Shocks
 try:
     r = client.get("/api/shocks/active").json()
     check("/api/shocks/active → valid", isinstance(r, (list, dict)))
 except Exception as e:
     check("/api/shocks/active → works", False, str(e))
 
-# LLM status
 try:
     r = client.get("/api/llm/status").json()
     check("/api/llm/status → valid", "available" in r or "status" in r or "provider" in r)
@@ -378,9 +338,6 @@ except Exception as e:
     check("/api/llm/status → works", False, str(e))
 
 
-# ═══════════════════════════════════════════════════════════════
-# 9. FULL QUEST PLAYTHROUGH
-# ═══════════════════════════════════════════════════════════════
 section("9. FULL QUEST PLAYTHROUGH (speed-run)")
 
 new_game()
@@ -398,7 +355,6 @@ steps = [
     ("move_to", {"target_location": "elders_house"}, "6_2"),
     ("give_item", {"target_npc": "elder_m8b2", "target_item": "jade_amulet"}, "7_1"),
     ("talk", {"target_npc": "elder_m8b2"}, "7_2"),
-    ("talk", {"target_npc": "elder_m8b2"}, "1_1"),  # restart
 ]
 
 all_ok = True
@@ -411,18 +367,23 @@ for action_id, kwargs, expected_cp in steps:
         check(f"{action_id} → {expected_cp}", False, f"got {actual_cp}")
         break
 
+# In demo mode the engine has restart_on_complete=False, so reaching
+# S_success sets game_over=True instead of looping the quest back to 1_1.
 if all_ok:
-    check("Full 14-step playthrough completed", True, "all checkpoints correct")
+    final = act(action_id="talk", target_npc="elder_m8b2")
+    if final.get("game_over") is True and final.get("game_result") == "success":
+        check("Full 14-step playthrough completed and quest ended cleanly",
+              True, "game_over=True, result=success")
+    else:
+        check("Quest should end cleanly after 7_2 talk",
+              False,
+              f"game_over={final.get('game_over')}, result={final.get('game_result')}, CP={get_cp(final.get('state', {}))}")
 
 
-# ═══════════════════════════════════════════════════════════════
-# 10. DEVIATION & DYNAMIC CHECKPOINT
-# ═══════════════════════════════════════════════════════════════
 section("10. DEVIATION & DYNAMIC CHECKPOINTS")
 
 new_game()
 
-# Deviate with use_item
 r = act(action_id="use_item", target_item="bread")
 s = r.get("state", {})
 q = s.get("quest_state") or s.get("quest") or {}
@@ -430,7 +391,8 @@ check("use_item → deviation to dynamic CP",
       "D" in get_cp(s),
       f"CP={get_cp(s)}, deviation={q.get('deviation_count')}")
 
-# Converge back
+# Convergence: the off-path CP shouldn't trap the player — the original
+# 1_1 transition (present_item) should still satisfy and advance to 1_2.
 r2 = act(action_id="present_item", target_npc="guard_a3f1", target_item="travel_papers")
 s2 = r2.get("state", {})
 check("present_item → converge to 1_2",
@@ -438,9 +400,6 @@ check("present_item → converge to 1_2",
       f"CP={get_cp(s2)}")
 
 
-# ═══════════════════════════════════════════════════════════════
-# SUMMARY
-# ═══════════════════════════════════════════════════════════════
 section("SUMMARY")
 total = passed + failed
 print(f"\n  {passed}/{total} passed, {failed} failed")

@@ -43,7 +43,12 @@
             }
           },
           "is_dynamic": false,
-          "nudge_target": "1_2"
+          "nudge_target": "1_2",
+          "movement_gate": {
+            "blocked_targets": ["village_center"],
+            "requires_checkpoint_advance": true,
+            "block_message": "The guards step into your path. \"Hold there, traveler — none pass this gate without word from us.\" You must deal with Aldric and Bryn first: present your travel papers, persuade them to let you through, or sneak past when they aren't looking. Idle chatter will not move them."
+          }
         },
         {
           "cp_id": "1_2",
@@ -120,6 +125,7 @@
         },
         {
           "cp_id": "2_2",
+          "location": "elders_house",
           "description": "You arrive at a cozy stone cottage nestled beneath a canopy of ancient oaks. Smoke curls from the chimney, and the door stands slightly ajar. Inside, Elder Maren sits in a worn armchair by the fireplace, her weathered hands clasped tightly. Her eyes are distant, troubled — the weight of something unspoken pressing visibly on her shoulders.",
           "context": {
             "npcs_present": ["elder_m8b2"],
@@ -246,14 +252,6 @@
             "move_to_tavern": {
               "next": "4_3",
               "effects": {"stamina": -3, "target_location": "tavern"}
-            },
-            "ask_info": {
-              "next": "4_2",
-              "effects": {"stamina": -1}
-            },
-            "greet": {
-              "next": "4_2",
-              "effects": {"stamina": -1}
             }
           },
           "is_dynamic": false,
@@ -341,10 +339,6 @@
               "next": "5_2",
               "effects": {"stamina": -5, "gives": ["jade_amulet"]}
             },
-            "examine": {
-              "next": "5_2",
-              "effects": {"stamina": -2}
-            },
             "pick_up": {
               "next": "5_2",
               "effects": {"stamina": -1, "gives": ["jade_amulet"]}
@@ -374,10 +368,6 @@
             "move_to_elders_house": {
               "next": "6_2",
               "effects": {"stamina": -3, "target_location": "elders_house"}
-            },
-            "examine": {
-              "next": "6_1",
-              "effects": {"stamina": -2}
             }
           },
           "is_dynamic": false,
@@ -430,20 +420,13 @@
           "quest_transitions": {
             "give_item": {
               "next": "7_1",
-              "effects": {"stamina": -1, "reputation": {"elder_m8b2": 15}, "removes": ["jade_amulet"]}
-            },
-            "talk": {
-              "next": "7_1",
-              "effects": {"stamina": -1, "reputation": {"elder_m8b2": 10}}
+              "effects": {"stamina": -1, "reputation": {"elder_m8b2": 15}, "removes": ["jade_amulet"]},
+              "requires": {"item": "jade_amulet"}
             },
             "present_item": {
               "next": "7_1",
               "effects": {"stamina": -1, "reputation": {"elder_m8b2": 12}, "removes": ["jade_amulet"]},
               "requires": {"item": "jade_amulet"}
-            },
-            "greet": {
-              "next": "7_1",
-              "effects": {"stamina": -1, "reputation": {"elder_m8b2": 5}}
             }
           },
           "is_dynamic": false,

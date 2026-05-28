@@ -1,9 +1,7 @@
-"""
-game_engine.py — Central orchestrator for the MVP game.
+"""GameEngine — orchestrates world, player, NPCs, quest, events, and LLM.
 
-Manages game initialization (world, player, NPCs, quest, events, LLM),
-turn processing (player action → NPC actions → events → time advance),
-save/load, and NPC pre-training.
+One instance per game. `process_turn` drives the main loop: resolve player
+action → quest progress → NPC turns → random events → time/regen → game-over check.
 """
 
 from __future__ import annotations
@@ -94,31 +92,24 @@ from backend.quest.nudge import compute_nudge_reward, get_nudge_hint
 from backend.quest.quest_manager import QuestManager
 
 
-# ─── Helpers ──────────────────────────────────────────────────────────────────
-
 def _npc_names_map(registry: dict[str, NPC]) -> dict[str, str]:
-    """Build a {npc_uid: name} lookup from the registry."""
     return {uid: npc.name for uid, npc in registry.items()}
 
 
 def _npc_locations_map(registry: dict[str, NPC]) -> dict[str, str]:
-    """Build a {npc_uid: location} lookup from the registry."""
     return {uid: npc.location for uid, npc in registry.items()}
 
 
-# ─── GameEngine ───────────────────────────────────────────────────────────────
-
-
 class GameEngine:
-    """Central game orchestrator tying all subsystems together."""
+    """Central game orchestrator. One instance per session."""
 
     def __init__(
         self,
         seed: int = MASTER_SEED,
         difficulty: str = "normal",
         max_turns: int = MAX_TURNS,
+        restart_on_complete: bool = True,
     ) -> None:
-        # Seed all randomness
         random.seed(seed)
         np.random.seed(seed)
 
@@ -127,46 +118,42 @@ class GameEngine:
         self.turn: int = 0
         self.game_over: bool = False
         self.game_result: str | None = None  # "success" / "fail" / "turn_limit"
+        # `restart_on_complete=True` loops the quest after S_success so RL
+        # notebooks keep training to max_turns. The live demo sets it to
+        # False so a successful quest ends the game cleanly.
+        self.restart_on_complete: bool = restart_on_complete
         self.last_interacted_npc_uid: str | None = None
-        self._last_dialogue: dict[str, str] = {}  # npc_uid → last dialogue text
+        self._last_dialogue: dict[str, str] = {}
+        self.interacted_npc_uids: set[str] = set()
 
-        # Subsystems
         self.world = World()
         self.player = Player()
         self.difficulty = DifficultyConfig(difficulty)
         self.event_log = EventLog()
         self.random_events = RandomEventSystem()
-        self.llm = LLMService()  # gracefully unavailable if no model
+        self.llm = LLMService()  # safe no-op if no LLM is loaded
         self.shock_manager = ShockManager()
-        self._prev_community_state: dict | None = None  # P1: Track previous turn's community state for delta reward
+        self._prev_community_state: dict | None = None
 
-        # Quest
         quest_path = QUEST_DIR / "main_quest.json"
         with open(quest_path, "r", encoding="utf-8") as f:
             quest_data = json.load(f)
         self.mdp = QuestMDP(quest_data)
         self.quest_manager = QuestManager(self.mdp)
-        # Store quest item definitions so string IDs in rewards can be resolved
+        # Item registry indexed by id so reward strings can be resolved
+        # back to the full item dict at give_item / pick_up time.
         self._quest_items: dict[str, dict] = quest_data.get("items", {})
 
-        # NPCs
         self.npc_registry: dict[str, NPC] = create_npc_registry(seed)
-
-        # Initialise player reputation for every NPC at 0
         for uid in self.npc_registry:
             self.player.reputation.setdefault(uid, 0)
 
-        # Pre-training flag
         self._pretrained: bool = False
-
-        # Auto-save tracking
         self._auto_save_counter: int = 0
         self._auto_save_files: list[str] = []
-
-        # Gossip cascade tracking (reset each turn)
+        # Reset each turn — used to suppress duplicate gossip propagation.
         self._gossip_pairs_this_turn: set[tuple[str, str]] = set()
 
-        # Metrics tracking
         self._metrics: dict[str, Any] = {
             "total_actions": 0,
             "actions_by_type": {},
@@ -178,7 +165,6 @@ class GameEngine:
             "start_time": datetime.now(timezone.utc).isoformat(),
         }
 
-        # Playthrough logger — structured per-turn research log
         session_ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
         self.playthrough_logger = PlaythroughLogger(
             session_id=f"{session_ts}_{seed}"
@@ -191,14 +177,11 @@ class GameEngine:
             max_turns,
         )
 
-    # ── Initialization ────────────────────────────────────────────────────
-
     async def initialize(self) -> dict:
-        """Full initialization including NPC pre-training. Returns initial state."""
+        """Pre-train NPCs, build the opening narration, return initial state."""
         self._pretrain_npcs()
         initial_state = self.get_full_state()
 
-        # Build opening backstory narration from quest + stage data
         quest_title = self.mdp.title
         stage_desc = ""
         cp_desc = ""
@@ -223,7 +206,6 @@ class GameEngine:
 
         initial_state["opening_narration"] = opening.strip()
 
-        # Log initial entry
         self.event_log.add_entry(
             turn=0,
             time_of_day=self.world.time_of_day,
@@ -243,7 +225,6 @@ class GameEngine:
             importance=3,
         )
 
-        # Log game_start in playthrough log
         try:
             self.playthrough_logger.log_event("game_start", {
                 "seed": self.seed,
@@ -260,7 +241,7 @@ class GameEngine:
         return initial_state
 
     def _pretrain_npcs(self) -> None:
-        """Pre-train all NPCs with 100 episodes. Lightweight mode."""
+        """Q-learning warm-up for each NPC. Skips when RL is disabled (ablation C3)."""
         if self._pretrained:
             return
         if not _cfg.RL_ENABLED:
@@ -271,7 +252,7 @@ class GameEngine:
             "locations": LOCATION_ADJACENCY,
             "indoor": list(INDOOR_LOCATIONS),
         }
-        # Sort NPCs for deterministic iteration order, derive seed index from position
+        # Sort for deterministic per-NPC seeding regardless of dict insertion order.
         sorted_uids = sorted(self.npc_registry.keys())
         for npc_index, uid in enumerate(sorted_uids):
             npc = self.npc_registry[uid]
@@ -279,28 +260,9 @@ class GameEngine:
         self._pretrained = True
         logger.info("NPC pre-training complete for %d NPCs", len(self.npc_registry))
 
-    # ── Main Turn Processing ──────────────────────────────────────────────
-
     async def process_turn(self, parsed_input: dict) -> dict:
-        """Main turn processing pipeline.
-
-        1. Validate & resolve player action
-        2. Apply action effects
-        3. Check quest completion / deviation
-        4. Process NPC turns
-        5. Check & apply random events
-        6. Advance time
-        7. Passive regen (stamina)
-        8. Reputation decay
-        9. Check game-over conditions
-        10. Auto-save if needed
-
-        Args:
-            parsed_input: A ParsedInput dict with action_id, targets, etc.
-
-        Returns:
-            Turn result dict with all narration and state changes.
-        """
+        """Drive one full turn: player action → quest progress → NPC turns →
+        random events → time advance → regen → game-over check."""
         if self.game_over:
             return {
                 "error": "Game is over.",
@@ -310,6 +272,13 @@ class GameEngine:
 
         self.turn += 1
         self._gossip_pairs_this_turn.clear()
+
+        # Snapshot inventory BEFORE the action runs. Action handlers like
+        # _resolve_give_item and _resolve_present_item consume the item
+        # before the quest progress check runs, which would otherwise
+        # make `requires.item` checks fail for the very transition the
+        # player just satisfied.
+        self._pre_action_inventory = [dict(itm) for itm in self.player.inventory]
 
         # ── 1. Resolve player action ──────────────────────────────────
         # Offload to thread — _resolve_player_action is sync but may
@@ -572,14 +541,7 @@ class GameEngine:
     # ── Player Action Resolution ──────────────────────────────────────────
 
     def _resolve_player_action(self, parsed_input: dict) -> dict:
-        """Resolve a player action through the universal pipeline.
-
-        Precondition Check → Context Evaluation → Outcome Resolution.
-
-        Returns:
-            ActionResult-like dict with success, action_id, ap_cost,
-            narration, effects, target, perception.
-        """
+        """Validate cost/preconditions, then dispatch to the action-specific resolver."""
         action_id: str = parsed_input.get("action_id", "wait")
         target_npc: str | None = parsed_input.get("target_npc")
         target_item: str | None = parsed_input.get("target_item")
@@ -587,24 +549,23 @@ class GameEngine:
         emotion: str = parsed_input.get("emotion", "neutral")
         social: str = parsed_input.get("social", "neutral")
 
-        # Sanitize target_npc — reject invalid UIDs (e.g. literal "undefined" from JS)
+        # JS can send `target_npc: "undefined"` as a literal string — strip those.
         if target_npc and target_npc not in self.npc_registry:
             logger.warning("Invalid target_npc %r — clearing to None", target_npc)
             target_npc = None
 
         action_meta = UNIVERSAL_ACTIONS.get(action_id, {"base_ap": 0, "category": "utility"})
         base_ap: int = action_meta["base_ap"]
-
-        # Apply difficulty AP multiplier
         ap_mult = self.difficulty.get("ap_cost_multiplier", 1.0)
         ap_cost = max(0, int(base_ap * ap_mult))
 
-        # Clear defending flag at start of new action (unless this IS defend)
+        # `defend` is the only action whose effect persists across turns;
+        # any other action clears the standing-guard pose.
         if action_id != "defend":
             self.player.is_defending = False
 
-        # ── Stamina check ─────────────────────────────────────────────
-        # At 0 AP: only 0-AP actions + talk/greet free; in combat defend/flee free
+        # Out of AP: still allow zero-cost actions, plus a free talk/greet
+        # so the player isn't softlocked; in combat, defend/flee are free.
         if not self.player.can_afford_ap(ap_cost):
             free_allowed = ap_cost == 0
             if action_id in ("talk", "greet") and self.player.stamina <= 0:
@@ -624,15 +585,12 @@ class GameEngine:
                     "perception": None,
                 }
 
-        # Deduct AP
         self.player.modify_stamina(-ap_cost)
 
-        # Build context for narration
         narr_ctx: dict[str, Any] = {
             "target": target_npc or target_item or target_location or "them",
         }
 
-        # Resolve NPC target object
         target_npc_obj: NPC | None = None
         if target_npc:
             target_npc_obj = self.npc_registry.get(target_npc)
@@ -779,27 +737,110 @@ class GameEngine:
             self.player.modify_stamina(ap_cost)  # refund AP on hard fail
             return self._hard_fail("move_to", ap_cost, "There's nowhere to go from here.")
 
-        if not self.world.is_adjacent(self.player.location, target_location):
-            self.player.modify_stamina(ap_cost)  # refund AP on hard fail
+        # Quest-driven "head back" / "fast travel": if the current CP has
+        # a quest_transition whose effects.target_location matches the
+        # requested destination, treat the move as a narratively-walked
+        # multi-step journey. This covers CP 5_2's `move_to_elders_house`
+        # and similar transitions where the JSON encodes a multi-hop
+        # logical move as a single quest step.
+        current_cp_for_move = self.mdp.get_checkpoint(self.quest_manager.current_checkpoint)
+        # Fall back to deviation_origin so fast-travel still works when the
+        # player is on a dynamic CP that branched off a fast-travel-enabled
+        # CP (e.g. chat with Tessa at CP 4_3 spawns 4_D1, then move_to fields
+        # would otherwise be non-adjacent and blocked).
+        fast_travel_cps = [current_cp_for_move]
+        if self.quest_manager.deviation_origin is not None:
+            origin_cp = self.mdp.get_checkpoint(self.quest_manager.deviation_origin)
+            if origin_cp is not None and origin_cp not in fast_travel_cps:
+                fast_travel_cps.append(origin_cp)
+        quest_fast_travel = False
+        for cp_ft in fast_travel_cps:
+            if cp_ft is None or not cp_ft.completion_conditions:
+                continue
+            for _key, _tr in cp_ft.completion_conditions.items():
+                if not _key.startswith("move_to"):
+                    continue
+                expected = (_tr.get("effects", {}) or {}).get("target_location")
+                if expected == target_location:
+                    quest_fast_travel = True
+                    break
+            if quest_fast_travel:
+                break
+
+        # Same-location move_to is a benign no-op success — it lets quest
+        # transitions like CP 4_3's `move_to → 5_1` (both at fields) fire
+        # without requiring the player to leave and come back.
+        if target_location == self.player.location:
             loc_obj = self.world.get_location(target_location)
             loc_name = loc_obj.name if loc_obj else target_location
             ctx["target"] = loc_name
-            narration = get_template_narration("move_to", "blocked", ctx)
+            narration = f"You take in {loc_name} a moment longer, eyes scanning for what to do next."
             return {
-                "success": False,
+                "success": True,
                 "action_id": "move_to",
-                "ap_cost": 0,
+                "ap_cost": ap_cost,
                 "narration": narration,
-                "effects": {},
+                "effects": {"old_location": target_location, "new_location": target_location},
                 "target": target_location,
                 "perception": None,
             }
 
-        # Exit combat on move
+        if not self.world.is_adjacent(self.player.location, target_location):
+            if not quest_fast_travel:
+                self.player.modify_stamina(ap_cost)
+                loc_obj = self.world.get_location(target_location)
+                loc_name = loc_obj.name if loc_obj else target_location
+                ctx["target"] = loc_name
+                narration = get_template_narration("move_to", "blocked", ctx)
+                return {
+                    "success": False,
+                    "action_id": "move_to",
+                    "ap_cost": 0,
+                    "narration": narration,
+                    "effects": {},
+                    "target": target_location,
+                    "perception": None,
+                }
+
+        # Checkpoint-declared movement gate. Falls back to deviation_origin
+        # so the player can't erase a gate by chatting (chat → dynamic CP,
+        # dynamic CP has no gate, gate forgotten without this fallback).
+        cp_for_gate = self.mdp.get_checkpoint(self.quest_manager.current_checkpoint)
+        gate = getattr(cp_for_gate, "movement_gate", None) if cp_for_gate else None
+        if gate is None and self.quest_manager.deviation_origin is not None:
+            origin_cp = self.mdp.get_checkpoint(self.quest_manager.deviation_origin)
+            gate = getattr(origin_cp, "movement_gate", None) if origin_cp else None
+            if gate is not None:
+                cp_for_gate = origin_cp
+        if gate and target_location in gate.get("blocked_targets", []):
+            blocked = False
+            # `requires_checkpoint_advance` gates lift naturally — the new CP
+            # after advancement won't carry this gate, so we just block until
+            # one of the CP's quest transitions (sneak/persuade/present_item) fires.
+            if gate.get("requires_checkpoint_advance"):
+                blocked = True
+            else:
+                required = gate.get("requires_interaction_with", [])
+                if required and not any(uid in self.interacted_npc_uids for uid in required):
+                    blocked = True
+            if blocked:
+                self.player.modify_stamina(ap_cost)
+                block_msg = gate.get("block_message") or "Someone blocks your way."
+                return {
+                    "success": False,
+                    "action_id": "move_to",
+                    "ap_cost": 0,
+                    "narration": block_msg,
+                    "effects": {},
+                    "target": target_location,
+                    "perception": None,
+                }
+
+        # `flee` is the only legal way out of combat; refunding here ensures
+        # players can still afford their flee action next turn.
         if self.player.in_combat:
-            # Must flee to exit combat; move_to during combat = blocked
             narration = "You can't simply walk away from combat! Try to flee instead."
-            self.player.modify_stamina(ap_cost)  # refund
+            self.player.modify_stamina(ap_cost)
             return {
                 "success": False,
                 "action_id": "move_to",
@@ -817,11 +858,9 @@ class GameEngine:
         ctx["target"] = loc_name
         narration = get_template_narration("move_to", "success", ctx)
 
-        # Describe new location
         if loc_obj:
             narration += f" {loc_obj.description}"
 
-        # List NPCs at new location
         npcs_here = get_npcs_at_location(self.npc_registry, target_location)
         if npcs_here:
             npc_names = [n.name for n in npcs_here]
@@ -1083,6 +1122,7 @@ class GameEngine:
             prev = self._last_dialogue[target_npc.npc_uid]
             narration = get_template_narration(action_id, "success", ctx)
             self.last_interacted_npc_uid = target_npc.npc_uid
+            self.interacted_npc_uids.add(target_npc.npc_uid)
             return {
                 "success": True,
                 "action_id": action_id,
@@ -1102,6 +1142,7 @@ class GameEngine:
             "location": self.player.location,
             "turn": self.turn,
             "time_of_day": self.world.time_of_day,
+            "quest_situation": self._build_quest_situation(target_npc),
         }
         dialogue_result = resolve_dialogue(
             target_npc,
@@ -1171,6 +1212,7 @@ class GameEngine:
             )
 
         self.last_interacted_npc_uid = target_npc.npc_uid
+        self.interacted_npc_uids.add(target_npc.npc_uid)
         self._last_dialogue[target_npc.npc_uid] = raw_dialogue
 
         return {
@@ -1200,6 +1242,7 @@ class GameEngine:
 
         ctx["target"] = target_npc.name
         self.last_interacted_npc_uid = target_npc.npc_uid
+        self.interacted_npc_uids.add(target_npc.npc_uid)
         rep = self.player.get_reputation(target_npc.npc_uid)
         social_mod = SOCIAL_MODIFIERS.get(social, 0)
         prob = compute_skill_probability("persuade", reputation=rep, social_modifier=social_mod)
@@ -1467,6 +1510,9 @@ class GameEngine:
                 "target": target_npc.npc_uid if target_npc else None,
                 "perception": None,
             }
+
+        self.last_interacted_npc_uid = target_npc.npc_uid
+        self.interacted_npc_uids.add(target_npc.npc_uid)
 
         item = self.player.get_item(target_item)
         if not item:
@@ -1884,9 +1930,47 @@ class GameEngine:
     def _resolve_pick_up(
         self, target_item: str | None, ap_cost: int, ctx: dict
     ) -> dict:
-        """Pick up an item from the ground."""
+        """Pick an item off the ground, or accept a gift the current CP grants via `pick_up`.
+
+        The gift path covers CP 7_2 — Elder Maren hands over the iron shield
+        with no POI to physically pick up; the player still uses `pick_up`
+        to accept it, and the quest manager's `gives` reward attaches the item.
+        """
         loc = self.world.get_location(self.player.location)
         if not loc or not loc.items_on_ground:
+            cp = self.mdp.get_checkpoint(self.quest_manager.current_checkpoint)
+            transitions = (cp.completion_conditions or {}) if cp else {}
+            pickup_tr = transitions.get("pick_up", {}) if isinstance(transitions, dict) else {}
+            gives = (pickup_tr.get("effects", {}) or {}).get("gives", []) or []
+            wants = target_item or ""
+            if pickup_tr and (not wants or wants in gives):
+                gift = wants or (gives[0] if gives else "item")
+                already_owns = any(
+                    (it.get("id") == gift or it.get("name") == gift)
+                    for it in self.player.inventory
+                )
+                if already_owns:
+                    narration = get_template_narration("pick_up", "blocked", ctx)
+                    return {
+                        "success": False,
+                        "action_id": "pick_up",
+                        "ap_cost": ap_cost,
+                        "narration": narration,
+                        "effects": {},
+                        "target": None,
+                        "perception": None,
+                    }
+                ctx["item"] = gift
+                narration = get_template_narration("pick_up", "success", ctx)
+                return {
+                    "success": True,
+                    "action_id": "pick_up",
+                    "ap_cost": ap_cost,
+                    "narration": narration,
+                    "effects": {"accepted_gift": gift},
+                    "target": gift,
+                    "perception": None,
+                }
             narration = get_template_narration("pick_up", "blocked", ctx)
             return {
                 "success": False,
@@ -2363,6 +2447,60 @@ class GameEngine:
             "perception": None,
         }
 
+    def _build_quest_situation(self, target_npc: NPC | None) -> str:
+        """Summarize what the NPC currently expects from the player.
+
+        Returns a short string describing the active checkpoint, what
+        transitions advance it, and which items / outcomes the NPC is
+        looking for. Surfaced into the LLM dialogue prompt so the NPC
+        does not forget unresolved demands across turns.
+        """
+        cp = self.mdp.get_checkpoint(self.quest_manager.current_checkpoint)
+        # If we're on a dynamic offshoot, surface the original gated CP so
+        # the NPC's outstanding demands stay in scope.
+        origin = self.quest_manager.deviation_origin
+        if origin is not None:
+            origin_cp = self.mdp.get_checkpoint(origin)
+            if origin_cp is not None and getattr(origin_cp, "movement_gate", None):
+                cp = origin_cp
+        if cp is None:
+            return ""
+
+        parts: list[str] = []
+        parts.append(f"Active checkpoint: {cp.checkpoint_id} (stage {cp.stage_id}).")
+        if cp.description:
+            parts.append(f"Scene: {cp.description}")
+
+        # Pending demands derived from quest_transitions
+        demands: list[str] = []
+        for action_key, trans in (cp.completion_conditions or {}).items():
+            requires = trans.get("requires", {}) if isinstance(trans, dict) else {}
+            required_item = requires.get("item")
+            if required_item:
+                # Check if player actually has it
+                has_it = self.player.has_item(required_item) if hasattr(self.player, "has_item") else False
+                state = "(player has it)" if has_it else "(player does NOT have it)"
+                demands.append(f"{action_key} requires item '{required_item}' {state}")
+            elif action_key in ("persuade", "sneak", "present_item", "give_item"):
+                demands.append(f"{action_key} is an accepted way past")
+        if demands:
+            parts.append("Quest demands at this checkpoint:")
+            for d in demands:
+                parts.append(f"  - {d}")
+
+        # Gate-specific reminder
+        gate = getattr(cp, "movement_gate", None)
+        if gate and gate.get("blocked_targets"):
+            tgts = ", ".join(gate["blocked_targets"])
+            parts.append(
+                f"You ({target_npc.name if target_npc else 'NPC'}) are actively "
+                f"blocking the player from leaving to: {tgts}. Idle chatter does "
+                f"not earn passage — you only stand aside if the player meets "
+                f"the quest demands listed above."
+            )
+
+        return "\n".join(parts)
+
     def _no_target(self, action_id: str, ap_cost: int, ctx: dict) -> dict:
         """Build a 'no target present' blocked result."""
         narration = get_template_narration(action_id, "blocked", ctx)
@@ -2402,10 +2540,8 @@ class GameEngine:
         parsed_input: dict,
         action_result: dict,
     ) -> dict | None:
-        """Check quest completion and handle deviations.
-
-        Returns quest update dict or None.
-        """
+        """Drive quest progression for this turn: completion → convergence →
+        forward-completion → deviation. Returns a quest_update dict or None."""
         target_location = parsed_input.get("target_location")
         target_npc = parsed_input.get("target_npc")
 
@@ -2413,19 +2549,19 @@ class GameEngine:
             "target_location": target_location or self.player.location,
             "target_npc": target_npc,
             "location": self.player.location,
-            "player_inventory": self.player.inventory,
+            # Pre-action inventory snapshot so `requires.item` checks see the
+            # state the player chose against — give_item/present_item consume
+            # the item before we get here.
+            "player_inventory": getattr(self, "_pre_action_inventory", self.player.inventory),
+            # Lets quest_manager gate probability rolls (sneak, persuade)
+            # and movement on actual success.
+            "action_success": action_result.get("success"),
         }
 
-        # Pass action success into context so the quest manager can gate
-        # probability-based transitions (sneak, persuade) on actual outcome.
-        context["action_success"] = action_result.get("success")
-
-        # Check if this action completes the current checkpoint
         completion = self.quest_manager.check_completion(action_id, target_npc, context)
 
-        # If no direct completion and we're on a dynamic checkpoint,
-        # try convergence: check if the action satisfies the original
-        # static checkpoint the player deviated from.
+        # On a dynamic offshoot the action might still satisfy the original
+        # static CP — that's convergence back to the main path.
         if completion is None and self.quest_manager.deviation_origin is not None:
             completion = self.quest_manager.check_convergence(
                 action_id, target_npc, context
@@ -2439,9 +2575,8 @@ class GameEngine:
                     witnesses=[], narration="", importance=3,
                 )
 
-        # If still no match, scan ahead: the player may have performed
-        # a quest-critical action that satisfies a future checkpoint
-        # (e.g. returning the quest item directly, skipping travel steps).
+        # Forward-completion lets a quest-critical action (e.g. handing the
+        # amulet over directly) leap past intermediate travel checkpoints.
         if completion is None:
             completion = self.quest_manager.check_forward_completion(
                 action_id, target_npc, context
@@ -2451,7 +2586,6 @@ class GameEngine:
             next_cp = completion.get("next_checkpoint")
             rewards = completion.get("rewards", {})
 
-            # Apply quest rewards
             if "reputation" in rewards and isinstance(rewards["reputation"], dict):
                 for npc_uid, delta in rewards["reputation"].items():
                     self.player.modify_reputation(npc_uid, delta)
@@ -2460,7 +2594,7 @@ class GameEngine:
                     if isinstance(item, dict):
                         self.player.add_item(item)
                     elif isinstance(item, str):
-                        # Resolve string item ID to full item dict
+                        # JSON encodes gives as item IDs — resolve to the full dict.
                         item_def = self._quest_items.get(item)
                         if item_def:
                             self.player.add_item(dict(item_def))
@@ -2475,11 +2609,9 @@ class GameEngine:
             if "stamina" in rewards:
                 self.player.modify_stamina(rewards["stamina"])
 
-            # Advance checkpoint
             if next_cp:
-                # When a forward-scan match skips intermediate checkpoints,
-                # mark the matched checkpoint itself as completed so the
-                # graph and save state stay accurate.
+                # Forward-scan matches skip CPs; mark the matched one done so
+                # the graph reflects what actually completed.
                 matched_cp = completion["checkpoint_completed"]
                 if (
                     matched_cp != self.quest_manager.current_checkpoint
@@ -2488,14 +2620,14 @@ class GameEngine:
                     self.quest_manager.completed_checkpoints.append(matched_cp)
 
                 self.quest_manager.advance_checkpoint(next_cp)
-                # Sync player quest state
+                # Player.quest_state mirrors the manager — kept in sync so
+                # save/load and the API state response don't drift.
                 self.player.quest_state["current_stage"] = self.quest_manager.current_stage
                 self.player.quest_state["current_checkpoint"] = self.quest_manager.current_checkpoint
                 self.player.quest_state["completed_checkpoints"] = list(
                     self.quest_manager.completed_checkpoints
                 )
                 self.player.quest_state["deviation_count"] = self.quest_manager.deviation_count
-                # Check for POI discoveries triggered by quest stage
                 poi_discoveries = self.world.check_quest_stage_discoveries(
                     self.quest_manager.current_stage
                 )
@@ -2507,7 +2639,8 @@ class GameEngine:
                         poi_names,
                     )
 
-            # Log quest event
+            # Stage transitions are the rare high-importance events; intra-stage
+            # progress is informative but not headline-worthy.
             importance = 5 if completion.get("stage_transition") else 3
             self.event_log.add_entry(
                 turn=self.turn,
@@ -2528,7 +2661,6 @@ class GameEngine:
                 importance=importance,
             )
 
-            # Auto-save on quest progress
             self.save_game("auto")
 
             return {
@@ -2537,9 +2669,9 @@ class GameEngine:
                 "quest_progress": self.quest_manager.get_quest_progress(),
             }
 
-        # No completion — check for deviation.
-        # Combat actions record deviations even on failure (attacking is
-        # a deliberate player choice, not a mechanical miss).
+        # Deviation handling. Combat counts even when it misses — attacking is
+        # an intentional choice, not a mechanical failure. Pure observation
+        # actions (look/examine/rest/wait/status) never deviate.
         is_deliberate = action_id in ("attack",)
         action_ok = action_result.get("success", True) or is_deliberate
         exempt = action_id in ("look", "wait", "status", "rest", "examine")
@@ -2593,6 +2725,10 @@ class GameEngine:
                 if parsed_input.get("target_npc"):
                     npc_obj = self.npc_registry.get(parsed_input["target_npc"])
                     npc_name = npc_obj.name if npc_obj else None
+                if not npc_name:
+                    nearby = get_npcs_at_location(self.npc_registry, self.player.location)
+                    if nearby:
+                        npc_name = nearby[0].name
 
                 # Resolve nudge_target: use the *origin* checkpoint's
                 # nudge_target so dynamic CPs always point toward the
@@ -3159,12 +3295,12 @@ class GameEngine:
         if self.player.health <= 0:
             return "fail"
         if self.quest_manager.quest_complete:
-            if self.turn < self.max_turns:
+            if self.restart_on_complete and self.turn < self.max_turns:
                 self._restart_quest()
                 return None
             return "success"
         if self.quest_manager.quest_failed:
-            if self.turn < self.max_turns:
+            if self.restart_on_complete and self.turn < self.max_turns:
                 self._restart_quest()
                 return None
             return "fail"
@@ -3248,13 +3384,12 @@ class GameEngine:
         with open(filepath, "w", encoding="utf-8") as f:
             json.dump(save_data, f, indent=2, default=str)
 
-        # Create backup
+        # Atomic-ish recovery: keep a .backup so a torn write doesn't lose state.
         backup_path = filepath.with_suffix(".json.backup")
         shutil.copy2(str(filepath), str(backup_path))
 
         logger.info("Game saved to %s (turn %d)", filepath.name, self.turn)
 
-        # Log save event in playthrough log
         try:
             self.playthrough_logger.log_event("save", {
                 "slot": slot,
@@ -3267,11 +3402,7 @@ class GameEngine:
         return str(filepath)
 
     def load_game(self, filepath: str) -> dict:
-        """Load game from save file. Falls back to .backup on corruption.
-
-        Returns:
-            The loaded game state dict.
-        """
+        """Restore full state from `filepath`, falling back to .backup on corruption."""
         path = Path(filepath)
         backup_path = path.with_suffix(".json.backup")
 
@@ -3294,7 +3425,6 @@ class GameEngine:
                 f"Save file not found or corrupted: {filepath}"
             )
 
-        # Restore state
         self.seed = save_data.get("seed", MASTER_SEED)
         random.seed(self.seed)
         np.random.seed(self.seed)
@@ -3304,16 +3434,11 @@ class GameEngine:
         self.game_over = save_data.get("game_over", False)
         self.game_result = save_data.get("game_result")
 
-        # Difficulty
         self.difficulty.from_dict(save_data.get("difficulty", {}))
-
-        # World
         self.world.from_dict(save_data.get("world", {}))
-
-        # Player
         self.player.from_dict(save_data.get("player", {}))
 
-        # NPCs — need archetypes for reconstruction
+        # NPCs need their archetype definitions to be re-hydrated.
         archetypes = load_archetypes()
         npc_data = save_data.get("npc_registry", {})
         self.npc_registry = {}
@@ -3322,28 +3447,22 @@ class GameEngine:
             arch_data = archetypes.get(arch_key, {})
             self.npc_registry[uid] = NPC.from_dict(npc_dict, arch_data)
 
-        # Quest
         self.quest_manager = QuestManager.from_dict(
             save_data.get("quest_manager", {}),
             self.mdp,
         )
-
-        # Event log
         self.event_log.from_list(save_data.get("event_log", []))
-
-        # Metrics
         self._metrics = save_data.get("metrics", self._metrics)
 
-        # Shock state (backward compatible)
         shock_data = save_data.get("shock_state")
         if shock_data:
             self.shock_manager.from_dict(shock_data)
 
-        self._pretrained = True  # Q-tables are stored in save
+        # Q-tables travel with the save, so skip re-warm-up on the next initialize().
+        self._pretrained = True
 
         logger.info("Game loaded from %s (turn %d)", path.name, self.turn)
 
-        # Log load event in playthrough log
         try:
             self.playthrough_logger.log_event("load", {
                 "filepath": str(path),
@@ -3354,10 +3473,8 @@ class GameEngine:
 
         return self.get_full_state()
 
-    # ── State Queries ─────────────────────────────────────────────────────
-
     def get_full_state(self) -> dict:
-        """Get complete game state for API/frontend."""
+        """Complete game-state snapshot for the API / frontend."""
         npcs_here = get_npcs_at_location(self.npc_registry, self.player.location)
         loc = self.world.get_location(self.player.location)
 

@@ -1,13 +1,8 @@
-"""Systematic MDP quest flow test.
+"""End-to-end MDP quest flow test against the running FastAPI server.
 
-Plays through all 7 stages / 15 checkpoints, verifying:
-- Each transition advances to the correct checkpoint
-- Stage transitions fire at the right boundaries
-- requires constraints block when items are missing
-- Compound action keys (move_to_fields, etc.) resolve
-- success_prob failures no longer advance the quest
-- gives/removes effects modify inventory
-- Terminal state (S_success) triggers game over
+Covers all 7 stages / 15 checkpoints. Exercises stage transitions, compound
+action keys, `requires` constraints, `success_prob` rolls, item give/remove
+effects, and clean terminal exit in demo mode.
 """
 
 import httpx
@@ -99,12 +94,8 @@ def section(title):
     print(f"{'=' * 60}")
 
 
-# ─────────────────────────────────────────────────────────────
-# STAGE 1: Arrival at the Gate
-# ─────────────────────────────────────────────────────────────
 section("STAGE 1: Arrival at the Gate (1_1 → 1_2)")
 
-# Test 1_1: greet should NOT advance
 new_game(seed=42)
 s = state()
 check("Initial state: CP=1_1, Stage=1",
@@ -113,13 +104,13 @@ check("Initial state: CP=1_1, Stage=1",
 check("Player has travel_papers",
       "travel_papers" in get_inventory_ids(s))
 
+# Greet alone shouldn't satisfy the gate — that's the whole point of movement_gate.
 r = action(action_id="greet", target_npc="guard_a3f1")
 rs = r.get("state", {})
 check("Greet guard → quest does NOT advance",
       get_cp(rs) != "1_2",
       f"CP={get_cp(rs)}")
 
-# Test 1_1: present_item with travel_papers advances
 new_game(seed=42)
 r = action(action_id="present_item", target_npc="guard_a3f1",
            target_item="travel_papers")
@@ -128,7 +119,7 @@ check("Present travel_papers → CP=1_2",
       get_cp(rs) == "1_2",
       f"CP={get_cp(rs)}")
 
-# Test 1_1: sneak failure does not advance (seed 42 = fail)
+# Seed 42 deterministically rolls a sneak failure here — keep this seed.
 new_game(seed=42)
 r = action(action_id="sneak")
 rs = r.get("state", {})
@@ -137,7 +128,7 @@ check("Sneak (seed 42) fails → quest stays at 1_1",
       get_cp(rs) == "1_1" and success is False,
       f"success={success}, CP={get_cp(rs)}")
 
-# Test 1_1: persuade with success
+# Seed 1 → persuade rolls true.
 new_game(seed=1)
 r = action(action_id="persuade", target_npc="guard_a3f1")
 rs = r.get("state", {})
@@ -150,7 +141,6 @@ else:
     check("Persuade (seed 1) failed unexpectedly",
           False, f"success={success}")
 
-# Test 1_2: move_to advances to 2_1 (stage transition)
 new_game(seed=42)
 action(action_id="present_item", target_npc="guard_a3f1",
        target_item="travel_papers")
@@ -161,19 +151,15 @@ check("1_2: move_to village_center → CP=2_1, Stage=2",
       f"CP={get_cp(rs)}, Stage={get_stage(rs)}")
 
 
-# ─────────────────────────────────────────────────────────────
-# STAGE 2: Seeking the Elder
-# ─────────────────────────────────────────────────────────────
 section("STAGE 2: Seeking the Elder (2_1 → 2_2)")
 
-# Continue from previous state
+# Continues from previous game — the server holds the session.
 r = action(action_id="ask_info", target_npc="villager_c1d4")
 rs = r.get("state", {})
 check("2_1: ask_info → CP=2_2",
       get_cp(rs) == "2_2",
       f"CP={get_cp(rs)}")
 
-# 2_2: talk to Elder Maren
 r = action(action_id="talk", target_npc="elder_m8b2")
 rs = r.get("state", {})
 check("2_2: talk to Elder Maren → CP=3_1, Stage=3",
@@ -181,19 +167,14 @@ check("2_2: talk to Elder Maren → CP=3_1, Stage=3",
       f"CP={get_cp(rs)}, Stage={get_stage(rs)}")
 
 
-# ─────────────────────────────────────────────────────────────
-# STAGE 3: The Missing Artifact
-# ─────────────────────────────────────────────────────────────
 section("STAGE 3: The Missing Artifact (3_1 → 3_2)")
 
-# 3_1: ask about the amulet
 r = action(action_id="talk", target_npc="elder_m8b2")
 rs = r.get("state", {})
 check("3_1: talk → CP=3_2",
       get_cp(rs) == "3_2",
       f"CP={get_cp(rs)}")
 
-# 3_2: accept the quest (talk)
 r = action(action_id="talk", target_npc="elder_m8b2")
 rs = r.get("state", {})
 check("3_2: talk (accept quest) → CP=4_1, Stage=4",
@@ -201,26 +182,23 @@ check("3_2: talk (accept quest) → CP=4_1, Stage=4",
       f"CP={get_cp(rs)}, Stage={get_stage(rs)}")
 
 
-# ─────────────────────────────────────────────────────────────
-# STAGE 4: The Investigation (3 checkpoints)
-# ─────────────────────────────────────────────────────────────
 section("STAGE 4: The Investigation (4_1 → 4_2 → 4_3)")
 
-# 4_1: compound key move_to_fields
+# Compound key: move_to_fields → 4_2.
 r = action(action_id="move_to", target_location="fields")
 rs = r.get("state", {})
 check("4_1: move_to fields → CP=4_2",
       get_cp(rs) == "4_2",
       f"CP={get_cp(rs)}")
 
-# 4_2: talk to Farmer Jak
 r = action(action_id="talk", target_npc="farmer_j4a1")
 rs = r.get("state", {})
 check("4_2: talk to Farmer Jak → CP=4_3",
       get_cp(rs) == "4_3",
       f"CP={get_cp(rs)}")
 
-# 4_3: move_to fields (goes to stage 5)
+# Same-location move_to (fields → fields) — exercises the
+# benign-success branch and crosses the stage boundary.
 r = action(action_id="move_to", target_location="fields")
 rs = r.get("state", {})
 check("4_3: move_to fields → CP=5_1, Stage=5",
@@ -228,19 +206,14 @@ check("4_3: move_to fields → CP=5_1, Stage=5",
       f"CP={get_cp(rs)}, Stage={get_stage(rs)}")
 
 
-# ─────────────────────────────────────────────────────────────
-# STAGE 5: The Old Oak Tree
-# ─────────────────────────────────────────────────────────────
 section("STAGE 5: The Old Oak Tree (5_1 → 5_2)")
 
-# Check jade_amulet not in inventory yet
 s = state()
 inv_before = get_inventory_ids(s)
 check("Before search: no jade_amulet",
       "jade_amulet" not in inv_before,
       f"inventory={inv_before}")
 
-# 5_1: search gives jade_amulet
 r = action(action_id="search")
 rs = r.get("state", {})
 inv_after = get_inventory_ids(rs)
@@ -251,7 +224,7 @@ check("5_1: search gives jade_amulet",
       "jade_amulet" in inv_after,
       f"inventory={inv_after}")
 
-# 5_2: compound key move_to_elders_house
+# Compound key move_to_elders_house → 6_2 (skipping 6_1).
 r = action(action_id="move_to", target_location="elders_house")
 rs = r.get("state", {})
 check("5_2: move_to elders_house → CP=6_2 (direct) or 6_1, Stage=6",
@@ -259,14 +232,10 @@ check("5_2: move_to elders_house → CP=6_2 (direct) or 6_1, Stage=6",
       f"CP={get_cp(rs)}, Stage={get_stage(rs)}")
 
 
-# ─────────────────────────────────────────────────────────────
-# STAGE 6: Return to the Elder
-# ─────────────────────────────────────────────────────────────
 section("STAGE 6: Return to the Elder (6_1 → 6_2)")
 
 current_cp = get_cp(rs)
 if current_cp == "6_1":
-    # Need to move_to elders_house
     r = action(action_id="move_to", target_location="elders_house")
     rs = r.get("state", {})
     check("6_1: move_to elders_house → CP=6_2",
@@ -275,7 +244,6 @@ if current_cp == "6_1":
 else:
     check("Skipped 6_1 (went directly to 6_2)", True)
 
-# 6_2: give jade_amulet to Elder
 inv_before = get_inventory_ids(rs)
 check("Before give: has jade_amulet",
       "jade_amulet" in inv_before,
@@ -294,44 +262,32 @@ check("6_2: jade_amulet removed from inventory",
       f"inventory={inv_after}")
 
 
-# ─────────────────────────────────────────────────────────────
-# STAGE 7: The Reward of Thornhaven
-# ─────────────────────────────────────────────────────────────
 section("STAGE 7: The Reward (7_1 → 7_2 → Victory)")
 
-# 7_1: talk about reward
 r = action(action_id="talk", target_npc="elder_m8b2")
 rs = r.get("state", {})
 check("7_1: talk → CP=7_2",
       get_cp(rs) == "7_2",
       f"CP={get_cp(rs)}")
 
-# 7_2: accept shield → S_success → quest restarts (RL episode loop)
-# The game does NOT end on quest completion when turn < max_turns.
-# Instead, the quest restarts for a new RL episode (NPC learning preserved).
-# Game over only fires at max_turns or player death.
+# Demo-mode terminal: the API constructs the engine with
+# restart_on_complete=False, so S_success sets game_over instead of looping.
 r = action(action_id="talk", target_npc="elder_m8b2")
 rs = r.get("state", {})
 
-# Iron shield should have been given before restart
 inv_final = get_inventory_ids(rs)
 check("7_2: iron_shield given",
       "iron_shield" in inv_final,
       f"inventory={inv_final}")
 
-# Quest restarts: CP goes back to 1_1, stage 1 (new episode)
-check("7_2: quest restarts → CP=1_1, Stage=1 (new RL episode)",
-      get_cp(rs) == "1_1" and get_stage(rs) == 1,
-      f"CP={get_cp(rs)}, Stage={get_stage(rs)}")
+check("7_2: quest completes cleanly (game_over=True)",
+      r.get("game_over") is True and r.get("game_result") == "success",
+      f"game_over={r.get('game_over')}, result={r.get('game_result')}")
 
 
-# ─────────────────────────────────────────────────────────────
-# ADDITIONAL: Test 4_1 alternate path (move_to_tavern → 4_3)
-# ─────────────────────────────────────────────────────────────
 section("ADDITIONAL: Stage 4 alternate path (tavern)")
 
 new_game(seed=42)
-# Speed-run to 4_1
 action(action_id="present_item", target_npc="guard_a3f1", target_item="travel_papers")
 action(action_id="move_to", target_location="village_center")
 action(action_id="ask_info", target_npc="villager_c1d4")
@@ -343,7 +299,7 @@ check("Speed-run to 4_1",
       get_cp(s) == "4_1" and get_stage(s) == 4,
       f"CP={get_cp(s)}, Stage={get_stage(s)}")
 
-# 4_1: move_to tavern → 4_3 (skips 4_2)
+# move_to_tavern is a CP 4_1 transition that jumps directly to 4_3.
 r = action(action_id="move_to", target_location="tavern")
 rs = r.get("state", {})
 check("4_1: move_to tavern → CP=4_3 (skips 4_2)",
@@ -351,9 +307,6 @@ check("4_1: move_to tavern → CP=4_3 (skips 4_2)",
       f"CP={get_cp(rs)}")
 
 
-# ─────────────────────────────────────────────────────────────
-# ADDITIONAL: Test 3_2 persuade with success_prob
-# ─────────────────────────────────────────────────────────────
 section("ADDITIONAL: Stage 3_2 persuade (success_prob=0.7)")
 
 new_game(seed=42)
@@ -380,13 +333,9 @@ else:
           f"success={success}, CP={get_cp(rs)}")
 
 
-# ─────────────────────────────────────────────────────────────
-# ADDITIONAL: Test 5_2 compound keys
-# ─────────────────────────────────────────────────────────────
 section("ADDITIONAL: Stage 5_2 compound key (village_center)")
 
 new_game(seed=42)
-# Speed-run to 5_2 with jade_amulet
 action(action_id="present_item", target_npc="guard_a3f1", target_item="travel_papers")
 action(action_id="move_to", target_location="village_center")
 action(action_id="ask_info", target_npc="villager_c1d4")
@@ -402,7 +351,7 @@ check("At CP=5_2 with jade_amulet",
       get_cp(s) == "5_2" and "jade_amulet" in get_inventory_ids(s),
       f"CP={get_cp(s)}, inv={get_inventory_ids(s)}")
 
-# move_to village_center (compound key: move_to_village_center → 6_1)
+# Compound key move_to_village_center → 6_1 (alternate to elders_house → 6_2).
 r = action(action_id="move_to", target_location="village_center")
 rs = r.get("state", {})
 check("5_2: move_to village_center → CP=6_1",
@@ -410,9 +359,6 @@ check("5_2: move_to village_center → CP=6_1",
       f"CP={get_cp(rs)}")
 
 
-# ─────────────────────────────────────────────────────────────
-# SUMMARY
-# ─────────────────────────────────────────────────────────────
 section("SUMMARY")
 total = passed + failed
 print(f"\n  {passed}/{total} passed, {failed} failed")

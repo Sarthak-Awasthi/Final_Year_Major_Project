@@ -1,9 +1,5 @@
-"""
-session.py — Simple session management for the single-player MVP.
-
-Manages one active game session at a time.  Wraps :class:`GameEngine`
-creation, initialization, turn processing, and teardown.
-"""
+"""Single-session manager for the MVP. One game at a time; creating a new
+session tears down the previous one."""
 
 from __future__ import annotations
 
@@ -11,23 +7,15 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
-from backend.config import MASTER_SEED, MAX_TURNS, logger, apply_ablation_preset, reset_ablation_defaults
+from backend.config import MASTER_SEED, MAX_TURNS, logger, apply_ablation_preset
 from backend.engine.game_engine import GameEngine
 
 
 class SessionManager:
-    """Single-session manager for the MVP research game.
-
-    Only one game session is active at any time.  Creating a new session
-    automatically tears down the previous one.
-    """
-
     def __init__(self) -> None:
         self.current_engine: GameEngine | None = None
         self.session_id: str | None = None
         self.created_at: datetime | None = None
-
-    # ── Session lifecycle ─────────────────────────────────────────────────
 
     async def create_session(
         self,
@@ -37,22 +25,10 @@ class SessionManager:
         player_name: str = "Traveler",
         condition: str = "C1",
     ) -> dict:
-        """Create a new game session, replacing any existing one.
+        """Spin up a fresh GameEngine and return its initial state.
 
-        Instantiates and initialises a :class:`GameEngine`, sets the
-        player name, and returns the initial game state dict.
-
-        Args:
-            seed: Master RNG seed.
-            difficulty: Difficulty preset (``easy`` / ``normal`` / ``hard``).
-            max_turns: Maximum turns before the session ends.
-            player_name: Display name for the player character.
-            condition: Ablation preset (``C1`` / ``C3`` / ``C4`` / ``C5`` / ``C6`` / ``C7``).
-
-        Returns:
-            Full initial game state dict from ``engine.initialize()``.
+        `condition` selects one of the ablation presets (C1/C3/.../C7).
         """
-        # Tear down previous session if any
         self.end_session()
 
         self.session_id = uuid.uuid4().hex[:12]
@@ -60,7 +36,15 @@ class SessionManager:
 
         apply_ablation_preset(condition)
 
-        engine = GameEngine(seed=seed, difficulty=difficulty, max_turns=max_turns)
+        # Demo sessions terminate cleanly on quest completion. Notebooks
+        # construct GameEngine directly and keep the default restart loop
+        # for RL training across episodes.
+        engine = GameEngine(
+            seed=seed,
+            difficulty=difficulty,
+            max_turns=max_turns,
+            restart_on_complete=False,
+        )
         engine.player.name = player_name
         initial_state = await engine.initialize()
 
@@ -77,37 +61,19 @@ class SessionManager:
         return initial_state
 
     async def process_action(self, parsed_input: dict) -> dict:
-        """Forward *parsed_input* to the engine's turn processor.
-
-        Args:
-            parsed_input: A ``ParsedInput`` dict produced by the input parser.
-
-        Returns:
-            Turn result dict from ``engine.process_turn()``.
-
-        Raises:
-            RuntimeError: If no session is active.
-        """
         if self.current_engine is None:
             raise RuntimeError("No active game session.")
         return await self.current_engine.process_turn(parsed_input)
 
     def get_state(self) -> dict:
-        """Return full game state from the active engine.
-
-        Raises:
-            RuntimeError: If no session is active.
-        """
         if self.current_engine is None:
             raise RuntimeError("No active game session.")
         return self.current_engine.get_full_state()
 
     def is_active(self) -> bool:
-        """Check whether a game session is currently running."""
         return self.current_engine is not None
 
     def get_session_info(self) -> dict[str, Any]:
-        """Return metadata about the current session (or None-safe defaults)."""
         if not self.is_active():
             return {
                 "active": False,
@@ -127,7 +93,6 @@ class SessionManager:
         }
 
     def end_session(self) -> None:
-        """Tear down the current session, releasing resources."""
         if self.current_engine is not None:
             logger.info(
                 "Session ended: id=%s, turns=%d",
