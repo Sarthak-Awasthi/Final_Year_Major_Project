@@ -10,7 +10,8 @@ Early game episodes favor individual NPC gains; as agents learn that community w
 
 ```bash
 uv sync
-
+# get the spaCy model for semantic similarity
+uv run spacy download en_core_web_md
 # Set LLM provider (optional -- game works without LLM)
 # export OPENROUTER_API_KEY=your_key
 
