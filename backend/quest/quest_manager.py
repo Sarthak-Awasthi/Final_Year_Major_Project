@@ -139,21 +139,31 @@ class QuestManager:
         target: str | None,
         context: dict,
     ) -> dict | None:
-        """Allow a quest-critical action to skip ahead to a future static CP."""
-        completed_set = set(self.completed_checkpoints)
-        if _cfg.HIERARCHICAL_MDP:
-            stages_to_scan = [self.mdp.stages.get(self.current_stage)]
-        else:
-            stages_to_scan = list(self.mdp.stages.values())
+        """Allow a quest-critical action to skip ahead to a future static CP.
 
-        # The immediate next CP is the job of `check_completion`; excluding it
-        # here prevents trivial collisions where a bare action key matches a
-        # neighbour (e.g. "talk" at 1_1 picking up 1_2's "talk" transition).
+        Two-pass strategy when HIERARCHICAL_MDP is enabled:
+          1. Primary pass — current stage only (prevents generic actions like
+             ``greet`` or ``talk`` from accidentally matching late-stage CPs
+             that share the same action key).
+          2. Cross-stage pass — all stages, but ONLY for transitions that carry
+             an explicit ``requires.item`` constraint.  This lets a player who
+             physically arrived at the Elder's House and handed over the jade
+             amulet get quest credit even if the quest-stage counter is still
+             behind (e.g. Stage 4 while CP 6_2 lives in Stage 6).
+        """
+        completed_set = set(self.completed_checkpoints)
+
         current_cp_obj = self.mdp.get_checkpoint(self.current_checkpoint)
         nudge_target = getattr(current_cp_obj, "nudge_target", None) if current_cp_obj else None
-
         player_location = context.get("location")
-        for stage in stages_to_scan:
+
+        # ── Pass 1: current-stage scan (original behaviour) ───────────────
+        if _cfg.HIERARCHICAL_MDP:
+            primary_stages = [self.mdp.stages.get(self.current_stage)]
+        else:
+            primary_stages = list(self.mdp.stages.values())
+
+        for stage in primary_stages:
             if stage is None:
                 continue
             for cp_id, cp in stage.checkpoints.items():
@@ -183,7 +193,68 @@ class QuestManager:
                         self.current_stage,
                     )
                     return result
+
+        # ── Pass 2: cross-stage scan, item-gated transitions only ─────────
+        # Only runs under HIERARCHICAL_MDP (flat mode already scanned every
+        # stage in Pass 1).  Restricting to transitions with requires.item
+        # prevents generic social actions (greet, talk, ask_info) from
+        # matching late-stage checkpoints that share the same bare action key.
+        if _cfg.HIERARCHICAL_MDP:
+            for stage in self.mdp.stages.values():
+                if stage is None:
+                    continue
+                if stage.stage_id == self.current_stage:
+                    continue  # already handled in Pass 1
+                for cp_id, cp in stage.checkpoints.items():
+                    if cp.is_dynamic:
+                        continue
+                    if cp_id in completed_set:
+                        continue
+                    if cp_id == self.current_checkpoint:
+                        continue
+                    if cp_id == nudge_target:
+                        continue
+                    if cp.location and player_location and cp.location != player_location:
+                        continue
+                    # Cross-stage safety gate: only consider this CP if the
+                    # specific transition for this action either requires an item
+                    # OR grants one (gives).  Bare keys like "greet" or "talk"
+                    # with no requires/gives clause are too ambiguous to match
+                    # across stage boundaries.
+                    conditions = cp.completion_conditions or {}
+                    trans = conditions.get(action_id)
+                    if not isinstance(trans, dict):
+                        continue
+                    required_item = (trans.get("requires") or {}).get("item")
+                    gives_items = (trans.get("effects") or {}).get("gives") or []
+                    
+                    if not required_item:
+                        if not gives_items:
+                            continue
+                        # If a transition only GIVES an item (e.g. a quest reward or found item),
+                        # do not allow generic social actions to jump across stages. This prevents 
+                        # 'greet' from triggering a late-stage reward checkpoint (like 7_2) early.
+                        if action_id in ("greet", "talk", "ask_info", "wait", "pick_up"):
+                            continue
+                    result = self._check_checkpoint_completion(
+                        cp_id, action_id, target, context
+                    )
+                    if result is not None:
+                        logger.info(
+                            "Cross-stage forward-scan match: action '%s' "
+                            "(requires item '%s' / gives %s) satisfies checkpoint %s "
+                            "(current stage %d → stage %d)",
+                            action_id,
+                            required_item,
+                            gives_items,
+                            cp_id,
+                            self.current_stage,
+                            stage.stage_id,
+                        )
+                        return result
+
         return None
+
 
     @staticmethod
     def _match_transition(

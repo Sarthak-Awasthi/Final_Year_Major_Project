@@ -1460,12 +1460,57 @@ class GameEngine:
         ctx["target"] = target_npc.name
         ctx["item"] = item["name"]
 
+        # Track NPC interaction (mirrors present_item / social_talk behaviour)
+        self.last_interacted_npc_uid = target_npc.npc_uid
+        self.interacted_npc_uids.add(target_npc.npc_uid)
+
         # Remove from player inventory
         self.player.remove_item(target_item)
+        # Remember what was just given (surfaced into quest_situation on next talk/greet)
+        self._last_item_given = item["name"]
         # Reputation boost
         rep_gain = 3
         mult = self.difficulty.get("reputation_gain_multiplier", 1.0)
         self.player.modify_reputation(target_npc.npc_uid, int(rep_gain * mult))
+
+        # ── Dialogue — NPC reacts to receiving the item ──────────────
+        # Build context with a clear flag so the LLM / scripted layer
+        # knows exactly what was just handed over.
+        player_rep = self.player.get_reputation(target_npc.npc_uid)
+        dialogue_ctx = {
+            "player_reputation": player_rep,
+            "quest_state": self.player.quest_state,
+            "location": self.player.location,
+            "turn": self.turn,
+            "time_of_day": self.world.time_of_day,
+            "item_given": item["name"],
+            "item_id": target_item,
+            "quest_situation": self._build_quest_situation(target_npc),
+        }
+        dialogue_result = resolve_dialogue(
+            target_npc,
+            "give_item",
+            f"gives {item['name']}",
+            "neutral",
+            "neutral",
+            dialogue_ctx,
+            llm_service=self.llm,
+        )
+        raw_dialogue = dialogue_result["dialogue"]
+
+        # Record in NPC history so subsequent talk/greet knows the
+        # amulet was already handed over.
+        target_npc.add_conversation({
+            "turn": self.turn,
+            "action": "give_item",
+            "player_text": f"gives {item['name']}",
+            "npc_response": raw_dialogue,
+            "emotion": "neutral",
+            "social": "neutral",
+        })
+        # Also cache in _last_dialogue so the repeat system works.
+        if hasattr(self, "_last_dialogue"):
+            self._last_dialogue[target_npc.npc_uid] = raw_dialogue
 
         narration = get_template_narration("give_item", "success", ctx)
         return {
@@ -1473,6 +1518,8 @@ class GameEngine:
             "action_id": "give_item",
             "ap_cost": ap_cost,
             "narration": narration,
+            "dialogue": raw_dialogue,
+            "dialogue_speaker": target_npc.name,
             "effects": {
                 "item_given": target_item,
                 "reputation": {target_npc.npc_uid: int(rep_gain * mult)},
@@ -2499,6 +2546,15 @@ class GameEngine:
                 f"the quest demands listed above."
             )
 
+        # Surface any item the player just handed over this turn so that a
+        # subsequent talk/greet at the next checkpoint still has that context.
+        last_given = getattr(self, "_last_item_given", None)
+        if last_given:
+            parts.append(
+                f"The player JUST handed over '{last_given}' — acknowledge this "
+                f"warmly and move the conversation forward to the reward."
+            )
+
         return "\n".join(parts)
 
     def _no_target(self, action_id: str, ap_cost: int, ctx: dict) -> dict:
@@ -2592,9 +2648,20 @@ class GameEngine:
             if "gives" in rewards:
                 for item in rewards["gives"] if isinstance(rewards["gives"], list) else [rewards["gives"]]:
                     if isinstance(item, dict):
-                        self.player.add_item(item)
+                        item_id = item.get("id", "")
+                        if not self.player.has_item(item_id):
+                            self.player.add_item(item)
+                        else:
+                            logger.debug(
+                                "Quest gives reward: player already has '%s', skipping duplicate", item_id
+                            )
                     elif isinstance(item, str):
                         # JSON encodes gives as item IDs — resolve to the full dict.
+                        if self.player.has_item(item):
+                            logger.debug(
+                                "Quest gives reward: player already has '%s', skipping duplicate", item
+                            )
+                            continue
                         item_def = self._quest_items.get(item)
                         if item_def:
                             self.player.add_item(dict(item_def))

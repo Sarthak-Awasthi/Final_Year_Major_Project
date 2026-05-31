@@ -28,7 +28,8 @@
     "scripted_dialogue": {
         "greeting": "Ah, welcome traveler. These old eyes have seen many pass through our village, but few with purpose such as yours.",
         "quest_hint": "There is a disturbance in the balance of things. The old ways speak of trials that must be faced — not with sword alone, but with wisdom and resolve.",
-        "hostile": "You have betrayed the trust of this village. I will not suffer a deceiver in my home. Leave, before I call the guard."
+        "hostile": "You have betrayed the trust of this village. I will not suffer a deceiver in my home. Leave, before I call the guard.",
+        "give_item": "Oh, my word... you found it! The amulet is safe! Thank you, brave traveler. You have returned the very soul of Thornhaven to us."
     },
     "movement_weights": {
         "gate": 0.05,
@@ -89,6 +90,11 @@
             "Ah, let me see... yes, this is significant. Thank you for showing me.",
             "Interesting. I've seen something like this before, long ago.",
             "Hold this carefully — it may be more important than you realize."
+        ],
+        "give_item": [
+            "You are giving this to me? Thank you, I will keep it safe.",
+            "I accept this gift with gratitude.",
+            "Such generosity! You have my thanks."
         ]
     }
 }

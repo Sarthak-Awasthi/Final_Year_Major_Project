@@ -70,6 +70,7 @@ def _check_scripted(npc: NPC, action_id: str, context: dict) -> str | None:
         "talk": "greeting",
         "ask_info": "quest_hint",
         "present_item": "present_item",
+        "give_item": "give_item",
     }
     key = key_map.get(action_id)
 
@@ -126,7 +127,7 @@ _QUEST_STAGE_DIALOGUE: dict[tuple[str, int], str] = {
         "something. Tell me everything."
     ),
     ("elder_m8b2", 6): (
-        "We are so close to resolving this. I have faith in you, traveler."
+        "You've returned... and is that...? Could it be? Please, let me see it!"
     ),
 
     ("guard_a3f1", 3): (
@@ -174,6 +175,14 @@ _QUEST_STAGE_DIALOGUE: dict[tuple[str, int], str] = {
         "Oh, that poor Elder Maren. She's lost her jade amulet, you know — "
         "the one her grandmother wore. I've been having bad dreams about it. "
         "Fire and shadow, every night. It means something, I'm sure of it."
+    ),
+
+    # Stage 7: Elder Maren after the amulet is returned
+    ("elder_m8b2", 7): (
+        "You have done something remarkable today, traveler. "
+        "Thornhaven owes you a debt that words cannot repay. "
+        "Please — accept this shield as a token of our gratitude. "
+        "It was forged by my late husband; may it protect you as you have protected us."
     ),
 }
 

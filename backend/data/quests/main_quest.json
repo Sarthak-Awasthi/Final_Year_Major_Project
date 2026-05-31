@@ -406,6 +406,7 @@
         },
         {
           "cp_id": "6_2",
+          "location": "elders_house",
           "description": "You push open the cottage door. Elder Maren looks up from her chair, her expression hollow with exhaustion — then her eyes widen. She sees the familiar shape cradled in your hands, and the color rushes back to her face. Her lips part, but for a moment, no words come. The firelight dances across the jade amulet's ancient surface.",
           "context": {
             "npcs_present": ["elder_m8b2"],
