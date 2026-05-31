@@ -153,6 +153,25 @@ NPC_PRETRAIN_EPISODES: int = 100
 NPC_PRETRAIN_TURNS: int = 50
 NPC_INVALID_LOCATION_PENALTY: float = -5.0
 
+# ─── Reward Shaping ──────────────────────────────────────────────────────────
+# Solution A: Maintenance baseline — fraction of individual reward that comes
+# from the absolute stat level (rest is delta-based).  Prevents individual
+# reward from collapsing to zero when stats saturate at their ceiling.
+REWARD_MAINTENANCE_WEIGHT: float = 0.10   # β in:  R = (1-β)*delta + β*level
+
+# Solution B: Per-turn stat decay — natural entropy that prevents stats from
+# staying pinned at 10.  Keeps delta-based reward alive throughout the game.
+NPC_STAT_DECAY: dict[str, float] = {
+    "happiness": 0.03,    # low — preserves avg_mood for community reward
+    "income": 0.12,       # high — main driver of ongoing individual reward
+    "health": 0.03,       # moderate wear (needs rest/eat)
+    "reputation": 0.01,   # slow fade (needs social upkeep)
+}
+
+# Solution C: Community reward amplifier — scales the raw community reward
+# so that λ-weighted community contribution can dominate at late stages.
+COMMUNITY_REWARD_SCALE: float = 2.0
+
 # NPC state-space sizes for Q-table
 NPC_NUM_LOCATIONS: int = 5
 NPC_NUM_TIME_SLOTS: int = 5  # morning, midday, afternoon, evening, night

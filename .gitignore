@@ -61,3 +61,5 @@ scratch/
 .planning/
 
 presentation/
+
+backend/data/metrics/logs/

@@ -69,17 +69,13 @@ class NPC:
         )
 
         # --- Q-table (numpy 2D: states × actions) ---
-        self.q_table: np.ndarray = self._init_q_table(
-            instance_data.get("q_table", {})
-        )
+        self.q_table: np.ndarray = self._init_q_table(instance_data.get("q_table", {}))
 
         # --- Dialogue / history ---
         self.conversation_history: list[dict] = list(
             instance_data.get("conversation_history", [])
         )
-        self.known_events: list[dict] = list(
-            instance_data.get("known_events", [])
-        )
+        self.known_events: list[dict] = list(instance_data.get("known_events", []))
 
         # --- Archetype data ---
         self.movement_weights: dict[str, float] = dict(
@@ -92,8 +88,7 @@ class NPC:
             archetype_data.get("scripted_dialogue", {})
         )
         self.generic_responses: dict[str, list[str]] = {
-            k: list(v)
-            for k, v in archetype_data.get("generic_responses", {}).items()
+            k: list(v) for k, v in archetype_data.get("generic_responses", {}).items()
         }
 
         # --- STEP 4: Role telemetry (for role-masked action analysis) ---
@@ -107,18 +102,22 @@ class NPC:
         self.max_role_telemetry_trace_len: int = 1000
 
         # --- Reward tracing (for metrics/analysis) ---
-        self.reward_trace: list[dict] = []  # List of {turn, penalty, individual, community, total}
+        self.reward_trace: list[
+            dict
+        ] = []  # List of {turn, penalty, individual, community, total}
         self.max_reward_trace_len: int = 1000
-        self.lambda_coeff: float = 0.15  # Community reward coefficient; starts low (individual dominates)
-        self._lambda_min: float = 0.05   # Floor: always some community awareness
-        self._lambda_max: float = 0.6    # Ceiling: never fully altruistic
+        self.lambda_coeff: float = (
+            0.15  # Community reward coefficient; starts low (individual dominates)
+        )
+        self._lambda_min: float = 0.05  # Floor: always some community awareness
+        self._lambda_max: float = 0.85  # Ceiling: strong but not total altruism
 
         # --- Adaptation state (STEP 3: Adaptive Personality Dynamics) ---
         self.adaptation_state: dict[str, float] = {
-            "cooperation_tendency": 0.5,      # 0.0–1.0: tendency to cooperate
-            "risk_aversion": 0.5,             # 0.0–1.0: tendency to avoid risky actions
-            "social_sensitivity": 0.5,        # 0.0–1.0: sensitivity to social feedback
-            "shock_resilience": 0.5,          # 0.0–1.0: ability to adapt to shocks
+            "cooperation_tendency": 0.0,  # 0.0–1.0: tendency to cooperate
+            "risk_aversion": 0.5,  # 0.0–1.0: tendency to avoid risky actions
+            "social_sensitivity": 0.5,  # 0.0–1.0: sensitivity to social feedback
+            "shock_resilience": 0.5,  # 0.0–1.0: ability to adapt to shocks
         }
         self.adaptation_trace: list[dict] = []  # Track adaptation over time
         self.max_adaptation_trace_len: int = 1000
@@ -171,7 +170,9 @@ class NPC:
         Returns:
             Integer in ``[0, NPC_STATE_SPACE_SIZE)``.
         """
-        location_idx = LOCATION_IDS.index(self.location) if self.location in LOCATION_IDS else 0
+        location_idx = (
+            LOCATION_IDS.index(self.location) if self.location in LOCATION_IDS else 0
+        )
         time_idx = TIME_PERIODS.index(time_period) if time_period in TIME_PERIODS else 0
 
         # Energy level from HP ratio
@@ -194,7 +195,10 @@ class NPC:
 
         # Pack into a flat index
         index = (
-            location_idx * NPC_NUM_TIME_SLOTS * NPC_NUM_ENERGY_LEVELS * NPC_NUM_MOOD_LEVELS
+            location_idx
+            * NPC_NUM_TIME_SLOTS
+            * NPC_NUM_ENERGY_LEVELS
+            * NPC_NUM_MOOD_LEVELS
             + time_idx * NPC_NUM_ENERGY_LEVELS * NPC_NUM_MOOD_LEVELS
             + energy_level * NPC_NUM_MOOD_LEVELS
             + mood_level
@@ -248,9 +252,7 @@ class NPC:
             self.current_hp = 0
         self.status = "incapacitated"
         self.incapacitation_turn = turn
-        logger.info(
-            "NPC %s incapacitated on turn %d", self.npc_uid, turn
-        )
+        logger.info("NPC %s incapacitated on turn %d", self.npc_uid, turn)
 
     def check_recovery(self, current_turn: int) -> bool:
         """Return ``True`` (and recover) if 20+ turns have elapsed since incapacitation."""
@@ -262,9 +264,7 @@ class NPC:
             self.status = "active"
             self.current_hp = max(1, self.max_hp // 4)  # recover to 25 %
             self.incapacitation_turn = None
-            logger.info(
-                "NPC %s recovered on turn %d", self.npc_uid, current_turn
-            )
+            logger.info("NPC %s recovered on turn %d", self.npc_uid, current_turn)
             return True
         return False
 
@@ -274,7 +274,9 @@ class NPC:
         """Append a conversation entry, capping at MAX_CONVERSATION_HISTORY."""
         self.conversation_history.append(entry)
         if len(self.conversation_history) > MAX_CONVERSATION_HISTORY:
-            self.conversation_history = self.conversation_history[-MAX_CONVERSATION_HISTORY:]
+            self.conversation_history = self.conversation_history[
+                -MAX_CONVERSATION_HISTORY:
+            ]
 
     # ── Reward tracing ───────────────────────────────────────────────────
 
@@ -288,15 +290,17 @@ class NPC:
             turn: Current game turn.
             reward_dict: Dict with keys: penalty, individual, community, total.
         """
-        self.reward_trace.append({
-            "turn": turn,
-            "penalty": reward_dict.get("penalty", 0.0),
-            "individual": reward_dict.get("individual", 0.0),
-            "community": reward_dict.get("community", 0.0),
-            "total": reward_dict.get("total", 0.0),
-        })
+        self.reward_trace.append(
+            {
+                "turn": turn,
+                "penalty": reward_dict.get("penalty", 0.0),
+                "individual": reward_dict.get("individual", 0.0),
+                "community": reward_dict.get("community", 0.0),
+                "total": reward_dict.get("total", 0.0),
+            }
+        )
         if len(self.reward_trace) > self.max_reward_trace_len:
-            self.reward_trace = self.reward_trace[-self.max_reward_trace_len:]
+            self.reward_trace = self.reward_trace[-self.max_reward_trace_len :]
 
     # ── Adaptation state (STEP 3) ──────────────────────────────────────────
 
@@ -311,7 +315,7 @@ class NPC:
         community = reward_dict.get("community", 0.0)
         penalty = reward_dict.get("penalty", 0.0)
 
-        base_rate = 0.018
+        base_rate = 0.012
         drift_rate = 0.004
 
         # Fix #5: dynamic lambda gates the cooperation adaptation rate itself
@@ -325,11 +329,12 @@ class NPC:
         if shock_pressure > 0.1:
             self.adaptation_state["cooperation_tendency"] = max(
                 0.0,
-                self.adaptation_state["cooperation_tendency"] - base_rate * shock_pressure * 1.5
+                self.adaptation_state["cooperation_tendency"]
+                - base_rate * shock_pressure * 1.5,
             )
             self.adaptation_state["shock_resilience"] = min(
                 1.0,
-                self.adaptation_state["shock_resilience"] + base_rate * shock_pressure
+                self.adaptation_state["shock_resilience"] + base_rate * shock_pressure,
             )
         else:
             if self.adaptation_state["shock_resilience"] > 0.5:
@@ -339,53 +344,62 @@ class NPC:
         if community > 0.02:
             self.adaptation_state["cooperation_tendency"] = min(
                 1.0,
-                self.adaptation_state["cooperation_tendency"] + coop_rate * min(community, 0.5)
+                self.adaptation_state["cooperation_tendency"]
+                + coop_rate * min(community, 0.5),
             )
         elif community < -0.02:
             self.adaptation_state["cooperation_tendency"] = max(
                 0.0,
-                self.adaptation_state["cooperation_tendency"] + coop_rate * max(community, -0.5)
+                self.adaptation_state["cooperation_tendency"]
+                + coop_rate * max(community, -0.5),
             )
 
         # Fix #4: risk aversion driven by individual reward with role-specific sensitivity
         role_risk_sensitivity = {
-            "guard": 1.5, "farmer": 1.2, "elder": 0.6,
-            "tavern_keeper": 0.8, "villager": 1.0,
+            "guard": 1.5,
+            "farmer": 1.2,
+            "elder": 0.6,
+            "tavern_keeper": 0.8,
+            "villager": 1.0,
         }
         risk_mult = role_risk_sensitivity.get(self.archetype, 1.0)
         if individual < -0.1 or penalty < -1.0:
             self.adaptation_state["risk_aversion"] = min(
                 1.0,
-                self.adaptation_state["risk_aversion"] + base_rate * risk_mult * min(abs(individual), 1.0)
+                self.adaptation_state["risk_aversion"]
+                + base_rate * risk_mult * min(abs(individual), 1.0),
             )
         elif individual > 0.2:
             self.adaptation_state["risk_aversion"] = max(
-                0.0,
-                self.adaptation_state["risk_aversion"] - base_rate * 0.5
+                0.0, self.adaptation_state["risk_aversion"] - base_rate * 0.5
             )
 
         # Fix #4: social sensitivity driven by social action outcomes
         role_social_sensitivity = {
-            "elder": 1.4, "tavern_keeper": 1.2, "villager": 1.0,
-            "farmer": 0.7, "guard": 0.5,
+            "elder": 1.4,
+            "tavern_keeper": 1.2,
+            "villager": 1.0,
+            "farmer": 0.7,
+            "guard": 0.5,
         }
         social_mult = role_social_sensitivity.get(self.archetype, 1.0)
         if community > 0.05:
             self.adaptation_state["social_sensitivity"] = min(
                 0.9,
-                self.adaptation_state["social_sensitivity"] + base_rate * social_mult * 0.15
+                self.adaptation_state["social_sensitivity"]
+                + base_rate * social_mult * 0.15,
             )
         elif community < -0.05:
             self.adaptation_state["social_sensitivity"] = max(
                 0.1,
-                self.adaptation_state["social_sensitivity"] - base_rate * social_mult * 0.1
+                self.adaptation_state["social_sensitivity"]
+                - base_rate * social_mult * 0.1,
             )
 
         # Drift all coefficients toward 0.5 (homeostasis)
         for key in self.adaptation_state:
             self.adaptation_state[key] = (
-                self.adaptation_state[key] * (1.0 - drift_rate) +
-                0.5 * drift_rate
+                self.adaptation_state[key] * (1.0 - drift_rate) + 0.5 * drift_rate
             )
 
         for key in self.adaptation_state:
@@ -393,7 +407,9 @@ class NPC:
 
         coop = self.adaptation_state["cooperation_tendency"]
         if _cfg.DYNAMIC_LAMBDA:
-            self.lambda_coeff = self._lambda_min + coop * (self._lambda_max - self._lambda_min)
+            self.lambda_coeff = self._lambda_min + coop * (
+                self._lambda_max - self._lambda_min
+            )
         else:
             self.lambda_coeff = 0.325
 
@@ -405,16 +421,20 @@ class NPC:
         Args:
             turn: Current game turn.
         """
-        self.adaptation_trace.append({
-            "turn": turn,
-            "cooperation_tendency": self.adaptation_state["cooperation_tendency"],
-            "risk_aversion": self.adaptation_state["risk_aversion"],
-            "social_sensitivity": self.adaptation_state["social_sensitivity"],
-            "shock_resilience": self.adaptation_state["shock_resilience"],
-            "lambda_coeff": round(self.lambda_coeff, 4),
-        })
+        self.adaptation_trace.append(
+            {
+                "turn": turn,
+                "cooperation_tendency": self.adaptation_state["cooperation_tendency"],
+                "risk_aversion": self.adaptation_state["risk_aversion"],
+                "social_sensitivity": self.adaptation_state["social_sensitivity"],
+                "shock_resilience": self.adaptation_state["shock_resilience"],
+                "lambda_coeff": round(self.lambda_coeff, 4),
+            }
+        )
         if len(self.adaptation_trace) > self.max_adaptation_trace_len:
-            self.adaptation_trace = self.adaptation_trace[-self.max_adaptation_trace_len:]
+            self.adaptation_trace = self.adaptation_trace[
+                -self.max_adaptation_trace_len :
+            ]
 
     def update_role_telemetry(self, action_id: str) -> None:
         """Track role-alignment of selected action.
@@ -443,15 +463,19 @@ class NPC:
         aligned = self.role_telemetry["role_aligned"]
         coherence = (aligned / total) if total > 0 else 0.0
 
-        self.role_telemetry_trace.append({
-            "turn": turn,
-            "actions_selected": self.role_telemetry["actions_selected"],
-            "role_aligned": self.role_telemetry["role_aligned"],
-            "role_misaligned": self.role_telemetry["role_misaligned"],
-            "role_coherence": round(coherence, 4),
-        })
+        self.role_telemetry_trace.append(
+            {
+                "turn": turn,
+                "actions_selected": self.role_telemetry["actions_selected"],
+                "role_aligned": self.role_telemetry["role_aligned"],
+                "role_misaligned": self.role_telemetry["role_misaligned"],
+                "role_coherence": round(coherence, 4),
+            }
+        )
         if len(self.role_telemetry_trace) > self.max_role_telemetry_trace_len:
-            self.role_telemetry_trace = self.role_telemetry_trace[-self.max_role_telemetry_trace_len:]
+            self.role_telemetry_trace = self.role_telemetry_trace[
+                -self.max_role_telemetry_trace_len :
+            ]
 
     # ── Serialization ─────────────────────────────────────────────────────
 

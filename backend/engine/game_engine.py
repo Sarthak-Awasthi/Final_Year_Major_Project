@@ -2931,6 +2931,12 @@ class GameEngine:
                     })
                 continue
 
+            # 1b. Apply natural stat decay (Solution B: entropy prevents saturation)
+            from backend.config import NPC_STAT_DECAY
+            for stat_key, decay_rate in NPC_STAT_DECAY.items():
+                if stat_key in npc.stats:
+                    npc.stats[stat_key] = max(0.0, npc.stats[stat_key] - decay_rate)
+
             # 2. Discretize state
             state = npc.discretize_state(self.world.time_of_day)
 

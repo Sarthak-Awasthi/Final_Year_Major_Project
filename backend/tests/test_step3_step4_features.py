@@ -43,7 +43,7 @@ class TestAdaptationStateInitialization:
         await engine.initialize()
 
         for uid, npc in engine.npc_registry.items():
-            assert npc.adaptation_state["cooperation_tendency"] == 0.5
+            assert npc.adaptation_state["cooperation_tendency"] == 0.0
             assert npc.adaptation_state["risk_aversion"] == 0.5
             assert npc.adaptation_state["social_sensitivity"] == 0.5
             assert npc.adaptation_state["shock_resilience"] == 0.5

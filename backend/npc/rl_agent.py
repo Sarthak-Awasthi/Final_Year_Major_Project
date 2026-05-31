@@ -142,9 +142,13 @@ def compute_penalty_reward(npc: NPC, old_stats: dict, new_stats: dict) -> float:
 
 
 def compute_individual_reward(npc: NPC, old_stats: dict, new_stats: dict) -> float:
-    """Compute individual NPC reward from weighted stat deltas.
+    """Compute individual NPC reward from weighted stat deltas + maintenance baseline.
 
-    ``R_individual = Σ w_i · (new_i − old_i)``
+    ``R_individual = (1 - β) · Σ w_i · (new_i − old_i)  +  β · Σ w_i · (new_i / 10)``
+
+    The maintenance term (β) ensures a non-zero individual reward signal even
+    when stats are saturated at their ceiling, preventing the individual reward
+    from collapsing to zero in later turns.
 
     Args:
         npc: The NPC (provides ``reward_weights``).
@@ -154,11 +158,19 @@ def compute_individual_reward(npc: NPC, old_stats: dict, new_stats: dict) -> flo
     Returns:
         Weighted scalar reward.
     """
-    reward = 0.0
+    from backend.config import REWARD_MAINTENANCE_WEIGHT
+
+    beta = REWARD_MAINTENANCE_WEIGHT
+
+    delta_reward = 0.0
+    level_reward = 0.0
     for key, weight in npc.reward_weights.items():
         delta = new_stats.get(key, 0) - old_stats.get(key, 0)
-        reward += weight * delta
-    return reward
+        delta_reward += weight * delta
+        # Normalize stat to [0, 1] (stats are 0-10)
+        level_reward += weight * (new_stats.get(key, 0) / 10.0)
+
+    return (1.0 - beta) * delta_reward + beta * level_reward
 
 
 def compute_community_reward(
@@ -240,6 +252,10 @@ def compute_reward(
     penalty = compute_penalty_reward(npc, old_stats, new_stats)
     individual = compute_individual_reward(npc, old_stats, new_stats)
     community = compute_community_reward(community_state, prev_community_state)
+
+    # Scale community signal so it can dominate at late stages
+    from backend.config import COMMUNITY_REWARD_SCALE
+    community *= COMMUNITY_REWARD_SCALE
 
     # Combine: total = penalty + individual + lambda_coeff * community
     total = penalty + individual + npc.lambda_coeff * community
