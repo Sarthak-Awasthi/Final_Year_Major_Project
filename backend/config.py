@@ -52,7 +52,7 @@ TIME_PERIODS: list[str] = ["morning", "midday", "afternoon", "evening", "night"]
 
 # ─── Player Defaults ─────────────────────────────────────────────────────────
 PLAYER_MAX_HEALTH: int = 100
-PLAYER_MAX_STAMINA: int = 50
+PLAYER_MAX_STAMINA: int = 200
 PLAYER_MAX_INVENTORY: int = 10
 PLAYER_BASE_ATTACK: int = 8
 PLAYER_BASE_DEFENSE: int = 3
@@ -108,6 +108,11 @@ REPUTATION_MIN: int = -100
 REPUTATION_MAX: int = 100
 REPUTATION_DECAY_INTERVAL: int = 20
 REPUTATION_DECAY_AMOUNT: int = 1
+# Banishment: if the player's global standing falls below this, the village
+# casts them out (a defeat). Global reputation starts at 0 and is the average
+# of per-NPC reputations [-100, 100]; a negative floor avoids an instant loss
+# at game start and false banishments from passive decay (which trends to 0).
+BANISHMENT_REPUTATION_THRESHOLD: int = -30
 REPUTATION_THRESHOLDS: dict[str, tuple[int, int]] = {
     "trusted":    (50, 100),
     "friendly":   (20, 49),

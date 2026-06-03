@@ -712,7 +712,7 @@ function handleWSMessage(data) {
                 updateMDPGraph(tr.state.graph);
             }
             if (tr.game_over) {
-                showGameOver({ result: tr.game_result, turn: tr.turn });
+                presentGameEnd({ result: tr.game_result, turn: tr.turn, message: tr.game_over_message });
             }
             break;
         }
@@ -789,7 +789,7 @@ function handleActionResult(result) {
     }
 
     if (result.game_over) {
-        showGameOver({ result: result.game_result, turn: result.turn });
+        presentGameEnd({ result: result.game_result, turn: result.turn, message: result.game_over_message });
     }
 }
 
@@ -1548,8 +1548,18 @@ function initModals() {
     // Game over buttons
     $('#new-game-after-btn')?.addEventListener('click', () => {
         dom.gameOverOverlay.classList.remove('active');
+        document.getElementById('review-graph-prompt')?.classList.add('hidden');
         dom.gameContainer.classList.add('hidden');
         dom.newGameModal.classList.add('active');
+    });
+
+    // "Show Results" on the review-graph prompt → open the victory/defeat screen
+    $('#show-results-btn')?.addEventListener('click', () => {
+        document.getElementById('review-graph-prompt')?.classList.add('hidden');
+        if (pendingGameOverData) {
+            showGameOver(pendingGameOverData);
+            pendingGameOverData = null;
+        }
     });
 
     $('#export-log-btn')?.addEventListener('click', exportLog);
@@ -1600,7 +1610,30 @@ function closeSaveLoadModal() {
     dom.saveLoadModal.classList.remove('active');
 }
 
+// When the game ends, let the player review the final Quest Graph first; the
+// victory/defeat modal only opens when they click "Show Results".
+let pendingGameOverData = null;
+
+function presentGameEnd(data) {
+    pendingGameOverData = data;
+    // Bring the (already-updated) final Quest Graph into view and glow it briefly.
+    const graphPanel = document.getElementById('mdp-graph-panel');
+    if (graphPanel) {
+        graphPanel.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        graphPanel.classList.add('graph-highlight');
+        setTimeout(() => graphPanel.classList.remove('graph-highlight'), 2200);
+    }
+    // Show the "review graph → continue" prompt instead of the modal.
+    const prompt = document.getElementById('review-graph-prompt');
+    if (prompt) {
+        prompt.classList.remove('hidden');
+    } else {
+        showGameOver(data); // fallback: prompt missing → go straight to results
+    }
+}
+
 function showGameOver(data) {
+    document.getElementById('review-graph-prompt')?.classList.add('hidden');
     const isVictory = data.result === 'success' || data.result === 'victory';
     dom.gameOverIcon.className = `game-over-icon ${isVictory ? 'victory' : 'defeat'}`;
     dom.gameOverTitle.textContent = isVictory ? 'Victory!' : 'Defeat';

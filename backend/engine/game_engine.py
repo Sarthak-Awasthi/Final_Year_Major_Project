@@ -118,6 +118,8 @@ class GameEngine:
         self.turn: int = 0
         self.game_over: bool = False
         self.game_result: str | None = None  # "success" / "fail" / "turn_limit"
+        self.pending_defeat_reason: str | None = None  # scripted defeat (e.g. elder betrayal)
+        self.game_over_message: str | None = None  # narration for the defeat/victory screen
         # `restart_on_complete=True` loops the quest after S_success so RL
         # notebooks keep training to max_turns. The live demo sets it to
         # False so a successful quest ends the game cleanly.
@@ -461,6 +463,10 @@ class GameEngine:
         if result is not None:
             self.game_over = True
             self.game_result = result
+            if self.game_over_message:
+                action_result["narration"] = (
+                    (action_result.get("narration", "") + " " + self.game_over_message).strip()
+                )
             self.save_game("auto")
 
         # ── 11. Auto-save ─────────────────────────────────────────────
@@ -499,6 +505,7 @@ class GameEngine:
             "perception": perception,
             "game_over": self.game_over,
             "game_result": self.game_result,
+            "game_over_message": self.game_over_message,
             "state": self.get_full_state(),
         }
 
@@ -1346,6 +1353,28 @@ class GameEngine:
             return self._no_target("intimidate", ap_cost, ctx)
 
         ctx["target"] = target_npc.name
+
+        # Betrayal — threatening the quest-giver while still holding the amulet
+        # (instead of returning it) ends the game.
+        if target_npc.archetype == "elder" and self.player.has_item("jade_amulet"):
+            msg = (
+                f"You loom over {target_npc.name}, the jade amulet in your grip, and make "
+                f"your demands. {target_npc.name}: 'You would threaten me — with our own "
+                f"heirloom in your hand?' Her cry brings the village down on you, and you "
+                f"are banished from Thornhaven."
+            )
+            self._trigger_defeat("elder_betrayal", msg)
+            self.quest_manager.trigger_failure()  # quest registers as failed (graph -> S_fail)
+            return {
+                "success": True,
+                "action_id": "intimidate",
+                "ap_cost": ap_cost,
+                "narration": msg,
+                "effects": {"defeat": "elder_betrayal"},
+                "target": target_npc.npc_uid,
+                "perception": None,
+            }
+
         # Intimidation uses attack vs defense as a proxy
         player_atk = self.player.combat_stats["base_attack"] + self.player.combat_stats["weapon_modifier"]
         npc_def = target_npc.combat_stats["base_defense"]
@@ -1674,6 +1703,28 @@ class GameEngine:
             }
 
         ctx["target"] = target_npc.name
+
+        # Betrayal — raising a weapon against the quest-giver while still
+        # carrying the recovered amulet ends the game.
+        if target_npc.archetype == "elder" and self.player.has_item("jade_amulet"):
+            msg = (
+                f"You raise your weapon against {target_npc.name} with the jade amulet "
+                f"still in your possession. Guards and villagers cry out at the betrayal. "
+                f"{target_npc.name}: 'After everything... you would rob us of our heart?' "
+                f"You are seized and cast out of Thornhaven for good."
+            )
+            self._trigger_defeat("elder_betrayal", msg)
+            self.quest_manager.trigger_failure()  # quest registers as failed (graph -> S_fail)
+            return {
+                "success": True,
+                "action_id": "attack",
+                "ap_cost": ap_cost,
+                "narration": msg,
+                "effects": {"defeat": "elder_betrayal"},
+                "target": target_npc.npc_uid,
+                "perception": None,
+            }
+
         self.player.in_combat = True
         self.player.combat_target = target_npc.npc_uid
         self._metrics["combat_encounters"] += 1
@@ -1732,11 +1783,52 @@ class GameEngine:
         else:
             narration = combat_result.narrative
 
-        # Reputation loss for attacking
+        # Reputation loss for attacking (player's standing with the target)
         rep_loss = -10
         mult = self.difficulty.get("reputation_loss_multiplier", 1.0)
         self.player.modify_reputation(target_npc.npc_uid, int(rep_loss * mult))
         effects["reputation"] = {target_npc.npc_uid: int(rep_loss * mult)}
+
+        # The target now regards the player as hostile, which drives it to fight
+        # back on its own turns (see resolve_npc_target: relationship <= -50).
+        prev_rel = target_npc.npc_relationships.get("player", 0)
+        target_npc.npc_relationships["player"] = min(prev_rel - 60, -55)
+
+        # Bystanders who witness the assault lose trust in the player too — both
+        # the player's standing with them and their own view of the player.
+        witness_uids = detect_witnesses(
+            self.player.location, "player", _npc_locations_map(self.npc_registry),
+        )
+        witness_rep: dict[str, int] = {}
+        for w_uid in witness_uids:
+            if w_uid == target_npc.npc_uid:
+                continue
+            self.player.modify_reputation(w_uid, int(-8 * mult))
+            witness_rep[w_uid] = int(-8 * mult)
+            w_npc = self.npc_registry.get(w_uid)
+            if w_npc is not None:
+                w_prev = w_npc.npc_relationships.get("player", 0)
+                w_npc.npc_relationships["player"] = max(-100, w_prev - 30)
+        if witness_rep:
+            effects["witness_reputation"] = witness_rep
+
+        # Immediate self-defense: a conscious, un-incapacitated target strikes
+        # back the same turn (this is what lets a guard actually kill the player).
+        if target_npc.current_hp > 0 and not target_npc.is_incapacitated():
+            self.player.in_combat = True
+            self.player.combat_target = target_npc.npc_uid
+            retaliation = resolve_attack(
+                target_npc.get_combat_dict(),
+                self.player.get_combat_dict(),
+                self.difficulty.to_dict(),
+            )
+            if retaliation.hit:
+                self.player.modify_health(-retaliation.damage)
+                effects["retaliation_damage"] = retaliation.damage
+                effects["player_hp"] = self.player.health
+                narration = f"{narration} {target_npc.name} strikes back! {retaliation.narrative}"
+            else:
+                narration = f"{narration} {target_npc.name} lashes out in retaliation but misses."
 
         return {
             "success": combat_result.hit,
@@ -3363,9 +3455,34 @@ class GameEngine:
 
     # ── Game Over Check ───────────────────────────────────────────────────
 
+    def _trigger_defeat(self, reason: str, message: str) -> None:
+        """Mark a scripted defeat to be finalized by _check_game_over this turn."""
+        self.pending_defeat_reason = reason
+        self.game_over_message = message
+
     def _check_game_over(self) -> str | None:
         """Check all game-ending conditions."""
+        from backend.config import BANISHMENT_REPUTATION_THRESHOLD
+
+        # Scripted defeats (e.g. betraying the elder) take precedence and are
+        # not subject to quest auto-restart.
+        if self.pending_defeat_reason:
+            return "fail"
         if self.player.health <= 0:
+            if not self.game_over_message:
+                self.game_over_message = (
+                    "You collapse, your strength spent. Darkness closes in, and your "
+                    "journey ends here in Thornhaven."
+                )
+            return "fail"
+        # Banishment — sustained havoc ruins the player's standing in the village.
+        if self.player.global_reputation < BANISHMENT_REPUTATION_THRESHOLD:
+            if not self.game_over_message:
+                self.game_over_message = (
+                    "Elder Maren's voice rings out across the square: 'You have been "
+                    "wreaking havoc among us. Thornhaven will suffer it no longer — you "
+                    "are banished.'"
+                )
             return "fail"
         if self.quest_manager.quest_complete:
             if self.restart_on_complete and self.turn < self.max_turns:
@@ -3437,6 +3554,8 @@ class GameEngine:
             "max_turns": self.max_turns,
             "game_over": self.game_over,
             "game_result": self.game_result,
+            "game_over_message": self.game_over_message,
+            "pending_defeat_reason": self.pending_defeat_reason,
             "difficulty": self.difficulty.to_dict(),
             "world": self.world.to_dict(),
             "player": self.player.to_dict(),
@@ -3506,6 +3625,8 @@ class GameEngine:
         self.max_turns = save_data.get("max_turns", MAX_TURNS)
         self.game_over = save_data.get("game_over", False)
         self.game_result = save_data.get("game_result")
+        self.game_over_message = save_data.get("game_over_message")
+        self.pending_defeat_reason = save_data.get("pending_defeat_reason")
 
         self.difficulty.from_dict(save_data.get("difficulty", {}))
         self.world.from_dict(save_data.get("world", {}))
@@ -3594,6 +3715,7 @@ class GameEngine:
             "active_events": self.world.active_events,
             "game_over": self.game_over,
             "game_result": self.game_result,
+            "game_over_message": self.game_over_message,
             "max_turns": self.max_turns,
         }
 

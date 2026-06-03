@@ -428,6 +428,16 @@
               "next": "7_1",
               "effects": {"stamina": -1, "reputation": {"elder_m8b2": 12}, "removes": ["jade_amulet"]},
               "requires": {"item": "jade_amulet"}
+            },
+            "attack": {
+              "next": "S_fail",
+              "effects": {"reputation": {"elder_m8b2": -50}},
+              "fail_reason": "You betrayed Elder Maren instead of returning the amulet."
+            },
+            "intimidate": {
+              "next": "S_fail",
+              "effects": {"reputation": {"elder_m8b2": -40}},
+              "fail_reason": "You threatened Elder Maren instead of returning the amulet."
             }
           },
           "is_dynamic": false,

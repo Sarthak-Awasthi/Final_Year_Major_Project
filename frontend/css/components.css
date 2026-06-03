@@ -736,6 +736,46 @@
     display: flex;
 }
 
+/* ─── Review-graph prompt (game-end → see graph before results) ─── */
+.review-graph-prompt {
+    position: fixed;
+    left: 50%;
+    bottom: 28px;
+    transform: translateX(-50%);
+    z-index: 990; /* above the graph/content, below the results modal (1000) */
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    max-width: calc(100vw - 40px);
+    padding: 14px 22px;
+    background: var(--surface-2);
+    border: 1px solid var(--border-hover);
+    border-radius: var(--radius-lg);
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.55);
+    animation: reviewPromptIn 0.35s ease;
+}
+
+.review-graph-text {
+    color: var(--text-primary);
+    font-size: 14px;
+    line-height: 1.4;
+}
+
+.review-graph-text strong {
+    color: var(--amber);
+}
+
+@keyframes reviewPromptIn {
+    from { opacity: 0; transform: translate(-50%, 14px); }
+    to   { opacity: 1; transform: translate(-50%, 0); }
+}
+
+/* brief glow drawing the eye to the final Quest Graph */
+.graph-highlight {
+    box-shadow: 0 0 0 2px var(--amber), 0 0 22px var(--amber-dim) !important;
+    transition: box-shadow var(--transition-slow);
+}
+
 .modal-card {
     background: var(--surface);
     border: 1px solid var(--border);
