@@ -189,7 +189,7 @@ Project Supervisor
 \frontmatterheading{ABSTRACT}
 \addcontentsline{toc}{chapter}{Abstract}
 
-This report presents the game architecture, quest system design, and LLM integration layer of a medieval village RPG research playground for studying emergent cooperative behavior in multi-agent systems. The game is structured around a hierarchical Markov Decision Process (MDP) with 7 quest stages and 16 static checkpoints, augmented by dynamic checkpoints that handle player deviations through nudging and convergence mechanisms. A 10-step turn processing pipeline orchestrates player actions, NPC decision-making via tabular Q-learning, environmental events, and telemetry logging within a coherent game loop. Six NPC agents develop adaptive personalities through a decomposed reward model $R_i(t) = P_i(t) + G_i(t) + \lambda_i(t) \cdot C(t)$ with a dynamic $\lambda$ feedback loop. An optional LLM integration layer, built as a thin HTTP adapter supporting Ollama, OpenRouter, and LM Studio, provides atmospheric narration across four use cases (input parsing, NPC dialogue, checkpoint generation, narration enhancement) with a 9-stage guardrail pipeline and deterministic template fallbacks ensuring full playability without model access. An ablation study across six conditions over 500 turns demonstrates that Q-learning drives cooperation from a 0.500 baseline to 0.851, the dynamic $\lambda$ feedback loop amplifies cooperation by 0.158, and LLM narration achieves higher contextual grounding (0.57 vs 0.49) and 2.6$\times$ richer vocabulary than static templates while maintaining output quality even with 4B-parameter models.
+This report presents the game architecture, quest system design, and LLM integration layer of a medieval village RPG research playground for studying emergent cooperative behavior in multi-agent systems. The game is structured around a hierarchical Markov Decision Process (MDP) with 7 quest stages and 16 static checkpoints, augmented by dynamic checkpoints that handle player deviations through nudging and convergence mechanisms. A 10-step turn processing pipeline orchestrates player actions, NPC decision-making via tabular Q-learning, environmental events, and telemetry logging within a coherent game loop. Six NPC agents develop adaptive personalities through a decomposed reward model $R_i(t) = P_i(t) + G_i(t) + \lambda_i(t) \cdot C(t)$ with a dynamic $\lambda$ feedback loop. An optional LLM integration layer, built as a thin HTTP adapter supporting Ollama, OpenRouter, and LM Studio, provides atmospheric narration across four use cases (input parsing, NPC dialogue, checkpoint generation, narration enhancement) with a 9-stage guardrail pipeline and deterministic template fallbacks ensuring full playability without model access. An ablation study across six conditions over 500 turns demonstrates that Q-learning drives cooperation from a 0.000 baseline to 0.699, role masking is the largest contributor after RL (improving cooperation by 0.161), the dynamic $\lambda$ feedback loop amplifies cooperation by a further 0.104, and LLM narration achieves higher contextual grounding (0.57 vs 0.49) and 2.6$\times$ richer vocabulary than static templates while maintaining output quality even with 4B-parameter models.
 
 % ---------------------- TABLE OF CONTENTS ------------------------------------
 \clearpage
@@ -274,7 +274,7 @@ The main objectives of this project are:
 The key novel contributions of this project are:
 
 \begin{itemize}
-    \item \textbf{Dynamic $\lambda$ feedback loop:} Unlike static reward weighting in prior MARL work, the $\lambda_i(t) = 0.05 + \text{coop}_i \times 0.55$ mechanism creates a virtuous cycle where cooperation self-amplifies through the reward structure. Our ablation shows this contributes $+0.158$ to cooperation --- the second-largest factor after RL itself.
+    \item \textbf{Dynamic $\lambda$ feedback loop:} Unlike static reward weighting in prior MARL work, the $\lambda_i(t) = 0.05 + \text{coop}_i \times 0.55$ mechanism creates a virtuous cycle where cooperation self-amplifies through the reward structure. Our ablation shows this contributes $+0.104$ to cooperation --- one of the largest factors, alongside role masking, after RL itself.
     \item \textbf{Fully interpretable multi-agent cooperation:} While prior game AI research uses deep RL (opaque policies), our tabular approach lets researchers directly inspect every Q-value and trace exactly why an NPC chose a cooperative action.
     \item \textbf{Integrated research playground:} The system combines RL agents, environmental shocks, adaptive personalities, quest progression, LLM narration, and a complete analytics dashboard in a single reproducible platform with ablation controls --- a combination not found in existing game AI testbeds.
 \end{itemize}
@@ -659,12 +659,12 @@ Automated bot playthroughs using the \texttt{quest\_focused} strategy with seed 
 \toprule
 \textbf{Condition} & \textbf{Description} & \textbf{Final $\mathcal{K}$} & \textbf{$\Delta$ vs C1} \\
 \midrule
-C1 & Full System (baseline) & 0.851 & --- \\
-C3 & No RL (schedules only) & 0.500 & $-0.351$ \\
-C4 & Flat MDP (no hierarchy) & 0.953 & $+0.102$ \\
-C5 & No Shocks & 0.873 & $+0.022$ \\
-C6 & No Role Masking & 0.763 & $-0.088$ \\
-C7 & Static $\lambda = 0.325$ & 0.693 & $-0.158$ \\
+C1 & Full System (baseline) & 0.699 & --- \\
+C3 & No RL (schedules only) & 0.000 & $-0.699$ \\
+C4 & Flat MDP (no hierarchy) & 0.871 & $+0.172$ \\
+C5 & No Shocks & 0.936 & $+0.237$ \\
+C6 & No Role Masking & 0.538 & $-0.161$ \\
+C7 & Static $\lambda = 0.325$ & 0.595 & $-0.104$ \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -672,29 +672,29 @@ C7 & Static $\lambda = 0.325$ & 0.693 & $-0.158$ \\
 \begin{figure}[H]
     \centering
     \includegraphics[width=\textwidth]{images/fig_cooperation.png}
-    \caption{Cooperation index $\mathcal{K}(t)$ over 500 turns for six ablation conditions. C3 (No RL) remains flat at 0.500 while all RL-enabled conditions show emergence. C7 (Static $\lambda$) rises slower than C1, confirming the feedback loop's amplifying effect. C4 (Flat MDP) rises fastest due to more frequent quest cycling.}
+    \caption{Cooperation index $\mathcal{K}(t)$ over 500 turns for six ablation conditions. C3 (No RL) stays flat at 0.000 while all RL-enabled conditions rise from zero. C5 (No Shocks) reaches the highest final value and C4 (Flat MDP) is second, both cycling through more learning episodes than C1. C6 (No Role Masking) and C7 (Static $\lambda$) rise more slowly, confirming the contributions of role masking and the dynamic $\lambda$ feedback loop. The famine shock at turn 166 lastingly depresses C1 relative to the shock-free C5.}
     \label{fig:cooperation}
 \end{figure}
 
 \subsection{Finding 1: RL Drives Cooperation}
 
-C1 (Full System) achieves a cooperation index of 0.851 while C3 (No RL) remains at exactly 0.500 --- the initialization baseline. The 0.351 gap demonstrates that cooperation is an \textit{emergent} property of the learning process, not a byproduct of game mechanics.
+C1 (Full System) achieves a cooperation index of 0.699 while C3 (No RL) remains at exactly 0.000 --- the initialization baseline, since cooperation tendency starts at zero. The 0.699 gap demonstrates that cooperation is an \textit{emergent} property of the learning process, not a byproduct of game mechanics --- RL is by far the dominant driver.
 
 \subsection{Finding 2: Role Masking Aids Learning}
 
-C6 (No Role Masking) achieves 0.763, compared to C1's 0.851. Without role constraints, NPCs explore the full 28-action space uniformly, producing noisier Q-value estimates and slower convergence.
+C6 (No Role Masking) achieves 0.538, compared to C1's 0.699 --- a 0.161 gap, the largest single-component contribution after RL. Without role constraints, NPCs explore the full 28-action space uniformly, producing noisier Q-value estimates and slower convergence.
 
 \subsection{Finding 3: Shock Resilience}
 
-C5 (No Shocks) reaches 0.873, slightly above C1's 0.851. The famine shock at turn 166 creates a visible dip in C1's cooperation curve (\cref{fig:cooperation}), but NPCs recover within approximately 30 turns, demonstrating adaptive resilience.
+C5 (No Shocks) reaches 0.936, the highest of all conditions and 0.237 above C1's 0.699. The famine shock at turn 166 produces a visible dip in C1's community reward and a lasting downward divergence in its cooperation curve (\cref{fig:cooperation}): cooperation keeps rising afterward but never recovers the ground lost to the shock-free condition. Shocks are thus the largest single environmental drag on cooperation.
 
 \subsection{Finding 4: MDP Structure}
 
-C4 (Flat MDP) achieves the highest cooperation at 0.953. Without hierarchical stage gates, quest completion is faster, giving NPCs more learning episodes in 500 turns. This suggests that quest structure affects the \textit{rate} of learning more than the \textit{direction}.
+C4 (Flat MDP) reaches 0.871, the second-highest condition (behind only C5). Without hierarchical stage gates, quest completion is faster, giving NPCs more learning episodes in 500 turns. This suggests that quest structure affects the \textit{rate} of learning more than the \textit{direction}.
 
 \subsection{Finding 5: Dynamic Lambda Amplifies Cooperation}
 
-C7 (Static $\lambda = 0.325$) achieves 0.693, compared to C1's 0.851 --- a 0.158 difference, making the dynamic $\lambda$ feedback loop the second-largest contributor after RL itself. The virtuous cycle --- positive community outcomes $\to$ cooperation rises $\to$ $\lambda$ increases $\to$ more weight on community reward --- provides substantial acceleration.
+C7 (Static $\lambda = 0.325$) achieves 0.595, compared to C1's 0.699 --- a 0.104 difference, making the dynamic $\lambda$ feedback loop the third-largest contributor, after RL itself and role masking. The virtuous cycle --- positive community outcomes $\to$ cooperation rises $\to$ $\lambda$ increases $\to$ more weight on community reward --- provides a meaningful additional acceleration.
 
 \begin{figure}[H]
     \centering
@@ -721,7 +721,7 @@ The reward decomposition confirms the hypothesized dynamic: early turns are domi
 \begin{figure}[H]
     \centering
     \includegraphics[width=\textwidth]{images/fig_npc_adaptation.png}
-    \caption{NPC adaptation states after 500 turns. Left: C1 (Full System) shows role-specific divergence. Right: C3 (No RL) remains at baseline 0.500 across all coefficients.}
+    \caption{NPC adaptation states after 500 turns. Left: C1 (Full System) shows role-specific divergence. Right: C3 (No RL) learns no cooperation (cooperation tendency stays at 0.000) while the other three coefficients remain at the 0.500 baseline.}
     \label{fig:npc_adaptation}
 \end{figure}
 
@@ -733,17 +733,17 @@ The reward decomposition confirms the hypothesized dynamic: early turns are domi
 \toprule
 \textbf{NPC} & \textbf{Role} & \textbf{Coop.} & \textbf{Risk} & \textbf{Social} & \textbf{Resil.} & $\boldsymbol{\lambda}$ \\
 \midrule
-Elder Maren & Elder & 0.850 & 0.500 & 0.898 & 0.499 & 0.518 \\
-Farmer Jak & Farmer & 0.851 & 0.494 & 0.898 & 0.499 & 0.518 \\
-Aldric & Guard & 0.851 & 0.500 & 0.785 & 0.499 & 0.518 \\
-Bryn & Guard & 0.851 & 0.495 & 0.785 & 0.499 & 0.518 \\
-Tessa & Tavern Keeper & 0.851 & 0.495 & 0.898 & 0.499 & 0.518 \\
-Old Petra & Villager & 0.851 & 0.484 & 0.898 & 0.499 & 0.518 \\
+Elder Maren & Elder & 0.697 & 0.488 & 0.899 & 0.500 & 0.433 \\
+Farmer Jak & Farmer & 0.699 & 0.413 & 0.763 & 0.500 & 0.434 \\
+Aldric & Guard & 0.699 & 0.497 & 0.688 & 0.500 & 0.434 \\
+Bryn & Guard & 0.699 & 0.500 & 0.688 & 0.500 & 0.434 \\
+Tessa & Tavern Keeper & 0.699 & 0.377 & 0.899 & 0.500 & 0.434 \\
+Old Petra & Villager & 0.703 & 0.416 & 0.877 & 0.500 & 0.437 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-The most notable pattern is cooperation convergence: all NPCs reach $\sim$0.851 regardless of role, indicating that the community reward provides a consistent gradient. Social sensitivity diverges by role as expected (Elder and Tavern Keeper at 0.898 vs Guards at 0.785), driven by role-specific multipliers.
+The most notable pattern is cooperation convergence: all NPCs reach $\sim$0.699 regardless of role, indicating that the community reward provides a consistent gradient. Social sensitivity diverges by role as expected (Elder and Tavern Keeper at 0.899 vs Guards at 0.688), driven by role-specific multipliers.
 
 \section{Action Distribution Shift}
 \label{sec:action-shift}
@@ -903,10 +903,10 @@ Famine shock injection & Turn 166 (one-third of session) \\
 This project demonstrates that emergent cooperative behavior can arise from independent Q-learning agents when the reward signal includes a community welfare component gated by a dynamic $\lambda$ coefficient. The key findings, with emphasis on game architecture and narration insights:
 
 \begin{enumerate}
-    \item \textbf{The hierarchical quest structure provides meaningful game progression while enabling RL.} The 7-stage MDP with dynamic checkpoints creates a coherent narrative arc that guides player experience, while quest auto-restart ensures NPCs receive sufficient training episodes. The C4 result ($\mathcal{K} = 0.953$ for flat MDP) shows that quest structure affects the \textit{rate} of cooperation emergence but not its \textit{direction} --- a useful property for game designers who need both narrative structure and adaptive NPCs.
+    \item \textbf{The hierarchical quest structure provides meaningful game progression while enabling RL.} The 7-stage MDP with dynamic checkpoints creates a coherent narrative arc that guides player experience, while quest auto-restart ensures NPCs receive sufficient training episodes. The C4 result ($\mathcal{K} = 0.871$ for flat MDP) shows that quest structure affects the \textit{rate} of cooperation emergence but not its \textit{direction} --- a useful property for game designers who need both narrative structure and adaptive NPCs.
     \item \textbf{LLM narration adds quality without sacrificing reliability.} The optional narration layer achieves higher contextual grounding (0.57 vs 0.49) and 2.6$\times$ richer vocabulary than templates, while the 9-stage guardrail pipeline ensures that small 4B-parameter models produce output of sufficient quality. The template fallback system guarantees identical gameplay with or without model access.
-    \item \textbf{Cooperation emerges from learning.} $\mathcal{K}(t)$ rises from 0.500 to 0.851 over 500 turns with Q-learning, while schedule-only NPCs show no change ($+0.351$ gap). This confirms the research hypothesis.
-    \item \textbf{The dynamic $\lambda$ feedback loop is a primary amplifier.} Static $\lambda$ still produces emergence (0.500 $\to$ 0.693), but dynamic $\lambda$ adds $+0.158$ through the virtuous cycle --- the second-largest single-component contribution after RL itself.
+    \item \textbf{Cooperation emerges from learning.} $\mathcal{K}(t)$ rises from 0.000 to 0.699 over 500 turns with Q-learning, while schedule-only NPCs show no change ($+0.699$ gap). This confirms the research hypothesis and makes RL by far the dominant driver.
+    \item \textbf{The dynamic $\lambda$ feedback loop is a measurable amplifier.} Static $\lambda$ still produces strong emergence (0.000 $\to$ 0.595), but dynamic $\lambda$ adds $+0.104$ through the virtuous cycle --- the third-largest single-component contribution, after RL and role masking.
     \item \textbf{The turn processing pipeline produces reproducible, deterministic game loops.} The 10-step pipeline with telemetry logging enables the ablation study methodology: identical seeds produce identical playthroughs, allowing clean isolation of each subsystem's contribution.
 \end{enumerate}
 
@@ -937,10 +937,10 @@ This project demonstrates that emergent cooperative behavior can arise from inde
 The decomposed reward framework $R_i(t) = P_i(t) + G_i(t) + \lambda_i(t) \cdot C(t)$ generalises beyond games to any domain where heterogeneous subsystems must balance local objectives against a shared global target.
 
 \textbf{Smart Factory Coordination.}
-In an automated production line, each cell (stamping, welding, painting) optimises a local KPI---throughput, defect rate, idle time---analogous to role-specific $G_i$ weights. The community signal $C(t)$ maps to plant-wide OEE (Overall Equipment Effectiveness). Supply-chain disruptions, equipment failures, and demand spikes correspond directly to famine, plague, and trade-boom shocks. Current Industry~4.0 approaches rely on centralised MPC controllers that must be re-modelled when the line changes; a dynamic-$\lambda$ architecture lets each cell run a lightweight learner and join the reward structure without replanning the plant. Our C1~vs.~C3 result ($+0.351$ cooperation from RL over fixed schedules) suggests learned policies would significantly outperform static dispatch rules.
+In an automated production line, each cell (stamping, welding, painting) optimises a local KPI---throughput, defect rate, idle time---analogous to role-specific $G_i$ weights. The community signal $C(t)$ maps to plant-wide OEE (Overall Equipment Effectiveness). Supply-chain disruptions, equipment failures, and demand spikes correspond directly to famine, plague, and trade-boom shocks. Current Industry~4.0 approaches rely on centralised MPC controllers that must be re-modelled when the line changes; a dynamic-$\lambda$ architecture lets each cell run a lightweight learner and join the reward structure without replanning the plant. Our C1~vs.~C3 result ($+0.699$ cooperation from RL over fixed schedules) suggests learned policies would significantly outperform static dispatch rules.
 
 \textbf{Automotive ECU Self-Tuning.}
-A modern engine's sensor--actuator subsystems (knock sensor, O$_2$ sensor, throttle body, MAP, coolant temperature, crank position) map onto heterogeneous NPC roles: each maximises a local objective (detonation margin, fuel-trim accuracy, airflow response) while the community target $C(t)$ is engine-level efficiency (e.g.\ brake-specific fuel consumption). The dynamic $\lambda$ feedback loop enables continuous self-calibration: a factory base map provides the pre-trained Q-table, and on-road experience adjusts cooperation tendencies as altitude, fuel quality, and component wear shift the reward landscape. Component aging becomes a slow-onset shock; aftermarket modifications (larger turbo, free-flowing exhaust) reset part of the state, and the system re-converges without manual tuning---our C4 result ($\mathcal{K} = 0.953$) suggests rapid re-convergence is achievable.
+A modern engine's sensor--actuator subsystems (knock sensor, O$_2$ sensor, throttle body, MAP, coolant temperature, crank position) map onto heterogeneous NPC roles: each maximises a local objective (detonation margin, fuel-trim accuracy, airflow response) while the community target $C(t)$ is engine-level efficiency (e.g.\ brake-specific fuel consumption). The dynamic $\lambda$ feedback loop enables continuous self-calibration: a factory base map provides the pre-trained Q-table, and on-road experience adjusts cooperation tendencies as altitude, fuel quality, and component wear shift the reward landscape. Component aging becomes a slow-onset shock; aftermarket modifications (larger turbo, free-flowing exhaust) reset part of the state, and the system re-converges without manual tuning---our C4 result ($\mathcal{K} = 0.871$) suggests rapid re-convergence is achievable.
 
 \textbf{Bridging the Gap.}
 Two challenges must be addressed: (i)~the 225-state tabular formulation must give way to function approximation (DQN or policy gradients) for high-dimensional, real-time sensor streams; and (ii)~the $P_i$ penalty discourages but does not formally prevent catastrophic states---a hybrid architecture enforcing hard constraints from classical control theory while allowing RL-based optimisation within the safe envelope is the likely path forward.
