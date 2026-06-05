@@ -41,36 +41,36 @@ The system is organized in three layers:
 
 ### Environment Variables
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `LLM_ENABLED` | `true` | Enable/disable LLM integration |
-| `LLM_PROVIDER` | `openrouter` | LLM provider (`openrouter`, `ollama`, `openai_compatible`) |
-| `LLM_API_KEY` | | API key for provider |
-| `LLM_MODEL_NAME` | `google/gemma-3-1b-it:free` | Model identifier |
-| `ROLE_MASK_ENABLED` | `true` | Enable role-specific action masking |
-| `SHOCK_ENABLED` | `true` | Enable system shock engine |
+| Variable            | Default                     | Description                                                |
+|---------------------|-----------------------------|------------------------------------------------------------|
+| `LLM_ENABLED`       | `true`                      | Enable/disable LLM integration                             |
+| `LLM_PROVIDER`      | `openrouter`                | LLM provider (`openrouter`, `ollama`, `openai_compatible`) |
+| `LLM_API_KEY`       |                             | API key for provider                                       |
+| `LLM_MODEL_NAME`    | `google/gemma-3-1b-it:free` | Model identifier                                           |
+| `ROLE_MASK_ENABLED` | `true`                      | Enable role-specific action masking                        |
+| `SHOCK_ENABLED`     | `true`                      | Enable system shock engine                                 |
 
 ### API Endpoints
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/api/game/new` | Start new game session |
-| POST | `/api/game/action` | Submit player action |
-| GET | `/api/game/state` | Get current game state |
-| GET | `/api/game/actions` | Get 28-action catalog |
-| GET | `/api/quest/graph` | Get MDP graph for visualization |
-| GET | `/api/quest/progress` | Quest progress snapshot |
-| GET | `/api/npc/list` | List all NPCs |
-| GET | `/api/npc/{uid}` | Detailed NPC info |
-| GET | `/api/llm/status` | Check LLM connectivity |
-| POST | `/api/save` | Save game to slot |
-| POST | `/api/load` | Load game from file |
-| GET | `/api/metrics/summary` | Session metrics |
-| GET | `/api/metrics/timeseries` | Time-series analytics |
-| GET | `/api/metrics/experiment` | Full experiment bundle |
-| POST | `/api/shocks/trigger` | Trigger system shock |
-| GET | `/api/shocks/active` | Active shocks and effects |
-| WS | `/ws` | WebSocket for real-time updates |
+| Method | Endpoint                  | Description                     |
+|--------|---------------------------|---------------------------------|
+| POST   | `/api/game/new`           | Start new game session          |
+| POST   | `/api/game/action`        | Submit player action            |
+| GET    | `/api/game/state`         | Get current game state          |
+| GET    | `/api/game/actions`       | Get 28-action catalog           |
+| GET    | `/api/quest/graph`        | Get MDP graph for visualization |
+| GET    | `/api/quest/progress`     | Quest progress snapshot         |
+| GET    | `/api/npc/list`           | List all NPCs                   |
+| GET    | `/api/npc/{uid}`          | Detailed NPC info               |
+| GET    | `/api/llm/status`         | Check LLM connectivity          |
+| POST   | `/api/save`               | Save game to slot               |
+| POST   | `/api/load`               | Load game from file             |
+| GET    | `/api/metrics/summary`    | Session metrics                 |
+| GET    | `/api/metrics/timeseries` | Time-series analytics           |
+| GET    | `/api/metrics/experiment` | Full experiment bundle          |
+| POST   | `/api/shocks/trigger`     | Trigger system shock            |
+| GET    | `/api/shocks/active`      | Active shocks and effects       |
+| WS     | `/ws`                     | WebSocket for real-time updates |
 
 ## Running Experiments
 
@@ -93,15 +93,15 @@ uv run python -m backend.tools.run_experiment --conditions C1,C2,C5 --runs 50 --
 
 The system supports 7 ablation conditions for controlled experiments:
 
-| Condition | Description |
-|-----------|-------------|
-| **C1** | Everything on (full system baseline) |
-| **C2** | No LLM (template fallbacks only) |
-| **C3** | No RL (schedule-only NPCs, no Q-learning) |
-| **C4** | Flat MDP (no hierarchical quest decomposition) |
-| **C5** | No shocks (`SHOCK_ENABLED=false`) |
-| **C6** | No role masking (`ROLE_MASK_ENABLED=false`) |
-| **C7** | Static lambda (fixed at 0.325, no cooperation feedback loop) |
+| Condition | Description                                                  |
+|-----------|--------------------------------------------------------------|
+| **C1**    | Everything on (full system baseline)                         |
+| **C2**    | No LLM (template fallbacks only)                             |
+| **C3**    | No RL (schedule-only NPCs, no Q-learning)                    |
+| **C4**    | Flat MDP (no hierarchical quest decomposition)               |
+| **C5**    | No shocks (`SHOCK_ENABLED=false`)                            |
+| **C6**    | No role masking (`ROLE_MASK_ENABLED=false`)                  |
+| **C7**    | Static lambda (fixed at 0.325, no cooperation feedback loop) |
 
 Each condition isolates a subsystem so its contribution to emergent cooperation can be measured independently.
 

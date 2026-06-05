@@ -34,11 +34,12 @@
 \usepackage[numbers]{natbib}
 
 % ---------------------- USER INPUTS ------------------------------------------
-\newcommand{\thesisTitle}{Cooperative Non-Player Character Behavior via Multi-Agent Reinforcement Learning in a Role-Playing Game Environment}
-\newcommand{\thesisTitleDisplay}{COOPERATIVE NON-PLAYER CHARACTER BEHAVIOR \\ VIA MULTI-AGENT REINFORCEMENT LEARNING \\ IN A ROLE-PLAYING GAME ENVIRONMENT}
+\newcommand{\thesisTitle}{A Hierarchical MDP and LLM Integration Framework for Believable Non-Player Characters (NPCs) in a Role-Playing Game}
+\newcommand{\thesisTitleDisplay}{A HIERARCHICAL MDP AND LLM INTEGRATION FRAMEWORK \\ FOR BELIEVABLE NON-PLAYER CHARACTERS (NPCs) \\ IN A ROLE-PLAYING GAME}
 \newcommand{\studentName}{Shaurya Yadav}
 \newcommand{\rollNumber}{CS22B1050}
 \newcommand{\supervisorName}{Dr. Dubacharla Gyaneshwar}
+\newcommand{\supervisorNameB}{Dr. Karthik P.N.}
 \newcommand{\departmentName}{Computer Science and Engineering}
 \newcommand{\submissionMonthYear}{May 2026}
 \newcommand{\submissionLocation}{Raichur -- 584135}
@@ -137,7 +138,8 @@
 declare that this report entitled ``\textit{\thesisTitle}'' submitted to
 Indian Institute of Information Technology Raichur towards partial requirement
 of \degreeName{} in \departmentName{} is an original work carried out by me
-under the supervision of Mentor, \supervisorName{}, and has not formed the
+under the supervision of my mentors, \supervisorName{} and \supervisorNameB{},
+and has not formed the
 basis for the award of any degree or diploma, in this or any other institution
 or university. I have sincerely tried to uphold the academic ethics and
 honesty. Whenever an external information or statement or result is used then,
@@ -166,7 +168,7 @@ Roll No.~\rollNumber
 entitled ``\textit{\thesisTitle}'' submitted by \textbf{\studentName} (Roll
 No: \rollNumber) to the
 Indian Institute of Information Technology Raichur towards partial requirement
-of \degreeName{} in \departmentName{} has been carried out under my
+of \degreeName{} in \departmentName{} has been carried out under our
 supervision and that it has not been submitted elsewhere for the award of any
 degree.
 
@@ -179,9 +181,40 @@ degree.
 \hfill
 \begin{minipage}[t]{0.4\textwidth}
 \raggedleft
-(\supervisorName) \\
-Project Supervisor
+(\supervisorName) \\[1em]
+(\supervisorNameB) \\
+Project Supervisors
 \end{minipage}
+
+% ---------------------- ACKNOWLEDGEMENTS -------------------------------------
+\clearpage
+\thispagestyle{plain}
+\frontmatterheading{ACKNOWLEDGEMENTS}
+\addcontentsline{toc}{chapter}{Acknowledgements}
+
+\noindent I would like to express my heartfelt gratitude to my supervisors,
+\textbf{\supervisorName} and \textbf{\supervisorNameB}, for their invaluable
+guidance, insightful feedback, and constant encouragement throughout this
+project. Their mentorship shaped both the technical direction and the academic
+rigour of this work.
+
+\noindent I am thankful to the Department of \departmentName{} at the Indian
+Institute of Information Technology, Raichur, for the academic environment and
+facilities that made this work possible, and to the Department of Artificial
+Intelligence, Indian Institute of Technology Hyderabad, for the computing
+resources that supported the experiments.
+
+\noindent I also thank the evaluating faculty for their time and assessment,
+and my collaborator on this two-person project for the productive partnership.
+Finally, I am deeply grateful to my family and friends for their unwavering
+support and motivation.
+
+\vspace{2cm}
+\noindent
+\begin{flushright}
+\studentName \\
+Roll No.~\rollNumber
+\end{flushright}
 
 % ---------------------- ABSTRACT ---------------------------------------------
 \clearpage
@@ -285,37 +318,37 @@ The key novel contributions of this project are:
 \chapter{Literature Survey}
 \label{chap:literature}
 
-This chapter reviews prior work across four domains that converge in our project: multi-agent reinforcement learning, reward shaping, NPC intelligence in games, and LLM-enhanced narration. For each category, we summarize the major approaches and identify the gaps our project addresses.
+This project sits at the intersection of four research areas, and the present chapter examines the existing literature in each of them: multi-agent reinforcement learning, reward shaping, NPC intelligence in games, and LLM-enhanced narration. Within every category we outline the principal techniques reported by others and then point out the shortcomings that motivate the contributions of this work.
 
 \section{Multi-Agent Reinforcement Learning}
 \label{sec:marl}
 
-Cooperative MARL has been studied through several frameworks. QMIX~\cite{rashid2018qmix} factorizes joint Q-values under a monotonicity constraint for cooperative tasks; MADDPG~\cite{lowe2017maddpg} extends actor-critic methods with centralized critics during training; and Leibo et al.~\cite{leibo2017multi} demonstrate that cooperation or defection can emerge from independent learners depending on environmental incentives. Our approach uses independent Q-learners with a shared community reward signal and a dynamic $\lambda$ coefficient that gates how much each agent weights the community signal based on its own cooperation history.
+A number of frameworks have been proposed for the cooperative MARL setting. For cooperative tasks, QMIX~\cite{rashid2018qmix} decomposes joint Q-values subject to a monotonicity constraint, whereas MADDPG~\cite{lowe2017maddpg} augments actor-critic learning with critics that are centralized at training time. From a different angle, Leibo et al.~\cite{leibo2017multi} show that, even among independent learners, whether agents cooperate or defect is shaped by the incentive structure of the environment. The method adopted here relies on independent Q-learners that share a single community reward, together with a dynamic $\lambda$ coefficient; this coefficient regulates the weight each agent assigns to the community signal according to that agent's own record of cooperation.
 
 \section{Reward Shaping}
 \label{sec:reward-shaping}
 
-Ng et al.~\cite{ng1999rewardshaping} proved that potential-based reward shaping preserves optimal policies while accelerating learning. Our decomposed reward model extends this idea: the community component $\lambda_i(t) \cdot C(t)$ acts as a shaping signal that nudges agents toward prosocial behavior, with the dynamic $\lambda$ controlling the strength of this nudge based on each agent's cooperation trajectory.
+A foundational result by Ng et al.~\cite{ng1999rewardshaping} established that shaping rewards in a potential-based manner speeds up learning without altering the set of optimal policies. The decomposed reward formulation used here builds directly on that result: the community term $\lambda_i(t) \cdot C(t)$ functions as a shaping signal that biases agents toward prosocial choices, and the dynamic $\lambda$ determines how strong that bias is according to the cooperation trajectory of each individual agent.
 
 \section{NPC Intelligence in Games}
 \label{sec:npc-intelligence}
 
-The design of believable NPCs has evolved through several distinct paradigms over the past two decades. Traditional NPC behavior relies on behavior trees~\cite{isla2005bt} and hierarchical task networks, which require designers to manually author every decision branch. While effective for tightly controlled experiences, these approaches produce deterministic, repetitive behavior and scale poorly as game worlds grow in complexity. Bartle~\cite{bartle2004worlds} provides foundational principles for designing virtual worlds with believable inhabitants, emphasizing the importance of NPC autonomy and emergent social structures for player immersion --- goals that scripted systems struggle to achieve.
+Over roughly the last twenty years, the construction of convincing NPCs has passed through a series of distinct paradigms. Classical NPC behavior is built on behavior trees~\cite{isla2005bt} and hierarchical task networks, in which a designer has to specify each decision branch by hand. Such methods work well for highly controlled scenarios, but the behavior they yield is deterministic and repetitive, and they do not scale gracefully as the complexity of a game world increases. Bartle~\cite{bartle2004worlds} sets out foundational guidance for crafting virtual worlds populated by believable characters, stressing that NPC autonomy and emergent social structures are central to player immersion --- precisely the qualities that hand-scripted systems find difficult to deliver.
 
-The shift toward learning-based approaches has opened new possibilities. Riedl and Bulitko~\cite{riedl2013interactive} survey intelligent systems approaches to interactive narrative, identifying the tension between author control and emergent behavior --- a central challenge our hierarchical MDP addresses by providing structured quest progression while allowing NPC behavior to emerge freely within each stage. More recently, Park et al.~\cite{park2023generative} demonstrated generative agents that simulate human behavior using LLM-driven memory and planning, producing remarkably believable social interactions in a sandbox environment. Their work shows that LLMs can serve as the cognitive backbone for NPCs, but at the cost of requiring persistent model access and incurring high inference costs.
+Moving toward learning-based methods has unlocked fresh possibilities. In their survey of intelligent-systems approaches to interactive narrative, Riedl and Bulitko~\cite{riedl2013interactive} highlight the inherent tension between authorial control and emergent behavior --- a difficulty that the hierarchical MDP in this work tackles by enforcing a structured progression through quests while letting NPC behavior emerge without constraint inside each stage. A more recent contribution by Park et al.~\cite{park2023generative} presented generative agents that imitate human conduct through LLM-based memory and planning, giving rise to strikingly believable social interactions within a sandbox setting. That study confirms that an LLM can act as the cognitive core of an NPC, although doing so demands continuous access to the model and entails substantial inference costs.
 
-Our system bridges the gap between these paradigms. Rather than replacing behavior trees entirely with learning (which sacrifices designer control) or using LLMs as the primary decision engine (which creates model dependency), we use tabular Q-learning for NPC decision-making within a structured quest framework, with LLMs providing an optional narration layer. This preserves full interpretability of NPC policies, maintains gameplay without model access, and still produces emergent cooperative behavior.
+The system described in this thesis occupies the middle ground between these two paradigms. Instead of discarding behavior trees in favor of pure learning --- which would forfeit designer control --- or elevating LLMs to the role of primary decision engine --- which would introduce a hard dependency on the model --- it drives NPC decisions with tabular Q-learning inside a structured quest framework, while the LLM contributes only an optional narration layer. The result keeps NPC policies fully interpretable, allows the game to be played even without model access, and nonetheless gives rise to emergent cooperative behavior.
 
 \section{LLM-Enhanced Game Narration}
 \label{sec:llm-narration}
 
-Large language models have been applied to interactive fiction and game content generation through several distinct approaches. Urbanek et al.~\cite{urbanek2019light} developed the LIGHT environment for grounded dialogue in a text-adventure setting, training models that generate dialogue conditioned on character personas and environmental descriptions. However, their system treats the language model as the primary interaction engine, making gameplay quality entirely dependent on model availability and output quality.
+Several distinct strategies have brought large language models to bear on interactive fiction and on the generation of game content. The LIGHT environment of Urbanek et al.~\cite{urbanek2019light} targets grounded dialogue within a text-adventure setting, training models to produce dialogue conditioned on both character personas and descriptions of the surroundings. In that design, however, the language model is the principal engine of interaction, so the overall quality of play hinges entirely on whether the model is available and on how good its outputs are.
 
-Ammanabrolu et al.~\cite{ammanabrolu2020story} address story realization --- expanding high-level plot events into coherent natural language sentences --- demonstrating that structured intermediate representations improve narrative coherence. This insight informs our template system: when the LLM is unavailable, structured templates serve as the ``plot event'' layer, ensuring that the game always communicates essential information. V\"{a}rtinen et al.~\cite{vartinen2022quests} explore GPT-based quest generation for role-playing games, showing that language models can produce contextually appropriate quest content but require careful prompting and validation to maintain game-mechanical consistency --- a finding that directly motivated our 9-stage guardrail pipeline.
+Ammanabrolu et al.~\cite{ammanabrolu2020story} tackle story realization --- the task of expanding high-level plot events into coherent natural-language sentences --- and show that structured intermediate representations raise narrative coherence. That observation shapes the template system used here: whenever the LLM cannot be reached, the structured templates take over the role of the plot-event layer, so the game is always able to convey the information that matters. Working with role-playing games, V\"{a}rtinen et al.~\cite{vartinen2022quests} study GPT-based quest generation and find that, although language models can generate quest content that fits the context, they must be prompted and validated carefully if game-mechanical consistency is to be preserved --- a conclusion that directly inspired the 9-stage guardrail pipeline of this project.
 
-Li et al.~\cite{li2016dialogue} apply deep reinforcement learning to dialogue generation, optimizing for long-term conversational quality rather than single-turn plausibility. Their work highlights the importance of grounding dialogue in context, a principle we apply through our contextual grounding metric that measures how well narration reflects current game state. Tambwekar et al.~\cite{tambwekar2019controllable} demonstrate controllable neural story generation via reward shaping, showing that narrative quality and plot adherence can be jointly optimized. Their approach of using reward signals to guide generation parallels our use of game-state context to constrain LLM output.
+Li et al.~\cite{li2016dialogue} bring deep reinforcement learning to dialogue generation, optimizing the long-term quality of a conversation rather than the plausibility of any single turn. A key lesson from their work is the value of grounding dialogue in context, a principle realized here through a contextual grounding metric that quantifies how faithfully the narration mirrors the current game state. In a related vein, Tambwekar et al.~\cite{tambwekar2019controllable} achieve controllable neural story generation by means of reward shaping, establishing that narrative quality and adherence to the plot can be optimized together. Their use of reward signals to steer generation is analogous to the way game-state context is employed here to constrain the LLM's output.
 
-A key architectural decision in our system is the separation of LLM narration from core game logic. Unlike systems that use LLMs as the game engine (where a model failure breaks gameplay), our LLM serves as an optional enhancement layer. Every LLM code path has a deterministic template fallback, and a 9-stage guardrail pipeline validates all model outputs before they reach the player. This design ensures that the game runs identically with or without model access, while still benefiting from richer, more contextually grounded narration when a model is available.
+One of the central architectural choices in this system is to keep LLM narration separate from the core game logic. Whereas systems that treat the LLM as the game engine break down completely if the model fails, here the LLM is purely an optional enhancement layer. Each LLM code path is backed by a deterministic template fallback, and every model output is screened by a 9-stage guardrail pipeline before it is shown to the player. Because of this design, the game behaves identically whether or not the model is reachable, yet it still gains richer and more contextually grounded narration on the occasions when a model is at hand.
 
 \section{Comparison with Our Approach}
 \label{sec:lit-comparison}
@@ -329,21 +362,21 @@ A key architectural decision in our system is the separation of LLM narration fr
 \hline
 \textbf{Work} & \textbf{Year} & \textbf{Methodology} & \textbf{Our Differentiation} \\
 \hline
-QMIX~\cite{rashid2018qmix} & 2018 & Factorized joint Q-values, centralized training & We use independent learners with shared community reward --- no centralized critic needed \\
+QMIX~\cite{rashid2018qmix} & 2018 & Joint Q-values factorized under centralized training & Independent learners sharing a community reward, dispensing with any centralized critic \\
 \hline
-MADDPG~\cite{lowe2017maddpg} & 2017 & Centralized critic, decentralized actors (deep RL) & Tabular Q-learning for full interpretability; dynamic $\lambda$ instead of static reward mixing \\
+MADDPG~\cite{lowe2017maddpg} & 2017 & Decentralized actors paired with a centralized critic (deep RL) & Fully interpretable tabular Q-learning, with a dynamic $\lambda$ replacing static reward mixing \\
 \hline
-Leibo et al.~\cite{leibo2017multi} & 2017 & Emergent social dilemmas in grid-worlds & Full RPG environment with quests, shocks, adaptive personalities, and LLM narration \\
+Leibo et al.~\cite{leibo2017multi} & 2017 & Social dilemmas emerging in grid-worlds & A complete RPG world featuring quests, shocks, adaptive personalities, and LLM narration \\
 \hline
-Ng et al.~\cite{ng1999rewardshaping} & 1999 & Potential-based reward shaping theory & Extended with dynamic gating via $\lambda_i(t)$ that evolves with cooperation tendency \\
+Ng et al.~\cite{ng1999rewardshaping} & 1999 & Theory of potential-based reward shaping & Augmented with dynamic gating through $\lambda_i(t)$, which tracks each agent's cooperation tendency \\
 \hline
-Isla~\cite{isla2005bt} & 2005 & Behavior trees for NPC AI & RL replaces hand-authored trees; cooperation emerges rather than being scripted \\
+Isla~\cite{isla2005bt} & 2005 & Behavior trees for NPC AI & Learning supplants hand-authored trees, letting cooperation emerge instead of being scripted \\
 \hline
-Park et al.~\cite{park2023generative} & 2023 & LLM-driven generative agents & LLM is optional narration layer, not cognitive backbone; full playability without model \\
+Park et al.~\cite{park2023generative} & 2023 & Generative agents driven by an LLM & The LLM is an optional narration layer rather than the cognitive core, so play continues without a model \\
 \hline
-LIGHT~\cite{urbanek2019light} & 2019 & LLM-driven interactive fiction & LLM is optional narration layer, not the game engine; 9-stage guardrails \\
+LIGHT~\cite{urbanek2019light} & 2019 & Interactive fiction driven by an LLM & The LLM narrates optionally rather than acting as the game engine, behind a 9-stage guardrail \\
 \hline
-Ammanabrolu et al.~\cite{ammanabrolu2020story} & 2020 & Story realization from plot events & Template fallbacks serve as structured plot-event layer; LLM enhances, not replaces \\
+Ammanabrolu et al.~\cite{ammanabrolu2020story} & 2020 & Realizing stories from plot events & Template fallbacks supply a structured plot-event layer; the LLM enhances rather than replaces it \\
 \hline
 \end{tabularx}
 \end{table}

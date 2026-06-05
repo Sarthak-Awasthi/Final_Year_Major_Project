@@ -34,11 +34,12 @@
 \usepackage[numbers]{natbib}
 
 % ---------------------- USER INPUTS ------------------------------------------
-\newcommand{\thesisTitle}{Cooperative Non-Player Character Behavior via Multi-Agent Reinforcement Learning in a Role-Playing Game Environment}
-\newcommand{\thesisTitleDisplay}{COOPERATIVE NON-PLAYER CHARACTER BEHAVIOR \\ VIA MULTI-AGENT REINFORCEMENT LEARNING \\ IN A ROLE-PLAYING GAME ENVIRONMENT}
+\newcommand{\thesisTitle}{A Multi-Agent Reinforcement Learning Framework for Cooperative Non-Player Characters (NPCs) in a Role-Playing Game}
+\newcommand{\thesisTitleDisplay}{A MULTI-AGENT REINFORCEMENT LEARNING FRAMEWORK \\ FOR COOPERATIVE NON-PLAYER CHARACTERS (NPCs) \\ IN A ROLE-PLAYING GAME}
 \newcommand{\studentName}{Shresth Sarthak Awasthi}
 \newcommand{\rollNumber}{CS22B1051}
 \newcommand{\supervisorName}{Dr. Dubacharla Gyaneshwar}
+\newcommand{\supervisorNameB}{Dr. Karthik P.N.}
 \newcommand{\departmentName}{Computer Science and Engineering}
 \newcommand{\submissionMonthYear}{May 2026}
 \newcommand{\submissionLocation}{Raichur -- 584135}
@@ -86,12 +87,12 @@
     \vspace*{0.2cm}
 
     {\Large\bfseries \thesisTitleDisplay \par}
-    \vspace{0.8cm}
+    \vspace{0.5cm}
 
     {\normalsize A Project Report Submitted \par}
     {\normalsize in Partial Fulfilment of the Requirements \par}
     {\normalsize for the Degree of \par}
-    \vspace{0.5cm}
+    \vspace{0.25cm}
 
     {\large\bfseries \MakeUppercase{\degreeName} \par}
     \vspace{0.3cm}
@@ -100,16 +101,16 @@
     \vspace{0.2cm}
 
     {\large\bfseries \MakeUppercase{\departmentName} \par}
-    \vspace{0.5cm}
+    \vspace{0.25cm}
 
     {\normalsize\itshape by \par}
     \vspace{0.3cm}
 
     {\normalsize\bfseries \studentName{} (Roll No.~\rollNumber) \par}
-    \vspace{0.5cm}
+    \vspace{0.25cm}
 
     \includegraphics[width=1\textwidth]{\logoPath}\par
-    \vspace{0.5cm}
+    \vspace{0.25cm}
 
     {\normalsize\itshape to \par}
     \vspace{0.2cm}
@@ -117,7 +118,7 @@
     {\normalsize\bfseries DEPARTMENT OF \MakeUppercase{\departmentName} \par}
     {\normalsize\bfseries INDIAN INSTITUTE OF INFORMATION TECHNOLOGY \par}
     {\normalsize\bfseries RAICHUR-584135, INDIA \par}
-    \vspace{0.4cm}
+    \vspace{0.3cm}
 
     {\normalsize\itshape \submissionMonthYear \par}
 
@@ -137,7 +138,8 @@
 declare that this report entitled ``\textit{\thesisTitle}'' submitted to
 Indian Institute of Information Technology Raichur towards partial requirement
 of \degreeName{} in \departmentName{} is an original work carried out by me
-under the supervision of Mentor, \supervisorName{}, and has not formed the
+under the supervision of my mentors, \supervisorName{} and \supervisorNameB{},
+and has not formed the
 basis for the award of any degree or diploma, in this or any other institution
 or university. I have sincerely tried to uphold the academic ethics and
 honesty. Whenever an external information or statement or result is used then,
@@ -166,7 +168,7 @@ Roll No.~\rollNumber
 entitled ``\textit{\thesisTitle}'' submitted by \textbf{\studentName} (Roll
 No: \rollNumber) to the
 Indian Institute of Information Technology Raichur towards partial requirement
-of \degreeName{} in \departmentName{} has been carried out by him under my
+of \degreeName{} in \departmentName{} has been carried out by him under our
 supervision and that it has not been submitted elsewhere for the award of any
 degree.
 
@@ -179,9 +181,40 @@ degree.
 \hfill
 \begin{minipage}[t]{0.4\textwidth}
 \raggedleft
-(\supervisorName) \\
-Project Supervisor
+(\supervisorName) \\[1em]
+(\supervisorNameB) \\
+Project Supervisors
 \end{minipage}
+
+% ---------------------- ACKNOWLEDGEMENTS -------------------------------------
+\clearpage
+\thispagestyle{plain}
+\frontmatterheading{ACKNOWLEDGEMENTS}
+\addcontentsline{toc}{chapter}{Acknowledgements}
+
+\noindent I would like to express my heartfelt gratitude to my supervisors,
+\textbf{\supervisorName} and \textbf{\supervisorNameB}, for their invaluable
+guidance, insightful feedback, and constant encouragement throughout this
+project. Their mentorship shaped both the technical direction and the academic
+rigour of this work.
+
+\noindent I am thankful to the Department of \departmentName{} at the Indian
+Institute of Information Technology, Raichur, for the academic environment and
+facilities that made this work possible, and to the Department of Artificial
+Intelligence, Indian Institute of Technology Hyderabad, for the computing
+resources that supported the experiments.
+
+\noindent I also thank the evaluating faculty for their time and assessment,
+and my collaborator on this two-person project for the productive partnership.
+Finally, I am deeply grateful to my family and friends for their unwavering
+support and motivation.
+
+\vspace{2cm}
+\noindent
+\begin{flushright}
+\studentName \\
+Roll No.~\rollNumber
+\end{flushright}
 
 % ---------------------- ABSTRACT ---------------------------------------------
 \clearpage
@@ -285,39 +318,39 @@ The key novel contributions of this project are:
 \chapter{Literature Survey}
 \label{chap:literature}
 
-This chapter reviews prior work across four domains that converge in our project: multi-agent reinforcement learning, reward shaping, NPC intelligence in games, and LLM-enhanced narration. For each category, we summarize the major approaches and identify the gaps our project addresses.
+Four distinct research areas intersect within this project, and this chapter surveys the existing literature in each: reinforcement learning across multiple agents, the shaping of reward signals, intelligent behaviour for non-player characters, and narration augmented by language models. Within every area we outline the dominant techniques and pinpoint the shortcomings that motivate our own contributions.
 
 \section{Multi-Agent Reinforcement Learning}
 \label{sec:marl}
 
-The foundations of reinforcement learning were established by Watkins and Dayan~\cite{watkins1992qlearning}, who proved that tabular Q-learning converges to optimal policies in single-agent MDPs under standard conditions (all state-action pairs visited infinitely often, appropriate learning rate decay). Sutton and Barto~\cite{sutton2018rl} provide a comprehensive treatment of value-based methods, policy gradient approaches, and temporal-difference learning that underpin modern RL research.
+Much of the theoretical groundwork for reinforcement learning traces back to Watkins and Dayan~\cite{watkins1992qlearning}, whose analysis demonstrated that, given the usual assumptions of infinitely repeated visits to every state-action pair and a suitably decaying learning rate, tabular Q-learning settles on an optimal policy within a single-agent MDP. A thorough account of the value-based techniques, policy gradient formulations, and temporal-difference methods that form the basis of contemporary RL is offered by Sutton and Barto~\cite{sutton2018rl}.
 
-Extending RL to multi-agent settings introduces fundamental challenges. Busoniu et al.~\cite{busoniu2008marl} survey the landscape of multi-agent reinforcement learning, identifying three key difficulties: (i)~the environment becomes non-stationary from each agent's perspective because other agents are simultaneously learning and changing their policies; (ii)~the joint action space grows exponentially with the number of agents; and (iii)~credit assignment --- determining which agent's action caused a team reward --- is ambiguous. Bowling and Veloso~\cite{bowling2002multiagent} address the convergence problem by proposing a variable learning rate that adapts based on whether an agent is ``winning'' or ``losing,'' providing convergence guarantees in two-player games that do not extend trivially to the $N$-agent setting.
+Moving from a single agent to several agents brings deep complications. In their survey of the field, Busoniu et al.~\cite{busoniu2008marl} highlight three principal obstacles: first, each agent perceives a non-stationary environment, since the other agents are concurrently revising their own policies through learning; second, the combined action space expands exponentially as agents are added; and third, it is difficult to attribute a shared team reward to the particular agent whose action produced it, making credit assignment ambiguous. Tackling the question of convergence, Bowling and Veloso~\cite{bowling2002multiagent} introduce a learning rate that varies according to whether the agent is currently ahead or behind; their guarantees hold for two-player games but do not carry over straightforwardly to the general $N$-agent case.
 
-The simplest multi-agent approach is independent learners (IL), where each agent runs its own single-agent algorithm while treating other agents as part of the environment. Despite the non-stationarity violation, IL works surprisingly well in practice when agents change slowly relative to their learning rate~\cite{busoniu2008marl}. Our system adopts this independent-learner architecture: each NPC runs its own tabular Q-learning instance. The slow adaptation rate (0.018) and homeostatic drift toward 0.5 act as implicit regularisers that keep the environment approximately stationary from each agent's perspective.
+Among multi-agent strategies, the most elementary is the independent learner (IL) paradigm: every agent executes a standard single-agent algorithm and simply folds the remaining agents into its notion of the environment. Although this breaks the stationarity assumption, IL nonetheless performs remarkably well in practice provided that agents evolve slowly compared with their learning rate~\cite{busoniu2008marl}. Our system follows precisely this independent-learner design, with each NPC maintaining a separate tabular Q-learning instance. Because adaptation proceeds slowly (at a rate of 0.018) and a homeostatic pull keeps values drifting toward 0.5, these factors serve as implicit regularisers and leave the environment roughly stationary as seen by any individual agent.
 
-Cooperative MARL has been studied through more sophisticated frameworks. QMIX~\cite{rashid2018qmix} factorizes joint Q-values under a monotonicity constraint, enabling centralized training with decentralized execution for cooperative tasks. MADDPG~\cite{lowe2017maddpg} extends actor-critic methods to multi-agent settings by giving each agent's critic access to all agents' observations during training. Leibo et al.~\cite{leibo2017multi} study emergent social dilemmas in grid-world environments, showing that cooperation or defection can arise from independent learners depending on environmental incentives.
+More elaborate frameworks have been developed to handle cooperative MARL. By decomposing joint Q-values subject to a monotonicity restriction, QMIX~\cite{rashid2018qmix} makes it possible to train centrally yet execute in a decentralized fashion on cooperative problems. MADDPG~\cite{lowe2017maddpg} carries actor-critic learning into the multi-agent regime, allowing the critic of each agent to observe the full set of agents' observations throughout training. Working in grid-world domains, Leibo et al.~\cite{leibo2017multi} examine how social dilemmas emerge, demonstrating that whether independent learners cooperate or defect hinges on the incentives built into the environment.
 
-Our approach uses independent Q-learners with a shared community reward signal, closest to the emergent cooperation framework of Leibo et al., but with a critical addition: the dynamic $\lambda$ coefficient that gates how much each agent weights the community signal based on its own cooperation history. This mechanism provides an implicit coordination channel without requiring the centralized critics of QMIX or MADDPG.
+Our method pairs independent Q-learners with a common community reward and therefore sits nearest to the emergent-cooperation paradigm of Leibo et al., yet it adds one essential ingredient: a dynamic $\lambda$ coefficient that regulates, according to an agent's prior cooperation record, the degree to which it attends to the community signal. Through this device, agents gain an implicit channel for coordination while dispensing entirely with the centralized critics demanded by QMIX or MADDPG.
 
 \section{Reward Shaping}
 \label{sec:reward-shaping}
 
-Ng et al.~\cite{ng1999rewardshaping} proved that potential-based reward shaping preserves optimal policies while accelerating learning. This foundational result ensures that adding a shaping term $F(s, s') = \gamma \Phi(s') - \Phi(s)$ does not change what the agent ultimately learns, only how fast it gets there. The key insight is that the shaping reward must be defined as a difference of potentials to avoid introducing spurious equilibria.
+The work of Ng et al.~\cite{ng1999rewardshaping} established that reward shaping grounded in potentials speeds up learning without altering the set of optimal policies. According to this seminal result, introducing a shaping term of the form $F(s, s') = \gamma \Phi(s') - \Phi(s)$ affects only the rate at which the agent learns and never the policy it eventually converges upon. The crucial observation is that, unless the shaping reward is expressed as a difference between potentials, spurious equilibria may be introduced.
 
-Our decomposed reward model extends this idea in a specific direction: the community component $\lambda_i(t) \cdot C(t)$ acts as a shaping signal that nudges agents toward prosocial behavior, with the dynamic $\lambda$ controlling the strength of this nudge based on each agent's cooperation trajectory. While our shaping is not strictly potential-based (the $\lambda$ coefficient itself evolves with the agent's state, making the shaping function non-stationary), the practical effect is similar: agents that begin cooperating receive increasingly strong gradient signals toward further cooperation through the $\lambda$ feedback loop, accelerating convergence to cooperative equilibria. The ablation result --- C7 (static $\lambda$) reaches 0.595 vs.\ C1 (dynamic $\lambda$) at 0.699 --- quantifies the acceleration that this adaptive shaping provides over a fixed shaping baseline.
+We build on this principle in a particular way through our decomposed reward formulation: the community term $\lambda_i(t) \cdot C(t)$ functions as a shaping signal that steers agents toward prosocial conduct, and the dynamic $\lambda$ modulates how forceful that push is according to each agent's history of cooperation. Strictly speaking, our shaping is not potential-based, because the $\lambda$ coefficient changes with the agent's state and thereby renders the shaping function non-stationary; in practice, however, the outcome resembles potential-based shaping. Agents that start to cooperate are progressively driven toward still greater cooperation by the $\lambda$ feedback loop, which hastens convergence to cooperative equilibria. This acceleration is made concrete by the ablation comparison, in which C7 with static $\lambda$ attains 0.595 whereas C1 with dynamic $\lambda$ reaches 0.699, quantifying the benefit of adaptive shaping relative to a fixed-shaping baseline.
 
 \section{NPC Intelligence in Games}
 \label{sec:npc-intelligence}
 
-Traditional NPC behavior in commercial games relies on behavior trees~\cite{isla2005bt}, finite state machines, or goal-oriented action planning, requiring designers to manually author every decision branch. Despite decades of RL research, adoption in shipped commercial games remains slow~\cite{liu2025schola}. Jacob et al.~\cite{jacob2020unwieldy}, based on interviews with 17 game agent creators from AAA and indie studios, document that the industry avoids RL due to unpredictable trained behavior, long training times, and insufficient tooling. Yannakakis and Togelius~\cite{yannakakis2018gameai} note that ``commercial games have largely ignored the use of learning AI.'' The rare exceptions apply learning to narrow, constrained subtasks (goalkeeper positioning, driving style modeling), not to general NPC decision-making or social behavior.
+Conventional NPC behaviour in commercial titles is driven by behaviour trees~\cite{isla2005bt}, finite state machines, or goal-oriented action planning, all of which oblige designers to hand-craft each individual decision branch. Even after many years of RL research, uptake within shipped commercial games has stayed limited~\cite{liu2025schola}. Drawing on conversations with 17 game agent creators spanning AAA and indie studios, Jacob et al.~\cite{jacob2020unwieldy} report that the industry shies away from RL because trained behaviour is unpredictable, training is time-consuming, and the supporting tooling is inadequate. In a similar vein, Yannakakis and Togelius~\cite{yannakakis2018gameai} observe that learning-based AI has, for the most part, been overlooked by commercial games. Where learning does appear, it is confined to narrow, well-bounded subtasks such as positioning a goalkeeper or modelling driving style, rather than being applied to general NPC decision-making or social behaviour.
 
-Recent academic work has explored RL for game NPCs~\cite{riedl2012interactive}, but primarily for single-agent scenarios. To the best of our knowledge, no prior work applies \textit{cooperative} multi-agent RL with dynamic reward weighting to a full game environment featuring quest progression, social dynamics among multiple NPCs, and environmental perturbations.
+Although recent academic studies have investigated RL for game NPCs~\cite{riedl2012interactive}, these efforts have largely targeted single-agent settings. As far as we are aware, no earlier study brings \textit{cooperative} multi-agent RL together with dynamic reward weighting in a complete game world that combines quest progression, social interaction among several NPCs, and environmental disturbances.
 
 \section{LLM-Enhanced Game Narration}
 \label{sec:llm-narration}
 
-Large language models have been applied to interactive fiction~\cite{urbanek2019light} and game dialogue generation. Our system uses LLMs as an optional narration layer with a 9-stage guardrail pipeline, maintaining full playability without model access --- separating game logic from narration.
+Interactive fiction~\cite{urbanek2019light} and the generation of in-game dialogue are among the tasks to which large language models have been put. In our system, by contrast, an LLM serves merely as an optional narration layer governed by a nine-stage guardrail pipeline; because game logic is kept distinct from narration, the game remains fully playable even when no model is available.
 
 \section{Comparison with Our Approach}
 \label{sec:lit-comparison}
@@ -331,21 +364,21 @@ Large language models have been applied to interactive fiction~\cite{urbanek2019
 \hline
 \textbf{Work} & \textbf{Year} & \textbf{Methodology} & \textbf{Our Differentiation} \\
 \hline
-QMIX~\cite{rashid2018qmix} & 2018 & Factorized joint Q-values, centralized training & We use independent learners with shared community reward --- no centralized critic needed \\
+QMIX~\cite{rashid2018qmix} & 2018 & Joint Q-value decomposition under central training & Independent learners sharing a community reward, removing any need for a central critic \\
 \hline
-MADDPG~\cite{lowe2017maddpg} & 2017 & Centralized critic, decentralized actors (deep RL) & Tabular Q-learning for full interpretability; dynamic $\lambda$ instead of static reward mixing \\
+MADDPG~\cite{lowe2017maddpg} & 2017 & Central critic with decentralized actors (deep RL) & Fully interpretable tabular Q-learning; dynamic $\lambda$ replaces static reward mixing \\
 \hline
-Leibo et al.~\cite{leibo2017multi} & 2017 & Emergent social dilemmas in grid-worlds & Full RPG environment with quests, shocks, adaptive personalities, and LLM narration \\
+Leibo et al.~\cite{leibo2017multi} & 2017 & Emergent social dilemmas studied in grid-worlds & Complete RPG world featuring quests, shocks, adaptive personalities, and LLM narration \\
 \hline
-Ng et al.~\cite{ng1999rewardshaping} & 1999 & Potential-based reward shaping theory & Extended with dynamic gating via $\lambda_i(t)$ that evolves with cooperation tendency \\
+Ng et al.~\cite{ng1999rewardshaping} & 1999 & Theory of potential-based reward shaping & Augmented with dynamic gating through $\lambda_i(t)$ that tracks cooperation tendency \\
 \hline
-Watkins \& Dayan~\cite{watkins1992qlearning} & 1992 & Tabular Q-learning convergence proof & Applied to multi-agent game setting with role-specific masking and adaptive personalities \\
+Watkins \& Dayan~\cite{watkins1992qlearning} & 1992 & Convergence proof for tabular Q-learning & Carried into a multi-agent game with role-specific masking and adaptive personalities \\
 \hline
-Bowling \& Veloso~\cite{bowling2002multiagent} & 2002 & Variable learning rate for multi-agent convergence & Independent learners with slow adaptation as implicit regularisation for non-stationarity \\
+Bowling \& Veloso~\cite{bowling2002multiagent} & 2002 & Adaptive learning rate for multi-agent convergence & Slow-adapting independent learners as implicit regularisation against non-stationarity \\
 \hline
-Isla~\cite{isla2005bt} & 2005 & Behavior trees for NPC AI & RL replaces hand-authored trees; cooperation emerges rather than being scripted \\
+Isla~\cite{isla2005bt} & 2005 & Behaviour trees governing NPC AI & Hand-authored trees give way to RL; cooperation arises instead of being scripted \\
 \hline
-LIGHT~\cite{urbanek2019light} & 2019 & LLM-driven interactive fiction & LLM is optional narration layer, not the game engine; 9-stage guardrails \\
+LIGHT~\cite{urbanek2019light} & 2019 & Interactive fiction driven by an LLM & LLM acts only as optional narration, not the engine; nine-stage guardrails \\
 \hline
 \end{tabularx}
 \end{table}

@@ -2,16 +2,16 @@
 
 ## Tech Stack
 
-| Layer | Technology |
-|-------|-----------|
-| Backend | Python 3.12, FastAPI, async throughout |
-| Frontend | HTML + CSS + Vanilla JS + Cytoscape.js (no frameworks) |
-| NLP | spaCy (`en_core_web_md`) |
-| RL | NumPy tabular Q-learning (no deep RL libraries) |
-| LLM | httpx HTTP adapter to external providers (OpenRouter, Ollama, OpenAI-compatible) |
-| Persistence | JSON files (no database) |
-| Deps | uv + pyproject.toml |
-| Communication | REST API + WebSocket |
+| Layer         | Technology                                                                       |
+|---------------|----------------------------------------------------------------------------------|
+| Backend       | Python 3.12, FastAPI, async throughout                                           |
+| Frontend      | HTML + CSS + Vanilla JS + Cytoscape.js (no frameworks)                           |
+| NLP           | spaCy (`en_core_web_md`)                                                         |
+| RL            | NumPy tabular Q-learning (no deep RL libraries)                                  |
+| LLM           | httpx HTTP adapter to external providers (OpenRouter, Ollama, OpenAI-compatible) |
+| Persistence   | JSON files (no database)                                                         |
+| Deps          | uv + pyproject.toml                                                              |
+| Communication | REST API + WebSocket                                                             |
 
 ## Project Structure
 
