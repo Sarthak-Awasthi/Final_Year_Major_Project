@@ -134,16 +134,16 @@
 \frontmatterheading{DECLARATION}
 \addcontentsline{toc}{chapter}{Declaration}
 
-\noindent I, \textbf{\MakeUppercase{\studentName}} (Roll Number: \rollNumber), hereby
-declare that this report entitled ``\textit{\thesisTitle}'' submitted to
-Indian Institute of Information Technology Raichur towards partial requirement
-of \degreeName{} in \departmentName{} is an original work carried out by me
-under the supervision of my mentors, \supervisorName{} and \supervisorNameB{},
-and has not formed the
-basis for the award of any degree or diploma, in this or any other institution
-or university. I have sincerely tried to uphold the academic ethics and
-honesty. Whenever an external information or statement or result is used then,
-that has been duly acknowledged and cited.
+\noindent I, \textbf{\MakeUppercase{\studentName}} (Roll Number: \rollNumber),
+affirm that the report titled ``\textit{\thesisTitle}'', which I have submitted
+to the Indian Institute of Information Technology Raichur in partial fulfilment
+of the \degreeName{} programme in \departmentName{}, documents work that I
+conducted myself under the mentorship of \supervisorName{} and
+\supervisorNameB{}. None of the material presented here has previously earned
+me, or anyone else, a degree or diploma at this or any other institution or
+university. Throughout the work I have made every effort to maintain academic
+integrity, and every external idea, statement, or finding that I have drawn
+upon has been acknowledged with an appropriate citation.
 
 \vspace{2.5cm}
 \noindent
@@ -164,13 +164,13 @@ Roll No.~\rollNumber
 \frontmatterheading{CERTIFICATE}
 \addcontentsline{toc}{chapter}{Certificate}
 
-\noindent This is to certify that the work contained in this project report
-entitled ``\textit{\thesisTitle}'' submitted by \textbf{\studentName} (Roll
+\noindent We certify that the project report entitled
+``\textit{\thesisTitle}'', submitted by \textbf{\studentName} (Roll
 No: \rollNumber) to the
-Indian Institute of Information Technology Raichur towards partial requirement
-of \degreeName{} in \departmentName{} has been carried out by him under our
-supervision and that it has not been submitted elsewhere for the award of any
-degree.
+Indian Institute of Information Technology Raichur in partial fulfilment
+of the \degreeName{} programme in \departmentName{}, describes work carried out
+by him under our supervision. To the best of our knowledge, this work has not
+been submitted for the award of any degree at any other institution.
 
 \vspace{3cm}
 \noindent
@@ -192,22 +192,22 @@ Project Supervisors
 \frontmatterheading{ACKNOWLEDGEMENTS}
 \addcontentsline{toc}{chapter}{Acknowledgements}
 
-\noindent I would like to express my heartfelt gratitude to my supervisors,
-\textbf{\supervisorName} and \textbf{\supervisorNameB}, for their invaluable
-guidance, insightful feedback, and constant encouragement throughout this
-project. Their mentorship shaped both the technical direction and the academic
-rigour of this work.
+\noindent I owe my deepest thanks to my supervisors,
+\textbf{\supervisorName} and \textbf{\supervisorNameB}. Their guidance, their
+thoughtful critiques, and their steady encouragement carried this project
+forward, and it was their mentorship that gave the work both its technical
+direction and its academic discipline.
 
-\noindent I am thankful to the Department of \departmentName{} at the Indian
-Institute of Information Technology, Raichur, for the academic environment and
-facilities that made this work possible, and to the Department of Artificial
-Intelligence, Indian Institute of Technology Hyderabad, for the computing
-resources that supported the experiments.
+\noindent I am grateful to the Department of \departmentName{} at the Indian
+Institute of Information Technology, Raichur, whose academic setting and
+facilities made this work possible, and equally to the Department of Artificial
+Intelligence at the Indian Institute of Technology Hyderabad, which provided
+the computing resources behind the experiments.
 
-\noindent I also thank the evaluating faculty for their time and assessment,
-and my collaborator on this two-person project for the productive partnership.
-Finally, I am deeply grateful to my family and friends for their unwavering
-support and motivation.
+\noindent My thanks also go to the evaluating faculty for the time they devoted
+to assessing this work, and to my partner on this two-person project for a
+genuinely productive collaboration. Last of all, I remain deeply indebted to my
+family and friends, whose support and encouragement never wavered.
 
 \vspace{2cm}
 \noindent
@@ -222,7 +222,7 @@ Roll No.~\rollNumber
 \frontmatterheading{ABSTRACT}
 \addcontentsline{toc}{chapter}{Abstract}
 
-This report presents a multi-agent reinforcement learning framework for emergent cooperative behavior among NPC agents in a medieval village RPG research playground. The core contribution is the design and evaluation of a decomposed reward model with a dynamic $\lambda$ coefficient that creates a feedback loop between individual cooperation tendency and community welfare weighting: $R_i(t) = P_i(t) + G_i(t) + \lambda_i(t) \cdot C(t)$, where $\lambda_i = 0.05 + \text{coop}_i \times 0.55$. Six tabular Q-learning agents operate over a 225-state discretized space with role-specific action masking and adaptive personality dynamics. A system shock engine injects non-stationary perturbations (famine, plague, raids) to test learning robustness under distribution shift. We conduct an ablation study across six conditions over 500 turns each, demonstrating that: (1)~Q-learning drives cooperation from a 0.000 baseline to 0.699 while schedule-only agents show no emergence; (2)~role-specific action masking improves cooperation by 0.161 through structural inductive bias, the largest single contributor after RL itself; (3)~the famine shock has a substantial, lasting effect --- removing shocks raises final cooperation by 0.237 (to 0.936) --- yet agents keep learning rather than collapsing; (4)~the dynamic $\lambda$ feedback loop amplifies cooperation by a further 0.104 over a static baseline; and (5)~adaptive personality coefficients produce meaningful role divergence in social sensitivity and risk aversion. The system additionally supports optional LLM narration with template fallbacks, and the game environment is built on a hierarchical MDP for quest progression.
+This report develops a multi-agent reinforcement learning framework in which cooperative behaviour emerges among NPC agents inside a medieval-village RPG used as a research playground. Its central contribution is a decomposed reward model, built around a dynamic $\lambda$ coefficient, that couples each agent's individual tendency to cooperate with the weight it places on community welfare: $R_i(t) = P_i(t) + G_i(t) + \lambda_i(t) \cdot C(t)$, where $\lambda_i = 0.05 + \text{coop}_i \times 0.55$. Six tabular Q-learning agents act within a discretized 225-state space, each subject to role-specific action masking and adaptive personality dynamics. To probe how robustly they learn under distribution shift, a system shock engine introduces non-stationary perturbations such as famine, plague, and raids. Across an ablation study spanning six conditions of 500 turns apiece, we show that: (1)~Q-learning drives cooperation from a 0.000 baseline to 0.699 while schedule-only agents show no emergence; (2)~role-specific action masking improves cooperation by 0.161 through structural inductive bias, the largest single contributor after RL itself; (3)~the famine shock has a substantial, lasting effect --- removing shocks raises final cooperation by 0.237 (to 0.936) --- yet agents keep learning rather than collapsing; (4)~the dynamic $\lambda$ feedback loop amplifies cooperation by a further 0.104 over a static baseline; and (5)~adaptive personality coefficients produce meaningful role divergence in social sensitivity and risk aversion. Beyond the learning core, the system offers optional LLM narration backed by template fallbacks, and its game world is organised as a hierarchical MDP that drives quest progression.
 
 % ---------------------- TABLE OF CONTENTS ------------------------------------
 \clearpage
@@ -242,7 +242,7 @@ This report presents a multi-agent reinforcement learning framework for emergent
 \chapter{Introduction}
 \label{chap:introduction}
 
-Non-player characters (NPCs) in modern games typically follow scripted behavior trees or finite state machines, producing predictable and repetitive interactions. This project explores whether reinforcement learning can produce emergent cooperative behavior in a multi-agent game environment without explicit scripting of cooperation.
+In most modern games, non-player characters (NPCs) run on scripted behaviour trees or finite state machines, which makes their interactions predictable and repetitive. This project asks whether reinforcement learning can instead give rise to emergent cooperative behaviour in a multi-agent game, without cooperation ever being scripted explicitly.
 
 We build a single-player medieval village RPG where six NPCs learn autonomously via tabular Q-learning. The central research question is:
 
@@ -253,7 +253,7 @@ We build a single-player medieval village RPG where six NPCs learn autonomously 
 \section{Problem Statement}
 \label{sec:problem-statement}
 
-Current NPC systems in games rely on hand-authored behavior trees, finite state machines, or scripted dialogue. These approaches produce deterministic, repetitive behavior that breaks immersion and cannot adapt to player strategy. The core problems are:
+Today's in-game NPC systems depend on hand-authored behaviour trees, finite state machines, or scripted dialogue. Such approaches yield deterministic, repetitive behaviour that breaks immersion and fails to adapt to how the player plays. The central problems are:
 
 \begin{itemize}
     \item \textbf{No emergent cooperation:} Scripted NPCs cannot discover cooperative strategies on their own --- any prosocial behavior must be explicitly programmed by designers for every scenario.
@@ -309,7 +309,7 @@ The key novel contributions of this project are:
 \begin{itemize}
     \item \textbf{Dynamic $\lambda$ feedback loop:} Unlike static reward weighting in prior MARL work, the $\lambda_i(t) = 0.05 + \text{coop}_i \times 0.55$ mechanism creates a virtuous cycle where cooperation self-amplifies through the reward structure. Our ablation shows this contributes $+0.104$ to cooperation --- one of the largest factors, alongside role masking, after RL itself.
     \item \textbf{Fully interpretable multi-agent cooperation:} While prior game AI research uses deep RL (opaque policies), our tabular approach lets researchers directly inspect every Q-value and trace exactly why an NPC chose a cooperative action.
-    \item \textbf{Integrated research playground:} The system combines RL agents, environmental shocks, adaptive personalities, quest progression, LLM narration, and a complete analytics dashboard in a single reproducible platform with ablation controls --- a combination not found in existing game AI testbeds.
+    \item \textbf{Integrated research playground:} Within one reproducible platform, the system unifies RL agents, environmental shocks, adaptive personalities, quest progression, LLM narration, and a full analytics dashboard, all under explicit ablation controls --- an assembly we have not seen brought together in existing game-AI testbeds.
 \end{itemize}
 
 % =============================================================================
@@ -323,27 +323,27 @@ Four distinct research areas intersect within this project, and this chapter sur
 \section{Multi-Agent Reinforcement Learning}
 \label{sec:marl}
 
-Much of the theoretical groundwork for reinforcement learning traces back to Watkins and Dayan~\cite{watkins1992qlearning}, whose analysis demonstrated that, given the usual assumptions of infinitely repeated visits to every state-action pair and a suitably decaying learning rate, tabular Q-learning settles on an optimal policy within a single-agent MDP. A thorough account of the value-based techniques, policy gradient formulations, and temporal-difference methods that form the basis of contemporary RL is offered by Sutton and Barto~\cite{sutton2018rl}.
+A large part of the theory underpinning reinforcement learning goes back to Watkins and Dayan~\cite{watkins1992qlearning}. They showed that, when every state-action pair is revisited without bound and the learning rate decays appropriately, tabular Q-learning converges on an optimal policy inside a single-agent MDP. For a broad treatment of the value-based methods, policy-gradient formulations, and temporal-difference algorithms on which modern RL rests, the reader may consult Sutton and Barto~\cite{sutton2018rl}.
 
-Moving from a single agent to several agents brings deep complications. In their survey of the field, Busoniu et al.~\cite{busoniu2008marl} highlight three principal obstacles: first, each agent perceives a non-stationary environment, since the other agents are concurrently revising their own policies through learning; second, the combined action space expands exponentially as agents are added; and third, it is difficult to attribute a shared team reward to the particular agent whose action produced it, making credit assignment ambiguous. Tackling the question of convergence, Bowling and Veloso~\cite{bowling2002multiagent} introduce a learning rate that varies according to whether the agent is currently ahead or behind; their guarantees hold for two-player games but do not carry over straightforwardly to the general $N$-agent case.
+Once several agents share an environment, the problem grows considerably harder. The survey of Busoniu et al.~\cite{busoniu2008marl} identifies three core difficulties. The first is non-stationarity: from any one agent's vantage point the environment keeps shifting, because every other agent is busy updating its own policy at the same time. The second is the combinatorial blow-up of the joint action space, which grows exponentially with the number of agents. The third is credit assignment --- when a single team reward is shared, it is far from obvious which agent's action actually earned it. On the convergence side, Bowling and Veloso~\cite{bowling2002multiagent} propose adjusting the learning rate depending on whether an agent is winning or losing; the resulting guarantees, however, cover only two-player games and do not extend cleanly to the general $N$-agent setting.
 
-Among multi-agent strategies, the most elementary is the independent learner (IL) paradigm: every agent executes a standard single-agent algorithm and simply folds the remaining agents into its notion of the environment. Although this breaks the stationarity assumption, IL nonetheless performs remarkably well in practice provided that agents evolve slowly compared with their learning rate~\cite{busoniu2008marl}. Our system follows precisely this independent-learner design, with each NPC maintaining a separate tabular Q-learning instance. Because adaptation proceeds slowly (at a rate of 0.018) and a homeostatic pull keeps values drifting toward 0.5, these factors serve as implicit regularisers and leave the environment roughly stationary as seen by any individual agent.
+The simplest of the multi-agent approaches is the independent-learner (IL) scheme, in which each agent runs an ordinary single-agent algorithm and treats all the others as part of its environment. This violates the stationarity assumption outright, yet IL tends to work surprisingly well in practice as long as the agents change slowly relative to their own learning rate~\cite{busoniu2008marl}. Our design adopts exactly this IL philosophy: every NPC owns a separate tabular Q-learning instance. Since adaptation is deliberately slow (rate 0.018) and a homeostatic pull nudges the coefficients back toward 0.5, the two act as built-in regularisers and keep the environment looking approximately stationary to each individual agent.
 
-More elaborate frameworks have been developed to handle cooperative MARL. By decomposing joint Q-values subject to a monotonicity restriction, QMIX~\cite{rashid2018qmix} makes it possible to train centrally yet execute in a decentralized fashion on cooperative problems. MADDPG~\cite{lowe2017maddpg} carries actor-critic learning into the multi-agent regime, allowing the critic of each agent to observe the full set of agents' observations throughout training. Working in grid-world domains, Leibo et al.~\cite{leibo2017multi} examine how social dilemmas emerge, demonstrating that whether independent learners cooperate or defect hinges on the incentives built into the environment.
+Richer frameworks have since been built for cooperative MARL. QMIX~\cite{rashid2018qmix} factors the joint Q-value under a monotonicity constraint, which supports centralized training together with decentralized execution on cooperative tasks. MADDPG~\cite{lowe2017maddpg} extends actor-critic methods to the multi-agent case by letting each agent's critic see the observations of all agents during training. In grid-world settings, Leibo et al.~\cite{leibo2017multi} study how social dilemmas arise and show that whether independent learners end up cooperating or defecting depends on the incentive structure of the environment.
 
-Our method pairs independent Q-learners with a common community reward and therefore sits nearest to the emergent-cooperation paradigm of Leibo et al., yet it adds one essential ingredient: a dynamic $\lambda$ coefficient that regulates, according to an agent's prior cooperation record, the degree to which it attends to the community signal. Through this device, agents gain an implicit channel for coordination while dispensing entirely with the centralized critics demanded by QMIX or MADDPG.
+By coupling independent Q-learners to a shared community reward, our approach lies closest to the emergent-cooperation line of Leibo et al., but with one decisive addition: a dynamic $\lambda$ coefficient that tunes how strongly each agent listens to the community signal based on its own past record of cooperation. This gives the agents an implicit means of coordinating, all while doing away with the centralized critics that QMIX and MADDPG require.
 
 \section{Reward Shaping}
 \label{sec:reward-shaping}
 
-The work of Ng et al.~\cite{ng1999rewardshaping} established that reward shaping grounded in potentials speeds up learning without altering the set of optimal policies. According to this seminal result, introducing a shaping term of the form $F(s, s') = \gamma \Phi(s') - \Phi(s)$ affects only the rate at which the agent learns and never the policy it eventually converges upon. The crucial observation is that, unless the shaping reward is expressed as a difference between potentials, spurious equilibria may be introduced.
+Ng et al.~\cite{ng1999rewardshaping} proved that potential-based reward shaping accelerates learning while leaving the set of optimal policies untouched. Their landmark result states that a shaping term written as $F(s, s') = \gamma \Phi(s') - \Phi(s)$ changes only how quickly the agent learns, never the policy it finally arrives at. The key caveat is that, if the shaping reward is not cast as a difference of potentials, it can create spurious equilibria.
 
-We build on this principle in a particular way through our decomposed reward formulation: the community term $\lambda_i(t) \cdot C(t)$ functions as a shaping signal that steers agents toward prosocial conduct, and the dynamic $\lambda$ modulates how forceful that push is according to each agent's history of cooperation. Strictly speaking, our shaping is not potential-based, because the $\lambda$ coefficient changes with the agent's state and thereby renders the shaping function non-stationary; in practice, however, the outcome resembles potential-based shaping. Agents that start to cooperate are progressively driven toward still greater cooperation by the $\lambda$ feedback loop, which hastens convergence to cooperative equilibria. This acceleration is made concrete by the ablation comparison, in which C7 with static $\lambda$ attains 0.595 whereas C1 with dynamic $\lambda$ reaches 0.699, quantifying the benefit of adaptive shaping relative to a fixed-shaping baseline.
+Our decomposed reward formulation puts this principle to work in a specific way: the community term $\lambda_i(t) \cdot C(t)$ acts as a shaping signal that pushes agents toward prosocial behaviour, while the dynamic $\lambda$ sets the strength of that push according to each agent's cooperation history. Strictly, the scheme is not potential-based --- because $\lambda$ varies with the agent's state, the shaping function becomes non-stationary --- yet its behaviour in practice is close to that of potential-based shaping. An agent that begins to cooperate is pulled toward even greater cooperation by the $\lambda$ feedback loop, which speeds convergence to cooperative equilibria. The ablation makes this acceleration tangible: C7 with a static $\lambda$ settles at 0.595, whereas C1 with the dynamic $\lambda$ climbs to 0.699 --- a direct measure of what adaptive shaping buys over a fixed-shaping baseline.
 
 \section{NPC Intelligence in Games}
 \label{sec:npc-intelligence}
 
-Conventional NPC behaviour in commercial titles is driven by behaviour trees~\cite{isla2005bt}, finite state machines, or goal-oriented action planning, all of which oblige designers to hand-craft each individual decision branch. Even after many years of RL research, uptake within shipped commercial games has stayed limited~\cite{liu2025schola}. Drawing on conversations with 17 game agent creators spanning AAA and indie studios, Jacob et al.~\cite{jacob2020unwieldy} report that the industry shies away from RL because trained behaviour is unpredictable, training is time-consuming, and the supporting tooling is inadequate. In a similar vein, Yannakakis and Togelius~\cite{yannakakis2018gameai} observe that learning-based AI has, for the most part, been overlooked by commercial games. Where learning does appear, it is confined to narrow, well-bounded subtasks such as positioning a goalkeeper or modelling driving style, rather than being applied to general NPC decision-making or social behaviour.
+In commercial titles, NPC behaviour is conventionally controlled by behaviour trees~\cite{isla2005bt}, finite state machines, or goal-oriented action planning --- techniques that force designers to author every decision branch by hand. Despite decades of RL research, its adoption in shipped commercial games remains thin~\cite{liu2025schola}. After interviewing 17 creators of game agents across both AAA and indie studios, Jacob et al.~\cite{jacob2020unwieldy} found that the industry avoids RL because the learned behaviour is hard to predict, training eats up time, and the tooling around it is lacking. Yannakakis and Togelius~\cite{yannakakis2018gameai} make a related point, noting that commercial games have largely passed over learning-based AI. On the rare occasions it does surface, it stays within narrow, tightly scoped subtasks --- placing a goalkeeper, say, or capturing a driving style --- rather than steering general NPC decisions or social conduct.
 
 Although recent academic studies have investigated RL for game NPCs~\cite{riedl2012interactive}, these efforts have largely targeted single-agent settings. As far as we are aware, no earlier study brings \textit{cooperative} multi-agent RL together with dynamic reward weighting in a complete game world that combines quest progression, social interaction among several NPCs, and environmental disturbances.
 
@@ -400,9 +400,9 @@ The quest is modeled as a two-level hierarchical MDP. At the macro level, seven 
     S_1 \to S_2 \to S_3 \to S_4 \to S_5 \to S_6 \to S_7 \to S_{\text{success}}
 \end{equation}
 
-Each macro stage $S_k$ contains a micro MDP $\mathcal{M}_{\text{micro}}^{(k)}$ with its own checkpoints, completion conditions, and transition rewards. The 7 stages span: arrival at the gate, seeking the elder, learning of the quest, investigation, retrieval, and return.
+Every macro stage $S_k$ encloses a micro MDP $\mathcal{M}_{\text{micro}}^{(k)}$ carrying its own checkpoints, completion conditions, and transition rewards. The seven stages cover arrival at the gate, the search for the elder, the unveiling of the quest, investigation, retrieval, and the return journey.
 
-When the player deviates from the expected path, the system generates dynamic checkpoints that acknowledge the deviation and guide convergence back to the nearest static checkpoint. When the quest completes before the turn limit, the quest state resets while preserving all NPC Q-tables and adaptation states, enabling multi-episode learning within a single session. This quest auto-restart mechanism is critical for the RL results: it allows NPCs to accumulate learning experience across multiple quest cycles within a single 500-turn experiment.
+When the player strays from the intended path, the system spawns dynamic checkpoints that register the detour and steer the player back toward the nearest static checkpoint. If the quest is finished before the turn budget runs out, its state is reset while every NPC's Q-table and adaptation state is retained, which lets learning continue across multiple episodes inside one session. This auto-restart behaviour is essential to the RL results, because it lets the NPCs build up learning experience over several quest cycles within a single 500-turn run.
 
 \section{NPC State Space and Q-Learning}
 \label{sec:q-learning}
@@ -425,19 +425,19 @@ Mood & unhappy ($<$4), content (4--7), cheerful ($>$7) & 3 \\
 \end{tabular}
 \end{table}
 
-Total state space: $5 \times 5 \times 3 \times 3 = 225$ states. Action space: 28 universal actions across 7 categories (navigation, exploration, talk, social, combat, stealth, utility). Q-table size per NPC: 6,300 entries.
+This yields a total state space of $5 \times 5 \times 3 \times 3 = 225$ states. The action space holds 28 universal actions grouped into 7 categories: navigation, exploration, talk, social, combat, stealth, and utility. Each NPC therefore stores a Q-table of 6,300 entries.
 
 \textbf{Q-Learning update:}
 \begin{equation}
     Q(s, a) \leftarrow Q(s, a) + \alpha \left[ r + \gamma \max_{a'} Q(s', a') - Q(s, a) \right]
 \end{equation}
-with $\alpha = 0.1$, $\gamma = 0.9$, $\varepsilon$-greedy exploration decaying from 0.15 to 0.05 at rate $0.995$/turn. Pre-training: 100 episodes $\times$ 50 turns per NPC at $\varepsilon = 0.5$.
+Here $\alpha = 0.1$ and $\gamma = 0.9$, and $\varepsilon$-greedy exploration decays from 0.15 to 0.05 at a per-turn rate of $0.995$. Each NPC is pre-trained for 100 episodes of 50 turns at $\varepsilon = 0.5$.
 
 \textbf{Why tabular Q-learning over deep RL.}
-The choice of tabular Q-learning over function approximation methods such as DQN is deliberate and motivated by three factors. First, \emph{interpretability}: with 6,300 Q-values per NPC, the entire learned policy can be directly inspected --- researchers can look up the Q-value for any state-action pair and trace exactly why a particular action was preferred. Deep RL policies, by contrast, require post-hoc explanation methods (saliency maps, SHAP values) that provide approximate rather than exact attribution. Second, \emph{convergence guarantees}: Watkins and Dayan~\cite{watkins1992qlearning} proved that tabular Q-learning converges to the optimal policy under standard conditions. While the multi-agent setting violates the stationarity assumption, the slow adaptation rate and homeostatic drift provide empirical stability, as confirmed by the consistent convergence to $\mathcal{K} \approx 0.699$ across runs. Third, \emph{state space tractability}: the 225-state space is small enough that every state-action pair can be visited many times during a 500-turn experiment with quest auto-restart, ensuring that Q-values are well-estimated rather than interpolated.
+Choosing tabular Q-learning instead of a function approximator such as DQN was a deliberate decision resting on three considerations. The first is \emph{interpretability}: because each NPC holds only 6,300 Q-values, the whole learned policy is open to inspection --- one can read off the Q-value of any state-action pair and follow precisely why a given action was favoured. Deep RL policies, on the other hand, need post-hoc tools such as saliency maps or SHAP values, which approximate rather than exactly recover that attribution. The second is \emph{convergence}: Watkins and Dayan~\cite{watkins1992qlearning} established that tabular Q-learning reaches the optimal policy under standard conditions. The multi-agent setting does break the stationarity assumption, but the slow adaptation rate together with the homeostatic drift yields empirical stability, borne out by the steady convergence to $\mathcal{K} \approx 0.699$ across runs. The third is \emph{tractability}: a 225-state space is small enough that, over a 500-turn experiment with quest auto-restart, every state-action pair is visited repeatedly, so the Q-values are properly estimated rather than interpolated.
 
 \textbf{Epsilon-greedy exploration strategy.}
-The exploration schedule uses $\varepsilon$-greedy action selection with a decaying exploration rate: $\varepsilon_t = \max(0.05,\; 0.15 \times 0.995^t)$. This schedule balances exploration and exploitation across the experiment timeline. The initial $\varepsilon = 0.15$ provides sufficient exploration to discover cooperative strategies in early turns, while the exponential decay ensures that by mid-experiment ($t \approx 200$), the exploration rate has dropped to approximately 0.055, allowing agents to exploit their learned policies. The floor of 0.05 maintains a small probability of random action throughout the experiment, preventing premature convergence to suboptimal local equilibria. During pre-training, a much higher $\varepsilon = 0.5$ ensures broad coverage of the state-action space, giving each NPC a reasonable initial Q-table before the main experiment begins.
+Action selection follows an $\varepsilon$-greedy rule whose exploration rate decays as $\varepsilon_t = \max(0.05,\; 0.15 \times 0.995^t)$, keeping exploration and exploitation in balance over the course of the experiment. The starting value of $\varepsilon = 0.15$ leaves enough room to uncover cooperative strategies during the early turns, and the exponential decay brings the rate down to roughly 0.055 by the midpoint ($t \approx 200$), at which stage the agents largely exploit what they have learned. A floor of 0.05 preserves a slim chance of a random move throughout, which guards against settling too early into a poor local equilibrium. Pre-training runs at a far higher $\varepsilon = 0.5$ so that the state-action space is broadly covered, equipping each NPC with a sensible initial Q-table before the main experiment starts.
 
 \section{Decomposed Reward Model}
 \label{sec:reward-model}
@@ -467,7 +467,7 @@ Each NPC archetype has a preferred action set. During action selection:
     \item \textbf{Soft masking}: Role-aligned actions receive a $+0.5$ Q-value bonus; misaligned actions receive a $-0.3$ penalty.
 \end{itemize}
 
-The soft masking operates as an inductive bias that shapes the exploration process without eliminating it. Consider a guard NPC at the gate: combat and patrol actions receive the $+0.5$ bonus, making them more likely to be selected during $\varepsilon$-greedy exploration. However, the agent can still discover that, say, a social action yields high community reward in certain states --- the $-0.3$ penalty is small relative to the Q-value range and can be overcome by strong reward signals. The ablation result (C6 vs.\ C1, $\Delta = -0.161$) confirms that this masking accelerates learning by reducing the effective exploration space, producing cleaner Q-value estimates with less noise from irrelevant actions --- indeed, masking is the largest single contributor to cooperation after RL itself.
+Soft masking functions as an inductive bias that steers exploration without shutting it down. Take a guard NPC posted at the gate: its combat and patrol actions pick up the $+0.5$ bonus, so $\varepsilon$-greedy exploration is more likely to select them. Even so, the agent can still find that a social action pays off in community reward for particular states --- the $-0.3$ penalty is small next to the Q-value range and a strong reward signal can override it. The ablation outcome (C6 vs.\ C1, $\Delta = -0.161$) bears out that masking speeds up learning by shrinking the effective exploration space, giving cleaner Q-value estimates with less noise from irrelevant actions --- in fact, masking is the single largest contributor to cooperation after RL itself.
 
 \section{Adaptive Personality Dynamics}
 \label{sec:adaptation}
@@ -515,15 +515,15 @@ Harsh Winter & 20 turns & 0.7$\times$ & Long-duration stress \\
 \end{tabular}
 \end{table}
 
-Shocks directly pressure cooperation downward: when shock intensity exceeds 0.1, cooperation tendency decreases proportionally, independent of the reward signal.
+Shocks exert direct downward pressure on cooperation: once a shock's intensity passes 0.1, cooperation tendency falls in proportion to it, regardless of what the reward signal is doing.
 
 \textbf{Non-stationarity and Q-learning robustness.}
-System shocks create a specific challenge for Q-learning convergence. The convergence proof of Watkins and Dayan~\cite{watkins1992qlearning} assumes a stationary MDP, but shocks temporarily alter the reward function (via the reward scale factor) and the transition dynamics (via stat drains and trust modifiers). This means Q-values learned before the shock become partially stale during it. However, the tabular Q-learning update is inherently local --- it modifies only the $Q(s,a)$ entry for the visited state-action pair --- and the learning rate $\alpha = 0.1$ allows gradual correction of stale values. The empirical result (C5 vs.\ C1, $\Delta = +0.237$) shows that the famine shock has a substantial and lasting effect on learning: it produces a visible dip in the community-reward signal at turn 166 (\cref{fig:reward}) and lastingly depresses cooperation relative to the shock-free condition (C5 reaches 0.936 vs.\ C1's 0.699). Crucially, the agents do not collapse --- the local Q-update and the shock\_resilience coefficient (which increases under shock pressure) keep cooperation rising after the shock expires --- but they do not recover the lost ground within the 500-turn session, so a single famine leaves a persistent, compounding imprint through the $\lambda$ feedback loop.
+For Q-learning convergence, system shocks pose a particular problem. The convergence argument of Watkins and Dayan~\cite{watkins1992qlearning} presumes a stationary MDP, yet a shock briefly rewrites both the reward function (through the reward-scale factor) and the transition dynamics (through stat drains and trust modifiers). As a result, Q-values acquired before the shock turn partly stale while it lasts. The tabular update, however, is inherently local --- it touches only the $Q(s,a)$ entry of the visited state-action pair --- and with the learning rate at $\alpha = 0.1$ those stale values are corrected bit by bit. The empirical comparison (C5 vs.\ C1, $\Delta = +0.237$) reveals that the famine shock leaves a sizeable and durable mark on learning: it carves a clear dip in the community-reward signal at turn 166 (\cref{fig:reward}) and holds cooperation down relative to the shock-free run (C5 attains 0.936 against C1's 0.699). What matters is that the agents do not collapse --- the local update, aided by the shock\_resilience coefficient that climbs under pressure, keeps cooperation rising once the shock lifts --- but within the 500-turn session they never claw back the lost ground, so one famine leaves a lasting, compounding imprint by way of the $\lambda$ feedback loop.
 
 \section{LLM Integration}
 \label{sec:llm-integration}
 
-The LLM service is a thin HTTP adapter supporting Ollama, OpenRouter, and OpenAI-compatible providers. It serves four use cases: input parsing, NPC dialogue, checkpoint generation, and narration enhancement. A 9-stage guardrail pipeline (strip reasoning blocks, parse JSON, schema validation, enum validation, value clamping, action reference validation, content filtering, length enforcement) ensures output quality. Every code path has a deterministic template fallback, so the RL experiments run identically with or without an LLM. Default model: \texttt{qwen3:4b} via LM Studio or \texttt{meta-llama/llama-3.2-3b-instruct:free} via OpenRouter.
+The LLM service takes the form of a lightweight HTTP adapter that works with Ollama, OpenRouter, and any OpenAI-compatible provider. It covers four use cases --- input parsing, NPC dialogue, checkpoint generation, and narration enhancement --- and its output is policed by a nine-stage guardrail pipeline that strips reasoning blocks, parses JSON, validates the schema and enums, clamps values, checks action references, filters content, and enforces length. Because every code path falls back to a deterministic template, the RL experiments behave identically whether or not an LLM is present. The default model is \texttt{qwen3:4b} through LM Studio, or \texttt{meta-llama/llama-3.2-3b-instruct:free} through OpenRouter.
 
 \section{Turn Processing Pipeline}
 \label{sec:turn-pipeline}
@@ -613,9 +613,9 @@ C7 & Static $\lambda = 0.325$ & \checkmark & \checkmark & \checkmark & \checkmar
 \subsection{Metrics}
 
 \begin{itemize}[nosep]
-    \item \textbf{Cooperation index} $\mathcal{K}(t) = \frac{1}{N} \sum_{i=1}^{N} \text{coop}_i(t)$ --- average cooperation tendency across all NPCs at each turn.
+    \item \textbf{Cooperation index} $\mathcal{K}(t) = \frac{1}{N} \sum_{i=1}^{N} \text{coop}_i(t)$ --- the mean cooperation tendency taken over all NPCs at a given turn.
     \item \textbf{Social welfare index} --- average cooperation tendency weighted by community reward performance.
-    \item \textbf{Policy entropy} $\mathcal{D}_i = -\sum_{a \in \mathcal{A}} p_i(a) \log p_i(a)$ --- computed from full per-action counts.
+    \item \textbf{Policy entropy} $\mathcal{D}_i = -\sum_{a \in \mathcal{A}} p_i(a) \log p_i(a)$ --- derived from the complete per-action counts.
     \item \textbf{Contextual grounding} --- fraction of game-state keywords (action, location, NPC names) appearing in each narration.
     \item \textbf{Vocabulary diversity} --- type-token ratio (unique words / total words) across narrations.
     \item \textbf{Shock recovery time} --- turns after shock expiry until $\mathcal{K}(t)$ returns to pre-shock baseline.
@@ -623,7 +623,7 @@ C7 & Static $\lambda = 0.325$ & \checkmark & \checkmark & \checkmark & \checkmar
 
 \subsection{Protocol}
 
-Automated bot playthroughs using the \texttt{quest\_focused} strategy with seed 42 for reproducibility. Each condition runs for 500 turns with quest auto-restart. A famine shock is injected at turn 166 for conditions with shocks enabled. Normal difficulty preset with adaptive difficulty disabled.
+All runs are automated bot playthroughs driven by the \texttt{quest\_focused} strategy under seed 42 to keep them reproducible. Every condition lasts 500 turns with quest auto-restart enabled. In conditions that include shocks, a famine is triggered at turn 166. The difficulty is fixed to the normal preset, with adaptive difficulty switched off.
 
 \section{Ablation Study Results}
 \label{sec:ablation-results}
@@ -655,11 +655,11 @@ C7 & Static $\lambda = 0.325$ & 0.595 & $-0.104$ \\
 
 \subsection{Finding 1: RL Drives Cooperation}
 
-The most significant result: C1 (Full System) achieves a cooperation index of 0.699 while C3 (No RL) remains at exactly 0.000 --- the initialization baseline, since cooperation tendency starts at zero. Without Q-learning, NPCs follow deterministic schedules and cannot adapt their behavior. The 0.699 gap demonstrates that cooperation is an \textit{emergent} property of the learning process, not a byproduct of game mechanics --- RL is by far the dominant driver.
+The headline result is this: C1 (Full System) reaches a cooperation index of 0.699, whereas C3 (No RL) stays at exactly 0.000 --- the initialization baseline, since cooperation tendency begins at zero. Stripped of Q-learning, the NPCs simply execute fixed schedules and cannot adjust their behaviour. The 0.699 gap shows that cooperation \textit{emerges} from the learning process itself rather than falling out of the game mechanics --- RL is, by a wide margin, the dominant driver.
 
 \subsection{Finding 2: Role Masking Aids Learning}
 
-C6 (No Role Masking) achieves 0.538, compared to C1's 0.699 --- a 0.161 difference, the largest single-component contribution to cooperation after RL itself. Without role constraints, NPCs explore the full 28-action space uniformly, producing noisier Q-value estimates. Role masking provides structural inductive bias: guards learn from guard-relevant actions, farmers from farming actions, producing cleaner gradient signals.
+C6 (No Role Masking) lands at 0.538 against C1's 0.699 --- a gap of 0.161, which is the single largest component contribution to cooperation once RL itself is set aside. Lacking role constraints, the NPCs sweep the full 28-action space evenly, and their Q-value estimates come out noisier as a result. Role masking supplies a structural inductive bias: guards learn chiefly from guard-relevant actions and farmers from farming actions, so the gradient signals they produce are cleaner.
 
 \subsection{Finding 3: Shock Resilience}
 
@@ -667,7 +667,7 @@ C5 (No Shocks) reaches 0.936, the highest of all conditions and 0.237 above C1's
 
 \subsection{Finding 4: MDP Structure}
 
-C4 (Flat MDP) reaches 0.871, the second-highest condition (behind only C5). Without hierarchical stage gates, quest completion is faster (the bot cycles through more episodes in 500 turns), giving NPCs more learning opportunities. This suggests that quest structure affects the \textit{rate} of learning more than the \textit{direction} --- both converge toward cooperation, but flat MDPs provide more training data per unit time.
+C4 (Flat MDP) climbs to 0.871, the second-highest figure (trailing only C5). With no hierarchical stage gates in the way, quests finish sooner --- the bot runs through more episodes within the 500 turns --- and that hands the NPCs additional learning opportunities. The implication is that quest structure shapes the \textit{rate} of learning more than its \textit{direction}: both flat and hierarchical variants head toward cooperation, but a flat MDP simply supplies more training data per unit time.
 
 \subsection{Finding 5: Dynamic Lambda Amplifies Cooperation}
 
