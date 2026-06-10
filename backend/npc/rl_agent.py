@@ -261,10 +261,10 @@ def compute_reward(
     total = penalty + individual + npc.lambda_coeff * community
 
     return {
-        "penalty": float(penalty),
-        "individual": float(individual),
-        "community": float(community),
-        "total": float(total),
+        "penalty": penalty,
+        "individual": individual,
+        "community": community,
+        "total": total,
     }
 
 

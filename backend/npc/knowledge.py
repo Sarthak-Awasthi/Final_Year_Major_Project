@@ -50,7 +50,7 @@ def add_witnessed_event(npc: NPC, event: dict, current_turn: int) -> None:
         "importance": event.get("importance", 1),
         "decayed_effects": dict(event.get("effects", {})),
     }
-    npc.known_events.append(entry)
+    npc.known_events.append(dict(entry))
     logger.debug(
         "NPC %s witnessed event %s (turn %d)",
         npc.npc_uid,
@@ -95,7 +95,7 @@ def add_gossip_event(
         "importance": max(1, event.get("importance", 1) - 1),  # gossip loses 1 importance
         "decayed_effects": decayed,
     }
-    npc.known_events.append(entry)
+    npc.known_events.append(dict(entry))
     logger.debug(
         "NPC %s learned gossip about event %s from %s (turn %d)",
         npc.npc_uid,

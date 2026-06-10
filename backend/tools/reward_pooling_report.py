@@ -126,7 +126,7 @@ def _generate_graphs(metrics_per_turn: list[dict], seed: int) -> None:
     ax.set_xlabel("Turn", fontsize=12)
     ax.set_ylabel("Reward Percentage", fontsize=12)
     ax.set_title(f"Individual vs Community Reward Ratio (Seed={seed})", fontsize=14, fontweight="bold")
-    ax.set_ylim([0, 100])
+    ax.set_ylim(0, 100)
     ax.legend(loc="center right", fontsize=11)
     ax.grid(True, alpha=0.3)
     

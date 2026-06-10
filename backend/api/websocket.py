@@ -132,10 +132,10 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
     """
     await ws_manager.connect(websocket)
 
+    from backend.api.routes import get_engine  # deferred to avoid circular
+
     # Send initial state if a game session exists
     try:
-        from backend.api.routes import get_engine  # deferred to avoid circular
-
         engine = get_engine(raise_on_missing=False)
         if engine is not None:
             await ws_manager.send_state_sync(

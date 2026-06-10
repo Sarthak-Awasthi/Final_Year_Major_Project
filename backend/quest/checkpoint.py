@@ -4,11 +4,15 @@ from __future__ import annotations
 
 import random
 import re
+from typing import TYPE_CHECKING
 
 from backend.config import LLM_MAX_RETRIES, UNIVERSAL_ACTIONS, logger
 from backend.llm.guardrails import validate_checkpoint_output
 from backend.llm.prompts import build_checkpoint_prompt
 from backend.quest.mdp import Checkpoint
+
+if TYPE_CHECKING:
+    from backend.llm.llm_service import LLMService
 
 
 _COMBAT_ACTIONS: set[str] = {
@@ -65,7 +69,7 @@ def generate_dynamic_checkpoint(
     stage_id: int,
     action_id: str,
     context: dict,
-    llm_service: object | None = None,
+    llm_service: LLMService | None = None,
 ) -> Checkpoint:
     """Build a dynamic checkpoint for an off-path action.
 
@@ -96,7 +100,7 @@ def _llm_checkpoint(
     action_id: str,
     context: dict,
     cp_id: str,
-    llm_service: object,
+    llm_service: LLMService,
 ) -> Checkpoint | None:
     """Ask the LLM for a checkpoint; return None if every retry fails validation."""
     if not hasattr(llm_service, "available") or not llm_service.available:
@@ -209,7 +213,7 @@ def _fill_template(template: str, context: dict) -> str:
     """Substitute `{placeholder}` tokens; fall back to defaults; strip any left over."""
     merged: dict[str, str] = {
         **_TEMPLATE_DEFAULTS,
-        **{k: str(v) for k, v in context.items() if isinstance(v, str)},
+        **{k: v for k, v in context.items() if isinstance(v, str)},
     }
     try:
         return template.format_map(merged)

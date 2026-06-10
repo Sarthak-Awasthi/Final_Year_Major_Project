@@ -18,6 +18,7 @@ from __future__ import annotations
 import json
 import time
 from datetime import datetime, timezone
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -63,7 +64,7 @@ class PlaythroughLogger:
     def log_turn(
         self,
         turn: int,
-        parsed_input: dict[str, Any],
+        parsed_input: Mapping[str, Any],
         action_result: dict[str, Any],
         turn_result: dict[str, Any],
         world_snapshot: dict[str, Any],

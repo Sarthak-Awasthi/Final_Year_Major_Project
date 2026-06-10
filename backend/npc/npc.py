@@ -7,6 +7,8 @@ conversation history, knowledge, and serialization.
 
 from __future__ import annotations
 
+from typing import Any
+
 import numpy as np
 
 import backend.config as _cfg
@@ -29,7 +31,7 @@ class NPC:
 
     # ── Construction ──────────────────────────────────────────────────────
 
-    def __init__(self, instance_data: dict, archetype_data: dict) -> None:
+    def __init__(self, instance_data: dict[str, Any], archetype_data: dict[str, Any]) -> None:
         """Initialise an NPC from instance JSON and archetype JSON data.
 
         Args:
@@ -55,7 +57,8 @@ class NPC:
         cs = instance_data["combat_stats"]
         self.combat_stats: dict[str, int] = dict(cs)
         self.max_hp: int = cs["max_hp"]
-        self.current_hp: int = instance_data.get("current_hp", self.max_hp)
+        _current_hp = instance_data.get("current_hp")
+        self.current_hp: int = self.max_hp if _current_hp is None else int(_current_hp)
 
         # --- Status ---
         self.status: str = instance_data.get("status", "active")
@@ -203,7 +206,7 @@ class NPC:
             + energy_level * NPC_NUM_MOOD_LEVELS
             + mood_level
         )
-        return int(index)
+        return index
 
     # ── Combat helpers ────────────────────────────────────────────────────
 

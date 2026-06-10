@@ -10,6 +10,7 @@ import asyncio
 import json
 import random
 import shutil
+from collections.abc import Mapping
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -262,7 +263,7 @@ class GameEngine:
         self._pretrained = True
         logger.info("NPC pre-training complete for %d NPCs", len(self.npc_registry))
 
-    async def process_turn(self, parsed_input: dict) -> dict:
+    async def process_turn(self, parsed_input: Mapping[str, Any]) -> dict:
         """Drive one full turn: player action → quest progress → NPC turns →
         random events → time advance → regen → game-over check."""
         if self.game_over:
@@ -417,7 +418,7 @@ class GameEngine:
                         for uid in self.npc_registry:
                             if uid != npc.npc_uid:
                                 old_rel = npc.npc_relationships.get(uid, 0)
-                                npc.npc_relationships[uid] = max(-100, min(100, old_rel + trust_mod))
+                                npc.npc_relationships[uid] = int(max(-100, min(100, old_rel + trust_mod)))
                         # Also affect player reputation toward this NPC
                         self.player.modify_reputation(npc.npc_uid, int(trust_mod))
 
@@ -547,9 +548,9 @@ class GameEngine:
 
     # ── Player Action Resolution ──────────────────────────────────────────
 
-    def _resolve_player_action(self, parsed_input: dict) -> dict:
+    def _resolve_player_action(self, parsed_input: Mapping[str, Any]) -> dict:
         """Validate cost/preconditions, then dispatch to the action-specific resolver."""
-        action_id: str = parsed_input.get("action_id", "wait")
+        action_id: str = parsed_input.get("action_id") or "wait"
         target_npc: str | None = parsed_input.get("target_npc")
         target_item: str | None = parsed_input.get("target_item")
         target_location: str | None = parsed_input.get("target_location")
@@ -732,7 +733,7 @@ class GameEngine:
         target_location: str | None,
         ap_cost: int,
         ctx: dict,
-        parsed_input: dict,
+        parsed_input: Mapping[str, Any],
     ) -> dict:
         """Resolve movement action. Validates adjacency."""
         if not target_location:
@@ -1081,7 +1082,7 @@ class GameEngine:
         target_npc: NPC | None,
         emotion: str,
         social: str,
-        parsed_input: dict,
+        parsed_input: Mapping[str, Any],
         ap_cost: int,
         ctx: dict,
     ) -> dict:
@@ -2685,7 +2686,7 @@ class GameEngine:
     def _check_quest_progress(
         self,
         action_id: str,
-        parsed_input: dict,
+        parsed_input: Mapping[str, Any],
         action_result: dict,
     ) -> dict | None:
         """Drive quest progression for this turn: completion → convergence →
@@ -3420,7 +3421,7 @@ class GameEngine:
 
     def _check_random_events(self) -> list[dict]:
         """Check for and apply random events."""
-        active_ids = [e.get("id") for e in self.world.active_events]
+        active_ids = [eid for e in self.world.active_events if (eid := e.get("id"))]
         freq_mult = self.difficulty.get("random_event_frequency", 1.0)
 
         new_events = self.random_events.check_events(

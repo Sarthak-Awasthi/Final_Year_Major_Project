@@ -6,7 +6,7 @@ endpoint is tagged by category so the generated UI groups cleanly.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal, overload
 
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
@@ -41,6 +41,10 @@ from backend.api.websocket import ws_manager
 session_mgr = SessionManager()
 
 
+@overload
+def get_engine(raise_on_missing: Literal[True] = ...) -> GameEngine: ...
+@overload
+def get_engine(raise_on_missing: bool) -> GameEngine | None: ...
 def get_engine(raise_on_missing: bool = True) -> GameEngine | None:
     """Active engine or 400. Set `raise_on_missing=False` for WebSocket
     reconnects that need to handle the no-game case themselves."""

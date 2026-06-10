@@ -13,7 +13,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from backend.config import GAME_VERSION, logger
@@ -128,7 +128,7 @@ if _FRONTEND_DIR.exists():
     _index_path = _FRONTEND_DIR / "index.html"
 
     @app.get("/", response_class=HTMLResponse, include_in_schema=False)
-    async def serve_index() -> FileResponse:
+    async def serve_index() -> Response:
         """Serve the frontend index.html."""
         if _index_path.exists():
             return FileResponse(str(_index_path), media_type="text/html")

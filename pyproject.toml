@@ -15,6 +15,7 @@ dependencies = [
   "python-multipart>=0.0.20",
   "httpx>=0.28,<1",
   "matplotlib>=3.9,<4",
+  "pyrefly>=1.0",
 ]
 
 [dependency-groups]
@@ -30,4 +31,10 @@ package = false
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+
+[tool.pyrefly]
+project-includes = [
+    "**/*.py*",
+    "**/*.ipynb",
+]
 

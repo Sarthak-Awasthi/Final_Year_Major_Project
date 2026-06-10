@@ -107,7 +107,7 @@ Each condition isolates a subsystem so its contribution to emergent cooperation 
 
 ## Project Structure
 
-```
+```tree
 backend/
   main.py         # FastAPI entry point
   config.py       # All tunable constants and env-var overrides

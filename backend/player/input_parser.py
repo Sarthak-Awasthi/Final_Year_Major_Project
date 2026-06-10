@@ -30,6 +30,8 @@ if TYPE_CHECKING:
     from spacy.language import Language
     from spacy.tokens import Doc
 
+    from backend.llm.llm_service import LLMService
+
 # spaCy is optional: when unavailable we fall back to keyword-only matching.
 try:
     import spacy  # type: ignore[import-unresolved]
@@ -130,7 +132,7 @@ def init_nlp() -> None:
     """Load spaCy and warm action vectors. Idempotent; safe to skip if spaCy is absent."""
     global _nlp  # noqa: PLW0603
 
-    if not _SPACY_AVAILABLE:
+    if spacy is None:
         logger.warning("spaCy not installed — input parser will use keyword-only matching.")
         return
 
@@ -160,10 +162,13 @@ def _precompute_action_vectors() -> None:
         synonym_text = " ".join(ACTION_SYNONYMS.get(action_id, []))
         combined = f"{meta['label']} {synonym_text}".strip()
         doc = _nlp(combined)
-        if doc.has_vector and np.any(doc.vector):
-            ACTION_VECTORS[action_id] = doc.vector / (np.linalg.norm(doc.vector) + 1e-10)
+        # spaCy types `doc.vector` as thinc's Floats1d; at runtime it's a
+        # numpy array, so coerce explicitly for numpy ops and the dict type.
+        vec = np.asarray(doc.vector, dtype=np.float64)
+        if doc.has_vector and np.any(vec):
+            ACTION_VECTORS[action_id] = vec / (np.linalg.norm(vec) + 1e-10)
         else:
-            ACTION_VECTORS[action_id] = doc.vector
+            ACTION_VECTORS[action_id] = vec
 
     logger.info("Pre-computed action vectors for %d actions.", len(ACTION_VECTORS))
 
@@ -329,7 +334,7 @@ def _extract_action(doc: Doc | None, text_lower: str) -> tuple[str | None, float
     if doc is not None and ACTION_VECTORS:
         best_action, best_sim = _similarity_action_match(doc)
         if best_action is not None and best_sim >= 0.4:
-            return best_action, round(float(best_sim), 4)
+            return best_action, round(best_sim, 4)
 
     return None, 0.0
 
@@ -365,10 +370,11 @@ def _keyword_action_match(text_lower: str) -> str | None:
 
 def _similarity_action_match(doc: Doc) -> tuple[str | None, float]:
     """Cosine-similarity nearest action vector. (None, 0.0) when the input has no vector."""
-    if not doc.has_vector or not np.any(doc.vector):
+    vec = np.asarray(doc.vector, dtype=np.float64)
+    if not doc.has_vector or not np.any(vec):
         return None, 0.0
 
-    input_vec = doc.vector / (np.linalg.norm(doc.vector) + 1e-10)
+    input_vec = vec / (np.linalg.norm(vec) + 1e-10)
 
     best_id: str | None = None
     best_sim: float = -1.0
@@ -662,7 +668,7 @@ async def _llm_parse_input(
     location: str = "unknown",
     npcs_present: list[str] | None = None,
     highlighted_actions: list[str] | None = None,
-    llm_service: object | None = None,
+    llm_service: LLMService | None = None,
 ) -> ParsedInput | None:
     """LLM-powered tertiary 3-dimension analysis.
 
@@ -704,7 +710,7 @@ async def _llm_parse_input(
             target_location=None,
             confidence=validated["confidence"],
             emotion=validated["emotion"],
-            intent=validated.get("interpreted_intent", validated.get("intent", "")),
+            intent=validated.get("interpreted_intent") or validated.get("intent") or "",
             social=validated["social"],
             queued_action=None,
         )

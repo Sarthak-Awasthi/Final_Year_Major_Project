@@ -62,7 +62,7 @@ async def run_condition(cid):
 
     while not engine.game_over and engine.turn < MAX_TURNS:
         if shock_turn and engine.turn == shock_turn:
-            engine.shock_manager.activate_shock("famine", engine.turn)
+            engine.shock_manager.activate_shock("famine", source="report_figures", turn=engine.turn)
         state = engine.get_full_state()
         pi = bot._select_action(state, bot.strategy)
         await engine.process_turn(pi)
@@ -129,9 +129,18 @@ async def main():
     for r in results.values():
         ax.plot(r["coop_turns"], r["coop_values"], color=r["color"], linewidth=2.5, label=r["label"], alpha=0.9)
     st = results["C1"].get("shock_turn")
-    if st:
-        ax.axvline(x=st, color="#e74c3c", linestyle="--", alpha=0.5, label="Famine shock")
-        ax.axvspan(st, st + 15, alpha=0.08, color="#e74c3c")
+    # ensure numeric value for plotting (axvline/axvspan expect floats)
+    st_val = None
+    if isinstance(st, (int, float)):
+        st_val = float(st)
+    elif isinstance(st, str):
+        try:
+            st_val = float(st)
+        except ValueError:
+            st_val = None
+    if st_val is not None:
+        ax.axvline(x=st_val, color="#e74c3c", linestyle="--", alpha=0.5, label="Famine shock")
+        ax.axvspan(st_val, st_val + 15.0, alpha=0.08, color="#e74c3c")
     ax.set_xlabel("Turn"); ax.set_ylabel("Cooperation Index K(t)")
     ax.set_title("Cooperation Emergence: Ablation Comparison", fontsize=14, fontweight="bold")
     ax.legend(loc="lower right", fontsize=10); ax.set_ylim(-0.05, 1.05); ax.grid(True)

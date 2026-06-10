@@ -61,6 +61,7 @@ class TestShockActivation:
         sm = ShockManager()
         s1 = sm.activate_shock("famine", turn=1)
         s2 = sm.activate_shock("plague", turn=2)
+        assert s1 is not None and s2 is not None
         assert s1["shock_id"] == "famine_001"
         assert s2["shock_id"] == "plague_002"
 

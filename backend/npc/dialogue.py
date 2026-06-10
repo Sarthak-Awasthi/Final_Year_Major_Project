@@ -255,7 +255,7 @@ def _try_llm(
         archetype=npc.archetype,
         personality=npc.personality,
         mood=mood,
-        happiness=happiness,
+        happiness=int(happiness),
         reputation=player_rep,
         context=context_summary,
         conversation_history=npc.conversation_history,
