@@ -473,7 +473,7 @@ class GameEngine:
         # ── 11. Auto-save ─────────────────────────────────────────────
         if not self.game_over:
             # Adaptive difficulty assessment (every 20 turns)
-            if self.turn % 20 == 0 and self.turn > 0:
+            if _cfg.ADAPTIVE_DIFFICULTY_ENABLED and self.turn % 20 == 0 and self.turn > 0:
                 entries = self.event_log.get_recent(20)
                 adjustment = assess_player_struggle(entries, window=20)
                 if adjustment != "maintain":
@@ -3457,7 +3457,13 @@ class GameEngine:
     # ── Game Over Check ───────────────────────────────────────────────────
 
     def _trigger_defeat(self, reason: str, message: str) -> None:
-        """Mark a scripted defeat to be finalized by _check_game_over this turn."""
+        """Mark a scripted defeat to be finalized by _check_game_over this turn.
+
+        No-op when scripted defeats are disabled (see SCRIPTED_DEFEATS_ENABLED),
+        so research runs relying on quest auto-restart aren't cut short.
+        """
+        if not _cfg.SCRIPTED_DEFEATS_ENABLED:
+            return
         self.pending_defeat_reason = reason
         self.game_over_message = message
 
@@ -3477,7 +3483,7 @@ class GameEngine:
                 )
             return "fail"
         # Banishment — sustained havoc ruins the player's standing in the village.
-        if self.player.global_reputation < BANISHMENT_REPUTATION_THRESHOLD:
+        if _cfg.BANISHMENT_ENABLED and self.player.global_reputation < BANISHMENT_REPUTATION_THRESHOLD:
             if not self.game_over_message:
                 self.game_over_message = (
                     "Elder Maren's voice rings out across the square: 'You have been "

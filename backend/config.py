@@ -113,6 +113,13 @@ REPUTATION_DECAY_AMOUNT: int = 1
 # of per-NPC reputations [-100, 100]; a negative floor avoids an instant loss
 # at game start and false banishments from passive decay (which trends to 0).
 BANISHMENT_REPUTATION_THRESHOLD: int = -30
+# Player-loss "havoc" game-over conditions, added after the project report was
+# written (commit c0f98b3). The report's ablation protocol predates them and
+# relies solely on quest auto-restart over the full horizon, so research runs
+# (see demo_ablation.ipynb) switch them off to reproduce the documented
+# behaviour. Both default to True so normal interactive play is unchanged.
+BANISHMENT_ENABLED: bool = True        # reputation-based banishment defeat
+SCRIPTED_DEFEATS_ENABLED: bool = True  # scripted defeats (e.g. elder betrayal)
 REPUTATION_THRESHOLDS: dict[str, tuple[int, int]] = {
     "trusted":    (50, 100),
     "friendly":   (20, 49),
@@ -360,6 +367,10 @@ PASSIVE_PERCEPTION_BASE: float = 0.4
 PASSIVE_PERCEPTION_SOCIAL_BONUS: float = 0.2
 
 # ─── Difficulty Presets ──────────────────────────────────────────────────────
+# Adaptive difficulty auto-escalates/de-escalates the preset every 20 turns
+# based on how the player is faring. The report fixes difficulty to a single
+# preset with this OFF; research runs disable it for a stationary environment.
+ADAPTIVE_DIFFICULTY_ENABLED: bool = True
 DIFFICULTY_PRESETS: dict[str, dict] = {
     "easy": {
         "ap_cost_multiplier": 0.75,
